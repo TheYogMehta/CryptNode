@@ -6,13 +6,6 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     CapacitorSQLite: {
-      iosDatabaseLocation: "Library/chatapp",
-      iosIsEncryption: true,
-      iosKeychainPrefix: "angular-sqlite-app-starter",
-      iosBiometric: {
-        biometricAuth: false,
-        biometricTitle: "Biometric login for chatapp",
-      },
       androidIsEncryption: true,
       androidBiometric: {
         biometricAuth: false,
@@ -21,7 +14,6 @@ const config: CapacitorConfig = {
       },
       electronIsEncryption: true,
       electronWindowsLocation: "C:\\ProgramData\\chatapp",
-      electronMacLocation: "/Volumes/Development_Lacie/Development/Databases",
       electronLinuxLocation: "Databases",
     },
   },

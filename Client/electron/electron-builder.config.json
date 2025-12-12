@@ -1,9 +1,14 @@
 {
-  "appId": "com.chatapp",
+  "appId": "com.yourdoamnin.yourapp",
   "directories": {
     "buildResources": "resources"
   },
-  "files": ["assets/**/*", "build/**/*", "capacitor.config.*", "app/**/*"],
+  "files": [
+    "assets/**/*",
+    "build/**/*",
+    "capacitor.config.*",
+    "app/**/*"
+  ],
   "publish": {
     "provider": "github"
   },
@@ -17,7 +22,7 @@
     "icon": "assets/appIcon.ico"
   },
   "mac": {
-    "category": "public.app-category.utilities",
+    "category": "your.app.category.type",
     "target": "dmg"
   }
 }

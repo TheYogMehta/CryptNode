@@ -38,8 +38,7 @@ npx cap copy electron
 ## **4. Sync Plugins**
 
 ```bash
-npx cap sync android
-npx cap sync electron
+npm run sync
 ```
 
 - Ensures Capacitor plugins are updated in native projects.
@@ -59,8 +58,7 @@ npx cap open android
 ### Electron
 
 ```bash
-cd electron
-npx electron .
+npm run electron:start
 ```
 
 - Runs the Electron desktop app manually (bypasses `live-runner.js`).
