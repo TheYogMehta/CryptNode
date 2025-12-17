@@ -69,7 +69,7 @@ npm run electron:start
 
 ```bash
 # Build Ionic
-ionic build
+npx ionic build
 
 # Copy & sync platforms
 npx cap copy
