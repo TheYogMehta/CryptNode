@@ -112,6 +112,6 @@ contextBridge.exposeInMainWorld("SafeStorage", {
     return keytar.getPassword("ChatApp", key);
   },
   // For Development Purpose
-  deleteKey: async (key: string) => await keytar.deletePassword("ChatApp", key),
-  findall: async () => await keytar.findCredentials("ChatApp"),
+  // deleteKey: async (key: string) => await keytar.deletePassword("ChatApp", key),
+  // findall: async () => await keytar.findCredentials("ChatApp"),
 });
