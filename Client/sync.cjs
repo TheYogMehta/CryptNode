@@ -13,20 +13,32 @@ try {
     "electron/src/rt/electron-plugins.js"
   );
 
-  let content = fs.readFileSync(filePath, "utf8");
-
   // only replace the plugin entry, nothing else
-  const regex = /\bCapacitorCommunitySqlite,\s*/;
-  const replacement =
-    "CapacitorCommunitySqlite: CapacitorCommunitySqlite.default,\n";
+  fs.writeFileSync(
+    filePath,
+    `const path = require("path");
 
-  if (regex.test(content)) {
-    content = content.replace(regex, replacement);
-    fs.writeFileSync(filePath, content, "utf8");
-    console.log("Updated CapacitorCommunitySqlite export.");
-  } else {
-    console.log("Already patched or entry not found.");
-  }
+const pluginRelativePath = path.posix.join(
+  "..",
+  "..",
+  "..",
+  "node_modules",
+  "@capacitor-community",
+  "sqlite",
+  "electron",
+  "dist",
+  "plugin.js"
+);
+
+const CapacitorCommunitySqlite = require(pluginRelativePath);
+
+module.exports = {
+  CapacitorCommunitySqlite: CapacitorCommunitySqlite.default,
+};
+`,
+    "utf8"
+  );
+  console.log("Updated CapacitorCommunitySqlite export.");
 } catch (err) {
   console.error("Error:", err);
 }
