@@ -22,6 +22,7 @@ import * as bip39 from "bip39";
 import {
   getKeyFromSecureStorage,
   setKeyFromSecureStorage,
+  initlock,
 } from "../../services/SafeStorage";
 
 type Props = {
@@ -56,6 +57,7 @@ const SetupMasterKey: React.FC<Props> = ({ onComplete }) => {
   };
 
   const finishSetup = async () => {
+    await initlock();
     setShouldRedirect(true);
     await onComplete();
     setIsModalOpen(false);

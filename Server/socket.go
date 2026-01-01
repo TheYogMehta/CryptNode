@@ -34,55 +34,16 @@ type Session struct {
 type Server struct {
 	clients  map[string]*Client
 	sessions map[string]*Session
-	notifState map[string]bool 
-    db         *sql.DB
-    privateKey *rsa.PrivateKey
+	invites  map[string]string // Key: 6-digit code, Value: SID
 	mu       sync.Mutex
 }
 
-var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-
-func (s *Server) initDB() {
-    s.db.Exec(`CREATE TABLE IF NOT EXISTS envelopes (
-        sid TEXT PRIMARY KEY,
-        blob TEXT,
-        expires_at DATETIME
-    )`)
-}
-
-
-func (s *Server) handleNudge(envelope string) {
-    tokenBytes, _ := rsa.DecryptOAEP(sha256.New(), nil, s.privateKey, b64decode(envelope), nil)
-    token := string(tokenBytes)
-    tokenHash := fmt.Sprintf("%x", sha256.Sum256(tokenBytes))
-
-    s.mu.Lock()
-    if s.notifState[tokenHash] {
-        s.mu.Unlock()
-        return 
-    }
-    s.notifState[tokenHash] = true
-    s.mu.Unlock()
-
-    sendFCM(token, "New Message", "You have a new notification open app to read context!")
-}
-
-async syncPushToken() {
-    const { value: token } = await PushNotifications.getToken();
-    const envelope = await this.wrapTokenWithRSA(token, serverPubKey);
-    for (const sid in this.sessions) {
-        const doubleEncrypted = await this.encrypt(sid, envelope);
-        this.send({
-            t: "PUSH_SYNC",
-            sid: sid,
-            data: { blob: doubleEncrypted }
-        });
-    }
-    this.send({ t: "PRESENCE_ONLINE", data: { token } });
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 func (s *Server) newID() string {
-	b := make([]byte, 8)
+	b := make([]byte, 4)
 	rand.Read(b)
 	return fmt.Sprintf("%d_%s", time.Now().UnixMilli(), hex.EncodeToString(b))
 }
@@ -104,9 +65,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	s.clients[client.id] = client
 	s.mu.Unlock()
 
-	// Heartbeat: Send Ping every 5 seconds
+	// Heartbeat
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			s.mu.Lock()
@@ -120,7 +81,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, client.id)
-		// Clean client from all sessions
 		for _, sess := range s.sessions {
 			sess.mu.Lock()
 			delete(sess.clients, client.id)
@@ -134,47 +94,123 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		var frame Frame
 		if err := ws.ReadJSON(&frame); err != nil { break }
 
-		// Stateless Logic: Auto-create session if it doesn't exist
-		var sess *Session
-		if frame.SID != "" {
-			s.mu.Lock()
-			if _, ok := s.sessions[frame.SID]; !ok {
-				s.sessions[frame.SID] = &Session{id: frame.SID, clients: make(map[string]*Client)}
-				log.Printf("[Server] Implicitly created session: %s", frame.SID)
-			}
-			sess = s.sessions[frame.SID]
-			sess.mu.Lock()
-			sess.clients[client.id] = client
-			sess.mu.Unlock()
-			s.mu.Unlock()
-		}
-
 		switch frame.T {
 		case "PONG":
-			// Keep-alive received
+			continue
+
 		case "CREATE_SESSION":
+			// 1. Generate SID and Code
 			sid := s.newID()
+			code := fmt.Sprintf("%06d", rand.Intn(1000000))
+
 			s.mu.Lock()
+			// 2. Create actual session
 			s.sessions[sid] = &Session{id: sid, clients: map[string]*Client{client.id: client}}
+			// 3. Map code to SID
+			s.invites[code] = sid
 			s.mu.Unlock()
-			s.send(client, Frame{T: "SESSION_CREATED", SID: sid})
-		case "MSG":
-			if sess != nil {
+
+			// 4. Send back INVITE_CODE (matching frontend expectation)
+			log.Printf("[Server] Created Session %s with Code %s", sid, code)
+			s.send(client, Frame{
+				T:   "INVITE_CODE",
+				SID: sid,
+				Data: json.RawMessage(fmt.Sprintf(`{"code":"%s"}`, code)),
+			})
+
+		case "JOIN":
+			var d struct {
+				Code      string `json:"code"`
+				PublicKey string `json:"publicKey"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			s.mu.Lock()
+			sid, ok := s.invites[d.Code]
+			if !ok {
+				s.mu.Unlock()
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Invalid or expired code"}`)})
+				continue
+			}
+
+			sess := s.sessions[sid]
+			// Add joiner to session
+			sess.mu.Lock()
+			sess.clients[client.id] = client
+			
+			// Notify Host (User A) that someone wants to join
+			for _, c := range sess.clients {
+				if c.id != client.id {
+					s.send(c, Frame{
+						T:   "JOIN_REQUEST",
+						SID: sid,
+						Data: json.RawMessage(fmt.Sprintf(`{"publicKey":"%s"}`, d.PublicKey)),
+					})
+				}
+			}
+			sess.mu.Unlock()
+			s.mu.Unlock()
+
+		case "JOIN_ACCEPT":
+			// User A accepted User B
+			s.mu.Lock()
+			if sess, ok := s.sessions[frame.SID]; ok {
 				sess.mu.Lock()
 				for _, c := range sess.clients {
-					if c.id != client.id { s.send(c, frame) }
+					if c.id != client.id {
+						// Forward the public key to User B
+						s.send(c, Frame{T: "JOIN_ACCEPT", SID: frame.SID, Data: frame.Data})
+					}
 				}
 				sess.mu.Unlock()
 			}
-		case "INVITE_CREATE":
-            // ... (rest of your invite logic)
+			s.mu.Unlock()
+
+		case "JOIN_DENY":
+			s.mu.Lock()
+			if sess, ok := s.sessions[frame.SID]; ok {
+				sess.mu.Lock()
+				for _, c := range sess.clients {
+					if c.id != client.id {
+						s.send(c, Frame{T: "JOIN_DENIED", SID: frame.SID})
+					}
+				}
+				sess.mu.Unlock()
+			}
+			s.mu.Unlock()
+
+		case "MSG":
+			s.mu.Lock()
+			if sess, ok := s.sessions[frame.SID]; ok {
+				sess.mu.Lock()
+				for _, c := range sess.clients {
+					if c.id != client.id {
+						s.send(c, frame)
+					}
+				}
+				sess.mu.Unlock()
+			}
+			s.mu.Unlock()
+		case "REATTACH":
+			s.mu.Lock()
+			if sess, ok := s.sessions[frame.SID]; ok {
+				sess.mu.Lock()
+				sess.clients[client.id] = client
+				sess.mu.Unlock()
+				log.Printf("[Server] Client %s reattached to session %s", client.id, frame.SID)
+			}
+			s.mu.Unlock()
 		}
 	}
 }
 
 func main() {
-	s := &Server{clients: make(map[string]*Client), sessions: make(map[string]*Session)}
+	s := &Server{
+		clients:  make(map[string]*Client),
+		sessions: make(map[string]*Session),
+		invites:  make(map[string]string),
+	}
 	http.HandleFunc("/", s.handle)
-	log.Println("✅ Stateless E2E Server running on :9000")
+	log.Println("✅ Secure E2E Relay Server running on :9000")
 	http.ListenAndServe(":9000", nil)
 }

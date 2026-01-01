@@ -8,16 +8,16 @@
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/TheYogMehta/chatapp"
   },
   "license": "MIT",
   "main": "build/src/index.js",
   "scripts": {
     "build": "tsc && electron-rebuild",
-    "electron:start-live": "node ./live-runner.js",
     "electron:start": "npm run build && electron --inspect=5858 ./",
-    "electron:pack": "npm run build && electron-builder build --dir -c ./electron-builder.config.json",
-    "electron:make": "npm run build && electron-builder build -c ./electron-builder.config.json -p always"
+    "electron:postinstall": "electron-builder install-app-deps",
+    "electron:pack": "npm run build && electron-builder install-app-deps && electron-builder build",
+    "electron:make": "npm run build && electron-builder install-app-deps && electron-builder build -p always --win --linux"
   },
   "dependencies": {
     "@capacitor-community/electron": "^5.0.0",
@@ -41,8 +41,9 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/crypto-js": "^4.2.2",
     "@types/electron-json-storage": "^4.5.4",
-    "electron": "^25.8.4",
+    "electron": "^30.0.0",
     "electron-builder": "^24.6.4",
+    "electron-rebuild": "^3.2.9",
     "typescript": "^5.0.4"
   },
   "keywords": [
@@ -52,5 +53,31 @@
   "engines": {
     "node": "22",
     "npm": ">=11.7.0"
+  },
+  "build": {
+    "appId": "com.chatapp",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      "assets/**/*",
+      "build/**/*",
+      "capacitor.config.*",
+      "app/**/*"
+    ],
+    "nsis": {
+      "allowElevation": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/appIcon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/appIcon.png"
+    },
+    "publish": null
   }
 }

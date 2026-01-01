@@ -17,6 +17,9 @@ const config: CapacitorConfig = {
       electronLinuxLocation: "Databases",
     },
   },
+  server: {
+    androidScheme: "http",
+  },
 };
 
 export default config;

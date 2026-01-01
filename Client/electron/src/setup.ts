@@ -248,14 +248,28 @@ export class ElectronCapacitorApp {
 // Set a CSP up for our application based on the custom scheme
 export function setupContentSecurityPolicy(customScheme: string): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const csp = electronIsDev
+      ? `
+        default-src ${customScheme}://* 'unsafe-inline' devtools://* 'unsafe-eval' data:;
+        connect-src ${customScheme}://* ws://162.248.100.69:9000 wss://162.248.100.69:9000;
+        img-src ${customScheme}://* data:;
+        style-src ${customScheme}://* 'unsafe-inline';
+        font-src ${customScheme}://*;
+        script-src ${customScheme}://* 'unsafe-inline' 'unsafe-eval';
+      `
+      : `
+        default-src ${customScheme}://* 'unsafe-inline' data:;
+        connect-src ${customScheme}://* ws://162.248.100.69:9000 wss://162.248.100.69:9000;
+        img-src ${customScheme}://* data:;
+        style-src ${customScheme}://* 'unsafe-inline';
+        font-src ${customScheme}://*;
+        script-src ${customScheme}://* 'unsafe-inline';
+      `;
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        "Content-Security-Policy": [
-          electronIsDev
-            ? `default-src ${customScheme}://* 'unsafe-inline' devtools://* 'unsafe-eval' data:`
-            : `default-src ${customScheme}://* 'unsafe-inline' data:`,
-        ],
+        "Content-Security-Policy": [csp.replace(/\n/g, " ")],
       },
     });
   });
