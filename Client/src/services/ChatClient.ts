@@ -35,7 +35,7 @@ class ChatClient extends EventEmitter {
     this.emit("session_updated");
 
     // Connect to the WebSocket server
-    socket.connect("ws://162.248.100.69:9000");
+    await socket.connect("ws://162.248.100.69:9000");
 
     socket.on("WS_CONNECTED", () => {
       this.emit("status", true);

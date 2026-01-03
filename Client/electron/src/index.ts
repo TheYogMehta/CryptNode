@@ -209,3 +209,23 @@ ipcMain.handle(
     return { success: false };
   }
 );
+
+function getTorBinaryPath() {
+  const isDev = !app.isPackaged;
+  const platform = process.platform;
+
+  const subDir = platform === "win32" ? "win32" : "linux";
+  const binName = platform === "win32" ? "tor.exe" : "tor";
+
+  let torPath: string;
+
+  if (isDev) {
+    torPath = path.join(__dirname, "resources", "bin", subDir, "tor", binName);
+  } else {
+    torPath = path.join(process.resourcesPath, "bin", binName);
+  }
+
+  console.log("Tor Binary Path:", torPath);
+}
+
+getTorBinaryPath();

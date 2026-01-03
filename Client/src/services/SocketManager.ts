@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { Platform } from "./SafeStorage";
 
 class SocketManager extends EventEmitter {
   private static instance: SocketManager;
@@ -12,7 +13,7 @@ class SocketManager extends EventEmitter {
     return SocketManager.instance;
   }
 
-  connect(url: string) {
+  async connect(url: string) {
     this.url = url;
     if (
       this.ws &&
@@ -43,6 +44,21 @@ class SocketManager extends EventEmitter {
       console.warn("WebSocket not connected. Retrying...");
       setTimeout(() => this.send(data), 500);
     }
+  }
+}
+
+async function initTor() {
+  const platform = await Platform();
+  if (platform === "ios" || platform === "android") {
+    try {
+      const { Tor } = await import("@start9labs/capacitor-tor");
+      await Tor.start();
+      console.log("Tor started on native");
+    } catch (e) {
+      console.error("Failed to load Tor plugin", e);
+    }
+  } else {
+    console.log("Running on Electron/Web: Tor plugin skipped.");
   }
 }
 
