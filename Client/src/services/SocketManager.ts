@@ -31,7 +31,6 @@ class SocketManager extends EventEmitter {
     };
     this.ws.onclose = () => {
       this.emit("WS_DISCONNECTED");
-      // Optional: auto-reconnect after 3 seconds
       setTimeout(() => this.connect(this.url), 3000);
     };
     this.ws.onerror = (err) => this.emit("error", err);

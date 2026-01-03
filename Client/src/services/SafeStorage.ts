@@ -62,12 +62,13 @@ async function decrypt(payload: string): Promise<string | null> {
 
 export async function setKeyFromSecureStorage(
   key: string,
-  value: string
+  value: string,
+  init: boolean = false
 ): Promise<void> {
   try {
     const p = await Platform();
     if (p === "android") {
-      if (!isUnlockedAndroid) return;
+      if (!isUnlockedAndroid && !init) return;
       await SecureStoragePlugin.set({ key, value: await encrypt(value) });
     } else {
       await (window as any).SafeStorage.setKey(key, await encrypt(value));
@@ -78,13 +79,14 @@ export async function setKeyFromSecureStorage(
 }
 
 export async function getKeyFromSecureStorage(
-  key: string
+  key: string,
+  init: boolean = false
 ): Promise<string | null> {
   try {
     const p = await Platform();
     let encrypted: string | null = null;
     if (p === "android") {
-      if (!isUnlockedAndroid && key !== "APP_LOCK_LEN") return null;
+      if (!isUnlockedAndroid && key !== "APP_LOCK_LEN" && !init) return null;
       encrypted = (await SecureStoragePlugin.get({ key })).value;
     } else {
       encrypted = await (window as any).SafeStorage.getKey(key);
@@ -104,14 +106,14 @@ export async function AppLock(
   if (hashPass !== null) hashPass = await hashPin(hashPass);
   if (oldHashpass !== null) oldHashpass = await hashPin(oldHashpass);
   if (p === "android") {
-    const stored = await getKeyFromSecureStorage("APP_LOCK");
+    const stored = await getKeyFromSecureStorage("APP_LOCK", true);
     if (
       !stored ||
       isUnlockedAndroid ||
       (oldHashpass && oldHashpass === stored)
     ) {
-      await setKeyFromSecureStorage("APP_LOCK", hashPass);
-      await setKeyFromSecureStorage("APP_LOCK_ENABLED", "true");
+      await setKeyFromSecureStorage("APP_LOCK", hashPass, true);
+      await setKeyFromSecureStorage("APP_LOCK_ENABLED", "true", true);
       isUnlockedAndroid = true;
       return { success: true };
     }
@@ -133,7 +135,7 @@ export async function AppLockVerify(PASS: string | null): Promise<any> {
   const now = Date.now();
 
   const lockoutUntil = Number(
-    (await getKeyFromSecureStorage("LOCKOUT_UNTIL")) || 0
+    (await getKeyFromSecureStorage("LOCKOUT_UNTIL", true)) || 0
   );
   if (now < lockoutUntil && PASS !== null)
     return {
@@ -142,19 +144,19 @@ export async function AppLockVerify(PASS: string | null): Promise<any> {
       remainingMs: lockoutUntil - now,
     };
 
-  const MasterKey = await getKeyFromSecureStorage("MASTER_KEY");
+  const MasterKey = await getKeyFromSecureStorage("MASTER_KEY", true);
   if (!MasterKey) {
     isUnlockedAndroid = true;
     return { success: true, needsMasterKey: true };
   }
 
-  const storedHash = await getKeyFromSecureStorage("APP_LOCK");
+  const storedHash = await getKeyFromSecureStorage("APP_LOCK", true);
   if (!storedHash || storedHash === "null") {
     isUnlockedAndroid = true;
     return { success: true, needsPin: true };
   }
 
-  const isEnabled = await getKeyFromSecureStorage("APP_LOCK_ENABLED");
+  const isEnabled = await getKeyFromSecureStorage("APP_LOCK_ENABLED", true);
   if (isEnabled !== "true") {
     isUnlockedAndroid = true;
     return { success: true };
@@ -162,14 +164,14 @@ export async function AppLockVerify(PASS: string | null): Promise<any> {
 
   if (PASS === storedHash) {
     isUnlockedAndroid = true;
-    await setKeyFromSecureStorage("FAILED_ATTEMPTS", "0");
+    await setKeyFromSecureStorage("FAILED_ATTEMPTS", "0", true);
     return { success: true };
   } else if (PASS !== null) {
     let attempts = Number(
-      (await getKeyFromSecureStorage("FAILED_ATTEMPTS")) || 0
+      (await getKeyFromSecureStorage("FAILED_ATTEMPTS"), true) || 0
     );
     attempts += 1;
-    await setKeyFromSecureStorage("FAILED_ATTEMPTS", String(attempts));
+    await setKeyFromSecureStorage("FAILED_ATTEMPTS", String(attempts), true);
     let cd =
       attempts >= 5
         ? 10800000
@@ -179,7 +181,7 @@ export async function AppLockVerify(PASS: string | null): Promise<any> {
         ? 30000
         : 0;
     if (cd > 0) {
-      await setKeyFromSecureStorage("LOCKOUT_UNTIL", String(now + cd));
+      await setKeyFromSecureStorage("LOCKOUT_UNTIL", String(now + cd), true);
     }
 
     return { success: false, attempts, isLockedOut: cd > 0, remainingMs: cd };

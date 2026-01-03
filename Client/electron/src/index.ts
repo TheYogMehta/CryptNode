@@ -10,6 +10,7 @@ import unhandled from "electron-unhandled";
 import { autoUpdater } from "electron-updater";
 import keytar from "keytar";
 import fs from "fs";
+import path from "path";
 
 import {
   ElectronCapacitorApp,
@@ -189,15 +190,6 @@ ipcMain.handle(
 
 ipcMain.handle("SafeStorage:initlock", async () => {
   isUnlocked = false;
-});
-
-ipcMain.handle("SafeStorage:ResetApp", async () => {
-  if (!isUnlocked) return "Not unlocked, cannot reset app";
-  const keys = await keytar.findCredentials("ChatApp");
-  for (const key of keys) {
-    await keytar.deletePassword("ChatApp", key.account);
-  }
-  return "Success";
 });
 
 ipcMain.handle(

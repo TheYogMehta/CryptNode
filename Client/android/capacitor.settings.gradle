@@ -29,5 +29,8 @@ project(':capacitor-push-notifications').projectDir = new File('../node_modules/
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
 
+include ':start9labs-capacitor-tor'
+project(':start9labs-capacitor-tor').projectDir = new File('../node_modules/@start9labs/capacitor-tor/android')
+
 include ':capacitor-secure-storage-plugin'
 project(':capacitor-secure-storage-plugin').projectDir = new File('../node_modules/capacitor-secure-storage-plugin/android')

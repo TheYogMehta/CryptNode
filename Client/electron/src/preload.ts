@@ -14,5 +14,4 @@ contextBridge.exposeInMainWorld("SafeStorage", {
   ToggleAppLock: (enabled: boolean) =>
     ipcRenderer.invoke("SafeStorage:ToggleAppLock", enabled),
   initlock: () => ipcRenderer.invoke("SafeStorage:initlock"),
-  ResetApp: () => ipcRenderer.invoke("SafeStorage:ResetApp"),
 });

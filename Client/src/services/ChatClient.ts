@@ -12,9 +12,14 @@ interface ServerFrame {
   data: any;
 }
 
+interface ChatSession {
+  cryptoKey: CryptoKey;
+  online: boolean;
+}
+
 class ChatClient extends EventEmitter {
   private static instance: ChatClient;
-  public sessions: Record<string, any> = {};
+  public sessions: Record<string, ChatSession> = {};
   private identityKeyPair: CryptoKeyPair | null = null;
 
   static getInstance() {
@@ -32,8 +37,12 @@ class ChatClient extends EventEmitter {
     // Connect to the WebSocket server
     socket.connect("ws://162.248.100.69:9000");
 
-    // Listen to messages
-    socket.on("WS_CONNECTED", () => this.emit("status", true));
+    socket.on("WS_CONNECTED", () => {
+      this.emit("status", true);
+      Object.keys(this.sessions).forEach((sid) =>
+        this.send({ t: "REATTACH", sid })
+      );
+    });
     socket.on("message", (frame: ServerFrame) => this.handle(frame));
   }
 
@@ -63,11 +72,6 @@ class ChatClient extends EventEmitter {
     const { t, sid, data } = frame;
 
     switch (t) {
-      case "WS_CONNECTED":
-        Object.keys(this.sessions).forEach((s) =>
-          this.send({ t: "REATTACH", sid: s })
-        );
-        break;
       case "INVITE_CODE":
         this.emit("invite_ready", data.code);
         break;
@@ -89,13 +93,39 @@ class ChatClient extends EventEmitter {
         break;
       case "MSG":
         await this.decryptAndStore(sid, data.payload);
+        this.send({ t: "MSG_READ", sid });
+        break;
+      case "PEER_ONLINE":
+        if (!this.sessions[sid]) return;
+        this.sessions[sid].online = true;
+        this.emit("presence_update", { sid, online: true });
+        break;
+      case "PEER_OFFLINE":
+        if (!this.sessions[sid]) return;
+        this.sessions[sid].online = false;
+        this.emit("presence_update", { sid, online: false });
+        break;
+      case "DELIVERED":
+        if (this.sessions[sid]) {
+          this.emit("message_delivered", sid);
+        }
+        break;
+      case "MSG_READ":
+        if (this.sessions[sid]) {
+          this.emit("message_read", sid);
+        }
+        break;
+      default:
         break;
     }
   }
 
   private async finalizeSession(sid: string, remotePubB64: string) {
     const sharedKey = await this.deriveSharedKey(remotePubB64);
-    this.sessions[sid] = { cryptoKey: sharedKey };
+    this.sessions[sid] = {
+      cryptoKey: sharedKey,
+      online: false,
+    };
     const jwk = await window.crypto.subtle.exportKey("jwk", sharedKey);
     await queryDB(
       "INSERT OR REPLACE INTO sessions (sid, keyJWK) VALUES (?, ?)",
@@ -189,6 +219,7 @@ class ChatClient extends EventEmitter {
           false,
           ["encrypt", "decrypt"]
         ),
+        online: false,
       };
     }
   }

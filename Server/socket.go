@@ -78,17 +78,31 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, client.id)
+		s.mu.Unlock()
+
 		for _, sess := range s.sessions {
 			sess.mu.Lock()
-			delete(sess.clients, client.id)
+			_, wasMember := sess.clients[client.id]
+			if wasMember {
+				delete(sess.clients, client.id)
+
+				for _, c := range sess.clients {
+					s.send(c, Frame{
+						T:   "PEER_OFFLINE",
+						SID: sess.id,
+					})
+				}
+			}
 			sess.mu.Unlock()
 		}
-		s.mu.Unlock()
+
 		ws.Close()
 	}()
+
 
 	for {
 		var frame Frame
@@ -179,27 +193,59 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			s.mu.Unlock()
 
-		case "MSG":
-			s.mu.Lock()
-			if sess, ok := s.sessions[frame.SID]; ok {
-				sess.mu.Lock()
-				for _, c := range sess.clients {
-					if c.id != client.id {
-						s.send(c, frame)
-					}
+
+			case "REATTACH":
+				s.mu.Lock()
+				sess, ok := s.sessions[frame.SID]
+				s.mu.Unlock()
+				if !ok {
+					break
 				}
-				sess.mu.Unlock()
-			}
-			s.mu.Unlock()
-		case "REATTACH":
-			s.mu.Lock()
-			if sess, ok := s.sessions[frame.SID]; ok {
 				sess.mu.Lock()
 				sess.clients[client.id] = client
+				
+				for _, c := range sess.clients {
+					if c.id != client.id {
+						s.send(c, Frame{
+							T:   "PEER_ONLINE",
+							SID: frame.SID,
+						})
+					}
+				}
+
 				sess.mu.Unlock()
-				log.Printf("[Server] Client %s reattached to session %s", client.id, frame.SID)
-			}
-			s.mu.Unlock()
+
+				log.Printf(
+					"[Server] Client %s reattached to session %s",
+					client.id,
+					frame.SID,
+				)
+			case "MSG":
+				s.mu.Lock()
+				if sess, ok := s.sessions[frame.SID]; ok {
+					sess.mu.Lock()
+					for _, c := range sess.clients {
+						if c.id != client.id {
+							s.send(c, frame)
+						}
+					}
+					sess.mu.Unlock()
+				}
+				s.mu.Unlock()
+				s.send(client, Frame{T: "DELIVERED", SID: frame.SID})
+				
+			case "MSG_READ":
+				s.mu.Lock()
+				if sess, ok := s.sessions[frame.SID]; ok {
+					sess.mu.Lock()
+					for _, c := range sess.clients {
+						if c.id != client.id {
+							s.send(c, Frame{T: "MSG_READ", SID: frame.SID})
+						}
+					}
+					sess.mu.Unlock()
+				}
+				s.mu.Unlock()
 		}
 	}
 }
