@@ -15,3 +15,10 @@ contextBridge.exposeInMainWorld("SafeStorage", {
     ipcRenderer.invoke("SafeStorage:ToggleAppLock", enabled),
   initlock: () => ipcRenderer.invoke("SafeStorage:initlock"),
 });
+
+contextBridge.exposeInMainWorld("TorManager", {
+  initTor: () => ipcRenderer.invoke("TorManager:initTor"),
+  onLog: (callback: (log: string) => void) => {
+    ipcRenderer.on("tor:log", (_event, value) => callback(value));
+  },
+});

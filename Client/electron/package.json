@@ -61,7 +61,7 @@
     },
     "extraResources": [
       {
-        "from": "electron/resources/bin/${os}",
+        "from": "resources/bin",
         "to": "bin",
         "filter": [
           "**/*"

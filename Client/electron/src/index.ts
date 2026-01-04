@@ -4,13 +4,14 @@ import {
   setupElectronDeepLinking,
 } from "@capacitor-community/electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { app, MenuItem, ipcMain } from "electron";
+import { app, MenuItem, ipcMain, session } from "electron";
 import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import { autoUpdater } from "electron-updater";
 import keytar from "keytar";
 import fs from "fs";
 import path from "path";
+import { spawn } from "child_process";
 
 import {
   ElectronCapacitorApp,
@@ -56,7 +57,7 @@ if (electronIsDev) {
   setupReloadWatcher(myCapacitorApp);
 }
 
-// Run Application
+// Run Applicationapp
 (async () => {
   // Wait for electron app to be ready.
   await app.whenReady();
@@ -88,6 +89,7 @@ app.on("activate", async function () {
 
 // Place all ipc or other electron api calls and custom functionality under this line
 let isUnlocked = false;
+let torProcess: any = null;
 
 async function getStoredLockout() {
   const until = await keytar.getPassword("ChatApp", "LOCKOUT_UNTIL");
@@ -210,22 +212,101 @@ ipcMain.handle(
   }
 );
 
-function getTorBinaryPath() {
+ipcMain.handle("TorManager:initTor", async () => {
+  if (torProcess) return { success: true, message: "Already running" };
+
   const isDev = !app.isPackaged;
   const platform = process.platform;
-
   const subDir = platform === "win32" ? "win32" : "linux";
   const binName = platform === "win32" ? "tor.exe" : "tor";
 
   let torPath: string;
 
   if (isDev) {
-    torPath = path.join(__dirname, "resources", "bin", subDir, "tor", binName);
+    torPath = path.join(
+      app.getAppPath(),
+      "resources",
+      "bin",
+      subDir,
+      "tor",
+      binName
+    );
   } else {
-    torPath = path.join(process.resourcesPath, "bin", binName);
+    torPath = path.join(process.resourcesPath, "bin", subDir, "tor", binName);
   }
 
-  console.log("Tor Binary Path:", torPath);
-}
+  const torDir = path.dirname(torPath);
 
-getTorBinaryPath();
+  console.log("Attempting to start Tor at:", torPath);
+
+  if (!fs.existsSync(torPath)) {
+    console.error("❌ Tor Binary not found at:", torPath);
+    return { success: false, error: `Binary not found at ${torPath}` };
+  }
+
+  if (platform !== "win32") {
+    try {
+      fs.chmodSync(torPath, 0o755);
+    } catch (e) {
+      console.warn("Could not set permissions (might already be executable)");
+    }
+  }
+
+  const torDataDir = path.join(app.getPath("userData"), "tor-data");
+  if (!fs.existsSync(torDataDir)) fs.mkdirSync(torDataDir, { recursive: true });
+
+  try {
+    torProcess = spawn(
+      torPath,
+      [
+        "--DataDirectory",
+        torDataDir,
+        "--SocksPort",
+        "9050",
+        "--ignore-missing-torrc",
+      ],
+      {
+        env: {
+          LD_LIBRARY_PATH: torDir,
+        },
+      }
+    );
+
+    torProcess.on("error", (err: any) => {
+      console.error("Failed to spawn Tor:", err);
+      torProcess = null;
+    });
+
+    torProcess.on("close", (code: number) => {
+      console.log(`Tor process exited with code ${code}`);
+      torProcess = null;
+    });
+
+    torProcess.stdout.on("data", (data: Buffer) => {
+      const msg = data.toString();
+      console.log("RAW TOR LOG:", msg);
+      if (msg.includes("Bootstrapped 100%")) {
+        session.defaultSession
+          .setProxy({
+            proxyRules: "socks5://127.0.0.1:9050",
+          })
+          .then(() => {
+            app.commandLine.appendSwitch(
+              "proxy-server",
+              "socks5://127.0.0.1:9050"
+            );
+            app.commandLine.appendSwitch(
+              "host-resolver-rules",
+              "MAP * ~NOTFOUND , EXCLUDE 127.0.0.1"
+            );
+            console.log("Proxy applied: Routing through Tor.");
+          });
+      }
+      myCapacitorApp.getMainWindow().webContents.send("tor:log", msg);
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
