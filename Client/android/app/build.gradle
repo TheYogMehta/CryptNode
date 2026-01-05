@@ -11,8 +11,6 @@ android {
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
@@ -24,23 +22,38 @@ android {
     }
 }
 
+
 repositories {
-    flatDir{
+    mavenLocal()
+    google()
+    mavenCentral()
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
+    maven { url "https://raw.githubusercontent.com/guardianproject/gpmaven/master" }
 }
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+
+    // Core Capacitor & AndroidX
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // Tor Dependencies - Explicit versions for compatibility
+    implementation 'org.torproject:tor-android-binary:0.4.2.5'
+    implementation 'net.freehaven.tor.control:jtorctl:0.2'
+    implementation 'tangrammer:java-net-http-client:0.1.2'
+    implementation 'info.guardianproject:jtorctl:0.4.5.7'
+
+
+    // Testing
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
-    implementation project(':capacitor-cordova-android-plugins')
-    implementation 'com.github.guardianproject:jtorctl:0.4.5.7'
 }
 
 apply from: 'capacitor.build.gradle'
@@ -52,4 +65,11 @@ try {
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+
+
+configurations.all {
+    resolutionStrategy {
+        force 'com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava'
+    }
 }

@@ -45,16 +45,22 @@ class SocketManager extends EventEmitter {
         return;
       }
 
-      return new Promise((resolve, reject) => {
+      // Check and Log WebSocket State on Connection Attempt
+      await new Promise((resolve, reject) => {
         console.log(`Connecting to: ${url} (Tor: ${isOnion})`);
         this.ws = new WebSocket(url);
 
-        this.ws.onopen = () => this.emit("WS_CONNECTED");
+        this.ws.onopen = () => {
+          console.log("WebSocket opened successfully!");
+          this.emit("WS_CONNECTED");
+          resolve(true);
+        };
+
         this.ws.onmessage = (e) => {
           const frame = JSON.parse(e.data);
           this.emit("message", frame);
-          resolve(true);
         };
+
         this.ws.onclose = (event) => {
           console.log(
             `Socket closed. Code: ${event.code}, Reason: ${event.reason}`
@@ -62,8 +68,9 @@ class SocketManager extends EventEmitter {
           this.emit("WS_DISCONNECTED");
           setTimeout(() => this.connect(this.url), 3000);
         };
+
         this.ws.onerror = (err) => {
-          this.emit("error", err);
+          console.error("WebSocket Error:", err);
           this.emit("error", err);
           reject(err);
         };
