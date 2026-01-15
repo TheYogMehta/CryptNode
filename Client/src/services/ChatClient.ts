@@ -46,10 +46,10 @@ class ChatClient extends EventEmitter {
         this.send({ t: "REATTACH", sid })
       );
     });
-    socket.on("message", (frame: ServerFrame) => this.handle(frame));
+    socket.on("message", (frame: ServerFrame) => this.handleFrame(frame));
   }
 
-  // --- TRIGGER ACTIONS ---
+  // --- TRIGGER ACTIONS  ---
   public createInvite() {
     this.send({ t: "CREATE_SESSION" });
   }
@@ -66,12 +66,38 @@ class ChatClient extends EventEmitter {
     await this.finalizeSession(sid, remotePub);
   }
 
+  public async sendMessage(sid: string, text: string) {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const enc = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      this.sessions[sid].cryptoKey,
+      new TextEncoder().encode(
+        JSON.stringify({
+          t: "MSG",
+          data: text,
+        })
+      )
+    );
+    const combined = new Uint8Array(12 + enc.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(enc), 12);
+    this.send({
+      t: "MSG",
+      sid,
+      data: { payload: btoa(String.fromCharCode(...combined)) },
+    });
+    await queryDB(
+      "INSERT INTO messages (sid, sender, text) VALUES (?, 'me', ?)",
+      [sid, text]
+    );
+  }
+
   public denyFriend(sid: string) {
     this.send({ t: "JOIN_DENY", sid });
   }
 
   // --- INTERNAL HANDLERS ---
-  private async handle(frame: ServerFrame) {
+  private async handleFrame(frame: ServerFrame) {
     const { t, sid, data } = frame;
 
     switch (t) {
@@ -95,8 +121,7 @@ class ChatClient extends EventEmitter {
         this.emit("error", data.message || "Unknown error");
         break;
       case "MSG":
-        await this.decryptAndStore(sid, data.payload);
-        this.send({ t: "MSG_READ", sid });
+        await this.handleMsg(sid, data.payload);
         break;
       case "PEER_ONLINE":
         if (!this.sessions[sid]) return;
@@ -108,19 +133,35 @@ class ChatClient extends EventEmitter {
         this.sessions[sid].online = false;
         this.emit("presence_update", { sid, online: false });
         break;
-      case "DELIVERED":
-        if (this.sessions[sid]) {
-          this.emit("message_delivered", sid);
-        }
-        break;
-      case "MSG_READ":
-        if (this.sessions[sid]) {
-          this.emit("message_read", sid);
-        }
-        break;
       default:
         break;
     }
+  }
+
+  private async handleMsg(sid: string, payload: string) {
+    if (!this.sessions[sid]) return;
+    try {
+      const combined = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+      const dec = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: combined.slice(0, 12) },
+        this.sessions[sid].cryptoKey,
+        combined.slice(12)
+      );
+      const JSON_DATA = new TextDecoder().decode(dec);
+      const { t, data } = JSON.parse(JSON_DATA);
+      switch (t) {
+        case "MSG":
+          await this.decryptAndStore(sid, data);
+          break;
+      }
+    } catch (e) {
+      console.error("Decryption failed", e);
+    }
+  }
+
+  // --- HELPERS ---
+  public send(f: any) {
+    socket.send(f);
   }
 
   private async finalizeSession(sid: string, remotePubB64: string) {
@@ -137,32 +178,7 @@ class ChatClient extends EventEmitter {
     this.emit("session_updated");
   }
 
-  private async decryptAndStore(sid: string, payload: string) {
-    if (!this.sessions[sid]) return;
-    try {
-      const combined = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-      const dec = await window.crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: combined.slice(0, 12) },
-        this.sessions[sid].cryptoKey,
-        combined.slice(12)
-      );
-      const text = new TextDecoder().decode(dec);
-      await queryDB(
-        "INSERT INTO messages (sid, sender, text) VALUES (?, 'other', ?)",
-        [sid, text]
-      );
-      this.emit("message", { sid, text, sender: "other" });
-    } catch (e) {
-      console.error("Decryption failed", e);
-    }
-  }
-
-  // --- HELPERS ---
-  public send(f: any) {
-    socket.send(f);
-  }
-
-  // Identity & crypto
+  // --- Identity & crypto ---
   private async loadIdentity() {
     const privJWK = await getKeyFromSecureStorage("identity_priv");
     const pubJWK = await getKeyFromSecureStorage("identity_pub");
@@ -253,25 +269,24 @@ class ChatClient extends EventEmitter {
     );
   }
 
-  public async sendMessage(sid: string, text: string) {
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const enc = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      this.sessions[sid].cryptoKey,
-      new TextEncoder().encode(text)
-    );
-    const combined = new Uint8Array(12 + enc.byteLength);
-    combined.set(iv, 0);
-    combined.set(new Uint8Array(enc), 12);
-    this.send({
-      t: "MSG",
-      sid,
-      data: { payload: btoa(String.fromCharCode(...combined)) },
-    });
-    await queryDB(
-      "INSERT INTO messages (sid, sender, text) VALUES (?, 'me', ?)",
-      [sid, text]
-    );
+  private async decryptAndStore(sid: string, payload: string) {
+    if (!this.sessions[sid]) return;
+    try {
+      const combined = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+      const dec = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: combined.slice(0, 12) },
+        this.sessions[sid].cryptoKey,
+        combined.slice(12)
+      );
+      const text = new TextDecoder().decode(dec);
+      await queryDB(
+        "INSERT INTO messages (sid, sender, text) VALUES (?, 'other', ?)",
+        [sid, text]
+      );
+      this.emit("message", { sid, text, sender: "other" });
+    } catch (e) {
+      console.error("Decryption failed", e);
+    }
   }
 }
 

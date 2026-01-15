@@ -34,7 +34,6 @@ class SocketManager extends EventEmitter {
       }
 
       console.log("Proceeding with WebSocket connection...");
-      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // 2. Standard WebSocket connection logic
       if (

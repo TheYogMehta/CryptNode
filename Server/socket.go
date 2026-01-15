@@ -34,7 +34,7 @@ type Session struct {
 type Server struct {
 	clients  map[string]*Client
 	sessions map[string]*Session
-	invites  map[string]string // Key: 6-digit code, Value: SID
+	invites  map[string]string 
 	mu       sync.Mutex
 }
 
@@ -79,6 +79,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}()
 
 
+	// CLient Disconnect
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, client.id)
@@ -88,14 +89,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			sess.mu.Lock()
 			_, wasMember := sess.clients[client.id]
 			if wasMember {
-				delete(sess.clients, client.id)
-
 				for _, c := range sess.clients {
-					s.send(c, Frame{
-						T:   "PEER_OFFLINE",
-						SID: sess.id,
-					})
+					if c.id != client.id {
+						s.send(c, Frame{
+							T:   "PEER_OFFLINE",
+							SID: sess.id,
+						})
+					}
 				}
+				delete(sess.clients, client.id)
 			}
 			sess.mu.Unlock()
 		}
@@ -109,34 +111,34 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		if err := ws.ReadJSON(&frame); err != nil { break }
 
 		switch frame.T {
+		// Heartbeat
 		case "PONG":
-			continue
-
+			break;
+		// Genrate a invite code
 		case "CREATE_SESSION":
-			// 1. Generate SID and Code
 			sid := s.newID()
 			code := fmt.Sprintf("%06d", rand.Intn(1000000))
 
 			s.mu.Lock()
-			// 2. Create actual session
+
 			s.sessions[sid] = &Session{id: sid, clients: map[string]*Client{client.id: client}}
-			// 3. Map code to SID
+
 			s.invites[code] = sid
 			s.mu.Unlock()
 
-			// 4. Send back INVITE_CODE (matching frontend expectation)
 			log.Printf("[Server] Created Session %s with Code %s", sid, code)
 			s.send(client, Frame{
 				T:   "INVITE_CODE",
 				SID: sid,
 				Data: json.RawMessage(fmt.Sprintf(`{"code":"%s"}`, code)),
 			})
-
+		// Joins another client with invite code
 		case "JOIN":
 			var d struct {
 				Code      string `json:"code"`
 				PublicKey string `json:"publicKey"`
 			}
+
 			json.Unmarshal(frame.Data, &d)
 
 			s.mu.Lock()
@@ -148,39 +150,43 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			sess := s.sessions[sid]
-			// Add joiner to session
 			sess.mu.Lock()
 			sess.clients[client.id] = client
-			
-			// Notify Host (User A) that someone wants to join
+
+			var creator *Client
 			for _, c := range sess.clients {
 				if c.id != client.id {
-					s.send(c, Frame{
-						T:   "JOIN_REQUEST",
-						SID: sid,
-						Data: json.RawMessage(fmt.Sprintf(`{"publicKey":"%s"}`, d.PublicKey)),
-					})
+					creator = c
+					break
 				}
 			}
-			sess.mu.Unlock()
-			s.mu.Unlock()
+			
+			if creator != nil {
+				s.send(creator, Frame{
+					T:   "JOIN_REQUEST",
+					SID: sid,
+					Data: json.RawMessage(fmt.Sprintf(`{"publicKey":"%s"}`, d.PublicKey)),
+				})
+			}
 
+			sess.mu.Unlock()
+			delete(s.invites, d.Code)
+			s.mu.Unlock()
+		// Client Accept the request
 		case "JOIN_ACCEPT":
-			// User A accepted User B
 			s.mu.Lock()
 			if sess, ok := s.sessions[frame.SID]; ok {
 				sess.mu.Lock()
 				for _, c := range sess.clients {
 					if c.id != client.id {
-						// Forward the public key to User B
 						s.send(c, Frame{T: "JOIN_ACCEPT", SID: frame.SID, Data: frame.Data})
 					}
 				}
 				sess.mu.Unlock()
 			}
 			s.mu.Unlock()
-
-		case "JOIN_DENY":
+		// Client Deny the request
+	    case "JOIN_DENY":
 			s.mu.Lock()
 			if sess, ok := s.sessions[frame.SID]; ok {
 				sess.mu.Lock()
@@ -192,15 +198,19 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				sess.mu.Unlock()
 			}
 			s.mu.Unlock()
-
-
-			case "REATTACH":
+		// Reconnect CLient
+		case "REATTACH":
 				s.mu.Lock()
+
 				sess, ok := s.sessions[frame.SID]
-				s.mu.Unlock()
 				if !ok {
-					break
+					sess = &Session{
+						id: frame.SID,
+						clients: map[string]*Client{client.id: client},
+					}
+					s.sessions[frame.SID] = sess
 				}
+
 				sess.mu.Lock()
 				sess.clients[client.id] = client
 				
@@ -220,32 +230,29 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					client.id,
 					frame.SID,
 				)
-			case "MSG":
-				s.mu.Lock()
-				if sess, ok := s.sessions[frame.SID]; ok {
-					sess.mu.Lock()
-					for _, c := range sess.clients {
-						if c.id != client.id {
-							s.send(c, frame)
+		// Forward ALL Data in e2e frame packets
+		case "MSG":
+			delivered := false
+			s.mu.Lock()
+			if sess, ok := s.sessions[frame.SID]; ok {
+				sess.mu.Lock()
+				for _, c := range sess.clients {
+					if c.id != client.id {
+						if s.send(c, frame) == nil {
+							delivered = true
 						}
+						break
 					}
-					sess.mu.Unlock()
 				}
-				s.mu.Unlock()
+				sess.mu.Unlock()
+			}
+			s.mu.Unlock()
+
+			if delivered {
 				s.send(client, Frame{T: "DELIVERED", SID: frame.SID})
-				
-			case "MSG_READ":
-				s.mu.Lock()
-				if sess, ok := s.sessions[frame.SID]; ok {
-					sess.mu.Lock()
-					for _, c := range sess.clients {
-						if c.id != client.id {
-							s.send(c, Frame{T: "MSG_READ", SID: frame.SID})
-						}
-					}
-					sess.mu.Unlock()
-				}
-				s.mu.Unlock()
+			} else {
+				s.send(client, Frame{T: "DELIVERED_FAILED", SID: frame.SID})
+			}
 		}
 	}
 }
