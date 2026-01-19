@@ -1,9 +1,30 @@
 import React, { useState, useEffect } from "react";
 
+/* ================= CHAT HEADER ================= */
+const ChatHeader = ({ name }) => (
+  <div
+    style={{
+      padding: "12px 20px",
+      borderBottom: "1px solid #333",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: "#1f1f1f",
+    }}
+  >
+    <strong>{name}</strong>
+
+    <div style={{ display: "flex", gap: "12px" }}>
+      <button style={styles.callBtn}>📞</button>
+      <button style={styles.callBtn}>🎥</button>
+    </div>
+  </div>
+);
+
 const SecurityApp = () => {
-  const [view, setView] = useState("chat"); // 'chat', 'addFriends', 'settings'
+  const [view, setView] = useState("chat");
   const [activeSetting, setActiveSetting] = useState("profile");
-  const [activeChat, setActiveChat] = useState("Secure Contact A"); // default chat for desktop
+  const [activeChat, setActiveChat] = useState("Secure Contact A");
   const [messages, setMessages] = useState({
     "Secure Contact A": [
       { id: 1, text: "Welcome to SecureChat!", sender: "system" },
@@ -65,7 +86,7 @@ const SecurityApp = () => {
     },
   };
 
-  // --- MOBILE TOP BAR ---
+  /* ================= MOBILE TOP BAR ================= */
   const TopBar = () => (
     <div
       style={{
@@ -119,20 +140,17 @@ const SecurityApp = () => {
   );
 
   const ChatBoxMobile = () => (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-      }}
-    >
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <button
         onClick={() => setActiveChat(null)}
-        style={{ ...styles.sendBtnStyle, margin: "10px" }}
+        style={{ ...styles.sendBtnStyle, margin: "10px", alignSelf: "flex-start" }}
       >
         ⬅ Back
       </button>
+
+      {/* CHAT HEADER */}
+      <ChatHeader name={activeChat} />
+
       <div style={{ flex: 1, padding: "20px", overflowY: "auto" }}>
         {messages[activeChat].map((m) => (
           <div
@@ -156,6 +174,7 @@ const SecurityApp = () => {
           </div>
         ))}
       </div>
+
       <div
         style={{
           padding: "10px",
@@ -204,8 +223,8 @@ const SecurityApp = () => {
           )}
         </div>
       ) : (
-        // --- DESKTOP LAYOUT ---
         <>
+          {/* SIDEBAR */}
           <div style={styles.sidebar}>
             <button onClick={() => setView("chat")} style={styles.btnStyle}>
               💬
@@ -214,10 +233,12 @@ const SecurityApp = () => {
               ⚙️
             </button>
           </div>
+
+          {/* MAIN */}
           <div style={styles.main}>
             {view === "chat" && (
               <>
-                {/* LEFT: CHAT LIST */}
+                {/* CHAT LIST */}
                 <div style={styles.chatList}>
                   <div style={{ flex: 1, padding: "10px" }}>
                     <h3>Recent Chats</h3>
@@ -230,7 +251,6 @@ const SecurityApp = () => {
                           backgroundColor:
                             activeChat === chat.name ? "#333" : "transparent",
                           display: "flex",
-                          alignItems: "center",
                           gap: "10px",
                         }}
                       >
@@ -247,16 +267,12 @@ const SecurityApp = () => {
                       </div>
                     ))}
                   </div>
-                  <button
-                    style={styles.addFriendBtnStyle}
-                    onClick={() => setView("addFriends")}
-                  >
-                    + Add Friends
-                  </button>
                 </div>
 
-                {/* RIGHT: CHAT BOX */}
+                {/* CHAT BOX */}
                 <div style={styles.chatBox}>
+                  <ChatHeader name={activeChat} />
+
                   <div style={{ flex: 1, padding: "20px", overflowY: "auto" }}>
                     {messages[activeChat].map((m) => (
                       <div
@@ -280,6 +296,7 @@ const SecurityApp = () => {
                       </div>
                     ))}
                   </div>
+
                   <div
                     style={{
                       padding: "20px",
@@ -306,71 +323,36 @@ const SecurityApp = () => {
               <div style={styles.addFriendView}>
                 <h2>Add Friends</h2>
                 <p>Friend adding UI here</p>
-                <button
-                  onClick={() => setView("chat")}
-                  style={{
-                    marginTop: "20px",
-                    background: "none",
-                    color: "gray",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Back to Chat
-                </button>
               </div>
             )}
 
             {view === "settings" && (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: "20px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flex: 1,
-                    flexDirection: "row",
-                    gap: "20px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div
-                    style={{
-                      minWidth: "200px",
-                      borderRight: "1px solid #333",
-                      padding: "20px",
-                    }}
-                  >
-                    <h3>Settings</h3>
-                    {Object.keys(settingsData).map((key) => (
-                      <div
-                        key={key}
-                        onClick={() => setActiveSetting(key)}
-                        style={{
-                          ...styles.chatThumbStyle,
-                          backgroundColor:
-                            activeSetting === key ? "#333" : "transparent",
-                        }}
-                      >
-                        {settingsData[key].title}
-                      </div>
+              <div style={{ flex: 1, display: "flex" }}>
+                <div style={{ width: "250px", borderRight: "1px solid #333", padding: "20px" }}>
+                  <h3>Settings</h3>
+                  {Object.keys(settingsData).map((key) => (
+                    <div
+                      key={key}
+                      onClick={() => setActiveSetting(key)}
+                      style={{
+                        ...styles.chatThumbStyle,
+                        backgroundColor:
+                          activeSetting === key ? "#333" : "transparent",
+                      }}
+                    >
+                      {settingsData[key].title}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ flex: 1, padding: "20px" }}>
+                  <h2>{settingsData[activeSetting].title}</h2>
+                  <ul style={{ listStyle: "none", padding: 0 }}>
+                    {settingsData[activeSetting].content.map((item, i) => (
+                      <li key={i} style={styles.settingItemStyle}>
+                        {item}
+                      </li>
                     ))}
-                  </div>
-                  <div style={{ flex: 1, padding: "20px" }}>
-                    <h2>{settingsData[activeSetting].title}</h2>
-                    <ul style={{ listStyle: "none", padding: 0 }}>
-                      {settingsData[activeSetting].content.map((item, i) => (
-                        <li key={i} style={styles.settingItemStyle}>
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  </ul>
                 </div>
               </div>
             )}
@@ -381,6 +363,7 @@ const SecurityApp = () => {
   );
 };
 
+/* ================= STYLES ================= */
 const styles = {
   container: {
     display: "flex",
@@ -388,7 +371,6 @@ const styles = {
     backgroundColor: "#1a1a1a",
     color: "white",
     fontFamily: "sans-serif",
-    flexDirection: "row",
   },
   sidebar: {
     width: "60px",
@@ -399,11 +381,11 @@ const styles = {
     padding: "20px 0",
   },
   btnStyle: {
-    fontSize: "16px",
     background: "none",
     border: "none",
     color: "white",
     cursor: "pointer",
+    fontSize: "16px",
     marginBottom: "10px",
   },
   chatList: {
@@ -418,15 +400,11 @@ const styles = {
     cursor: "pointer",
     borderRadius: "5px",
   },
-  addFriendBtnStyle: {
-    padding: "15px",
-    backgroundColor: "#28a745",
-    color: "white",
-    border: "none",
-    cursor: "pointer",
-    fontWeight: "bold",
+  chatBox: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
   },
-  chatBox: { flex: 1, display: "flex", flexDirection: "column" },
   inputStyle: {
     flex: 1,
     padding: "10px",
@@ -444,12 +422,6 @@ const styles = {
     borderRadius: "5px",
     cursor: "pointer",
   },
-  cardStyle: {
-    padding: "20px",
-    border: "1px solid #444",
-    borderRadius: "10px",
-    width: "250px",
-  },
   settingItemStyle: {
     padding: "15px 0",
     borderBottom: "1px solid #333",
@@ -459,9 +431,20 @@ const styles = {
     flex: 1,
     padding: "40px",
     textAlign: "center",
-    overflowY: "auto",
   },
-  main: { flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" },
+  main: {
+    flex: 1,
+    display: "flex",
+    overflow: "hidden",
+  },
+  callBtn: {
+    background: "none",
+    border: "1px solid #444",
+    color: "white",
+    padding: "6px 10px",
+    borderRadius: "50%",
+    cursor: "pointer",
+  },
 };
 
 export default SecurityApp;
