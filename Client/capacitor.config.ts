@@ -19,7 +19,6 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: "http",
-    "allowNavigation": ["check.torproject.org"]
   },
 };
 

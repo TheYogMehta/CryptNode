@@ -18,6 +18,29 @@ export const useChatLogic = () => {
   const [error, setError] = useState<string | null>(null);
   const [peerOnline, setPeerOnline] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // TEMPORARY CALL STATE
+  const [tempCall, setTempCall] = useState<{
+    isOpen: boolean;
+    type: "outgoing" | "incoming";
+    mode: "Audio" | "Video";
+  }>({
+    isOpen: false,
+    type: "outgoing",
+    mode: "Audio"
+  });
+
+  const startCall = (mode: "Audio" | "Video") => {
+    setTempCall({ isOpen: true, type: "outgoing", mode });
+  };
+
+  const receiveCallSim = () => {
+    setTempCall({ isOpen: true, type: "incoming", mode: "Video" });
+  };
+
+  const endCall = () => {
+    setTempCall({ ...tempCall, isOpen: false });
+  };
 
   const activeChatRef = useRef<string | null>(null);
   activeChatRef.current = activeChat;
@@ -131,6 +154,7 @@ export const useChatLogic = () => {
     state: {
       view,
       activeChat,
+      tempCall,
       messages,
       sessions,
       input,
@@ -154,6 +178,9 @@ export const useChatLogic = () => {
       setIsWaiting,
       setIsGenerating,
       handleSend,
+      startCall,
+      endCall,
+      receiveCallSim,
       handleConnect: () => ChatClient.joinByCode(joinCode),
       resetToHome: () => {
         setActiveChat(null);

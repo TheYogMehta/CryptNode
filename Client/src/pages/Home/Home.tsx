@@ -20,8 +20,10 @@ const Home = () => {
 
   return (
     <div style={styles.appContainer}>
+      {/* Error Toast Notifications */}
       {state.error && <div style={styles.errorToast}>{state.error}</div>}
 
+      {/* Sidebar Navigation */}
       <Sidebar
         sessions={state.sessions}
         activeChat={state.activeChat}
@@ -42,6 +44,7 @@ const Home = () => {
       />
 
       <main style={styles.mainContent}>
+        {/* Main Header with Call Actions */}
         <header style={styles.mainHeader}>
           {isMobile && (
             <button
@@ -51,11 +54,12 @@ const Home = () => {
               ☰
             </button>
           )}
-          <div onClick={actions.resetToHome} style={{ cursor: "pointer" }}>
+          
+          <div onClick={actions.resetToHome} style={{ cursor: "pointer", flex: 1 }}>
             <h2 style={styles.headerTitle}>
               {state.activeChat
-                ? `Session ${state.activeChat.slice(0, 8)}`
-                : "Secure Gateway"}
+                ? `Peer ${state.activeChat.slice(0, 8)}`
+                : "GhostTalk Secure"}
             </h2>
             {state.activeChat && (
               <div
@@ -69,8 +73,36 @@ const Home = () => {
               </div>
             )}
           </div>
+
+          {/* Call Icons - Only visible when a chat is active */}
+          {state.activeChat && (
+            <div style={styles.callButtonsContainer}>
+              <button 
+                style={styles.iconBtn} 
+                onClick={() => actions.startCall("Audio")}
+                title="Audio Call"
+              >
+                📞
+              </button>
+              <button 
+                style={styles.iconBtn} 
+                onClick={() => actions.startCall("Video")}
+                title="Video Call"
+              >
+                📹
+              </button>
+              {/* Dev Shortcut to simulate receiving a call */}
+              <button 
+                style={{ ...styles.iconBtn, fontSize: '10px', opacity: 0.5 }} 
+                onClick={actions.receiveCallSim}
+              >
+                SIM INCOMING
+              </button>
+            </div>
+          )}
         </header>
 
+        {/* Content Body */}
         <div style={styles.contentBody}>
           {state.activeChat ? (
             <ChatWindow
@@ -99,6 +131,61 @@ const Home = () => {
         </div>
       </main>
 
+      {/* CALL OVERLAY (Scenario: Outgoing & Incoming) */}
+      {state.tempCall?.isOpen && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.callCard}>
+            <div style={styles.avatarLarge}>
+              {state.activeChat ? state.activeChat[0].toUpperCase() : "P"}
+            </div>
+            <h2 style={{ marginBottom: "8px" }}>
+              {state.activeChat ? `Peer ${state.activeChat.slice(0, 8)}` : "Unknown Peer"}
+            </h2>
+            
+            <p style={styles.callStatus}>
+              {state.tempCall.type === "outgoing" 
+                ? `${state.tempCall.mode} calling...` 
+                : `Incoming ${state.tempCall.mode} Call`}
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "center", gap: "32px" }}>
+              {state.tempCall.type === "incoming" ? (
+                <>
+                  {/* Reject Button */}
+                  <button 
+                    onClick={actions.endCall}
+                    style={{ ...styles.actionCircle, backgroundColor: "#ef4444" }}
+                  >
+                    ✖
+                  </button>
+                  {/* Accept Button */}
+                  <button 
+                    onClick={() => alert("Connecting Call...")}
+                    style={{ ...styles.actionCircle, backgroundColor: "#22c55e" }}
+                  >
+                    ✔
+                  </button>
+                </>
+              ) : (
+                /* Cancel/End Button for Outgoing */
+                <button 
+                  onClick={actions.endCall}
+                  style={{ 
+                    ...styles.actionCircle, 
+                    backgroundColor: "#ef4444", 
+                    width: "120px", 
+                    borderRadius: "20px" 
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Peer Connection Requests */}
       {(state.inboundReq || state.isWaiting) && (
         <RequestModal
           inboundReq={state.inboundReq}

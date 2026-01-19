@@ -1,5 +1,7 @@
+import React from "react";
+
 export const styles: { [key: string]: React.CSSProperties } = {
-  appContainer: {
+appContainer: {
     display: "flex",
     height: "100vh",
     backgroundColor: "#020617",
@@ -69,7 +71,6 @@ export const styles: { [key: string]: React.CSSProperties } = {
   },
   sessionInfo: { flex: 1 },
   sessionName: { fontSize: "0.9rem", fontWeight: 600 },
-  sessionStatus: { fontSize: "0.7rem", color: "#10b981", marginTop: "2px" },
   sidebarFooter: { padding: "16px", borderTop: "1px solid #1e293b" },
   addBtn: {
     width: "100%",
@@ -113,6 +114,25 @@ export const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     cursor: "pointer",
   },
+  callButtonsContainer: {
+    display: "flex",
+    gap: "12px",
+    marginLeft: "auto",
+  },
+
+  iconBtn: {
+    background: "none",
+    border: "none",
+    color: "#94a3b8",
+    fontSize: "22px",
+    cursor: "pointer",
+    padding: "8px",
+    borderRadius: "12px",
+    transition: "0.2s",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   menuBtn: {
     background: "none",
     border: "none",
@@ -150,6 +170,7 @@ export const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "0.95rem",
     lineHeight: "1.4",
     boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
+    position: "relative",
   },
   inputWrapper: {
     padding: "12px 16px",
@@ -158,6 +179,7 @@ export const styles: { [key: string]: React.CSSProperties } = {
   },
   inputContainer: {
     display: "flex",
+    alignItems: "flex-end",
     backgroundColor: "#0f172a",
     borderRadius: "14px",
     border: "1px solid #1e293b",
@@ -170,6 +192,10 @@ export const styles: { [key: string]: React.CSSProperties } = {
     padding: "12px 16px",
     color: "white",
     outline: "none",
+    resize: "none" as "none",
+    maxHeight: "150px",
+    fontFamily: "inherit",
+    fontSize: "0.95rem",
   },
   sendBtn: {
     background: "#6366f1",
@@ -179,6 +205,8 @@ export const styles: { [key: string]: React.CSSProperties } = {
     height: "40px",
     borderRadius: "10px",
     cursor: "pointer",
+    marginBottom: "2px",
+    marginRight: "2px",
   },
 
   setupCard: {
@@ -268,11 +296,12 @@ export const styles: { [key: string]: React.CSSProperties } = {
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    backgroundColor: "rgba(0,0,0,0.8)",
+    backgroundColor: "rgba(2, 6, 23, 0.85)",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 3000,
+    zIndex: 4000,
+    backdropFilter: "blur(12px)",
   },
   glassModal: {
     background: "#0b1120",
@@ -282,6 +311,20 @@ export const styles: { [key: string]: React.CSSProperties } = {
     width: "90%",
     maxWidth: "340px",
     textAlign: "center",
+  },
+
+  iconBtnLarge: {
+    width: "60px",
+    height: "60px",
+    borderRadius: "50%",
+    border: "none",
+    color: "white",
+    fontSize: "24px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
   },
   modalButtons: { display: "flex", gap: "12px", marginTop: "24px" },
   cancelBtn: {
@@ -312,4 +355,48 @@ export const styles: { [key: string]: React.CSSProperties } = {
     animation: "spin 1s linear infinite",
     margin: "0 auto 15px",
   },
+
+  // NEW CALLING STYLES
+
+
+  callCard: {
+    background: "#0b1120",
+    border: "1px solid #1e293b",
+    padding: "48px 32px",
+    borderRadius: "32px",
+    width: "90%",
+    maxWidth: "360px",
+    textAlign: "center",
+    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+  },
+  avatarLarge: {
+    width: "100px",
+    height: "100px",
+    borderRadius: "50%",
+    backgroundColor: "#1e293b",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "40px",
+    margin: "0 auto",
+    border: "4px solid #6366f1"
+  },
+  callStatus: {
+    color: "#94a3b8",
+    fontSize: "0.9rem",
+    marginBottom: "40px",
+    letterSpacing: "0.5px",
+  },
+  actionCircle: {
+    width: "64px",
+    height: "64px",
+    borderRadius: "50%",
+    border: "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "24px",
+    cursor: "pointer",
+    transition: "transform 0.2s",
+  }
 };
