@@ -16,6 +16,12 @@ const config: CapacitorConfig = {
       electronWindowsLocation: "C:\\ProgramData\\chatapp",
       electronLinuxLocation: "Databases",
     },
+    PrivacyScreen: {
+      enable: true,
+      imageName: "Splashscreen",
+      contentMode: "scaleAspectFit",
+      preventScreenshots: true,
+    },
   },
   server: {
     androidScheme: "http",

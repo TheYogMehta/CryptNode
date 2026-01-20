@@ -18,32 +18,38 @@ export const useChatLogic = () => {
   const [error, setError] = useState<string | null>(null);
   const [peerOnline, setPeerOnline] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  // TEMPORARY CALL STATE
-  const [tempCall, setTempCall] = useState<{
-    isOpen: boolean;
-    type: "outgoing" | "incoming";
-    mode: "Audio" | "Video";
-  }>({
-    isOpen: false,
-    type: "outgoing",
-    mode: "Audio"
-  });
-
-  const startCall = (mode: "Audio" | "Video") => {
-    setTempCall({ isOpen: true, type: "outgoing", mode });
-  };
-
-  const receiveCallSim = () => {
-    setTempCall({ isOpen: true, type: "incoming", mode: "Video" });
-  };
-
-  const endCall = () => {
-    setTempCall({ ...tempCall, isOpen: false });
-  };
+  const [activeCall, setActiveCall] = useState<{
+    sid: string;
+    type: "Audio" | "Video";
+    status: "ringing" | "outgoing" | "connected";
+  } | null>(null);
 
   const activeChatRef = useRef<string | null>(null);
   activeChatRef.current = activeChat;
+
+  const startCall = async (mode: "Audio" | "Video") => {
+    if (!activeChat) return;
+    setActiveCall({ sid: activeChat, type: mode, status: "outgoing" });
+    await ChatClient.startCall(activeChat, mode);
+  };
+
+  const acceptCall = async () => {
+    if (!activeCall) return;
+    await ChatClient.acceptCall(activeCall.sid);
+    setActiveCall({ ...activeCall, status: "connected" });
+  };
+
+  const rejectCall = () => {
+    if (!activeCall) return;
+    ChatClient.rejectCall(activeCall.sid);
+    setActiveCall(null);
+  };
+
+  const endCall = () => {
+    if (!activeCall) return;
+    ChatClient.stopCall(activeCall.sid);
+    setActiveCall(null);
+  };
 
   useEffect(() => {
     const startup = async () => {
@@ -68,39 +74,48 @@ export const useChatLogic = () => {
       setIsSidebarOpen(false);
       setIsJoining(false);
     };
-
     const onError = (msg: string) => {
       setError(msg);
       setIsGenerating(false);
       setIsJoining(false);
       setTimeout(() => setError(null), 4000);
     };
-
     const onMessage = (msg: ChatMessage) => {
       if (msg.sid === activeChatRef.current) {
         setMessages((prev) => [
           ...prev.map((m) =>
-            m.sender === "me" && m.status === 2 ? { ...m, status: 3 as 3 } : m
+            m.sender === "me" && m.status === 2 ? { ...m, status: 3 as 3 } : m,
           ),
           msg,
         ]);
       }
     };
-
     const onDelivered = (sid: string) =>
       setMessages((prev) =>
         prev.map((m) =>
           m.sender === "me" && m.sid === sid && m.status === 1
             ? { ...m, status: 2 }
-            : m
-        )
+            : m,
+        ),
       );
     const onRead = (sid: string) =>
       setMessages((prev) =>
         prev.map((m) =>
-          m.sender === "me" && m.sid === sid ? { ...m, status: 3 } : m
-        )
+          m.sender === "me" && m.sid === sid ? { ...m, status: 3 } : m,
+        ),
       );
+    const onIncomingCall = (sid: string, type: "Audio" | "Video") => {
+      setActiveChat(sid);
+      setActiveCall({ sid, type, status: "ringing" });
+    };
+    const onCallStarted = (sid: string) => {
+      if (activeCall?.sid === sid) {
+        setActiveCall({ ...activeCall, status: "connected" });
+      }
+    };
+    const onCallEnded = (sid: string) => {
+      if (activeCall?.sid === sid) setActiveCall(null);
+    };
 
     ChatClient.on("session_updated", onSessionUpdate);
     ChatClient.on("invite_ready", onInviteReady);
@@ -111,6 +126,9 @@ export const useChatLogic = () => {
     ChatClient.on("message", onMessage);
     ChatClient.on("message_delivered", onDelivered);
     ChatClient.on("message_read", onRead);
+    ChatClient.on("incoming_call", onIncomingCall);
+    ChatClient.on("call_started", onCallStarted);
+    ChatClient.on("call_ended", onCallEnded);
 
     return () => {
       ChatClient.off("session_updated", onSessionUpdate);
@@ -120,6 +138,9 @@ export const useChatLogic = () => {
       ChatClient.off("joined_success", onJoined);
       ChatClient.off("error", onError);
       ChatClient.off("message", onMessage);
+      ChatClient.off("incoming_call", onIncomingCall);
+      ChatClient.off("call_started", onCallStarted);
+      ChatClient.off("call_ended", onCallEnded);
     };
   }, []);
 
@@ -127,7 +148,7 @@ export const useChatLogic = () => {
     if (activeChat) {
       setPeerOnline(ChatClient.sessions[activeChat]?.online ?? false);
       queryDB("SELECT * FROM messages WHERE sid = ?", [activeChat]).then(
-        (rows: any) => setMessages(rows)
+        (rows: any) => setMessages(rows),
       );
     } else {
       setPeerOnline(false);
@@ -154,7 +175,7 @@ export const useChatLogic = () => {
     state: {
       view,
       activeChat,
-      tempCall,
+      activeCall,
       messages,
       sessions,
       input,
@@ -179,8 +200,9 @@ export const useChatLogic = () => {
       setIsGenerating,
       handleSend,
       startCall,
+      acceptCall,
+      rejectCall,
       endCall,
-      receiveCallSim,
       handleConnect: () => ChatClient.joinByCode(joinCode),
       resetToHome: () => {
         setActiveChat(null);

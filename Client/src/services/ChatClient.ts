@@ -21,82 +21,171 @@ class ChatClient extends EventEmitter {
   private static instance: ChatClient;
   public sessions: Record<string, ChatSession> = {};
   private identityKeyPair: CryptoKeyPair | null = null;
+  private audioContext: AudioContext | null = null;
 
   static getInstance() {
     if (!ChatClient.instance) ChatClient.instance = new ChatClient();
     return ChatClient.instance;
   }
 
+  // Initialize DB, identity, sessions, and socket
   async init() {
     await dbInit();
     await this.loadIdentity();
     await this.loadSessions();
-
     this.emit("session_updated");
 
-    // Connect to the WebSocket server
     await socket.connect("ws://162.248.100.69:9000");
-    // await socket.connect(
-    //   "ws://xtyftvyhce22nmvxy22b5pjoeiuziiai5ug7p7pbbr43eezotzfw2cad.onion"
-    // );
 
     socket.on("WS_CONNECTED", () => {
       this.emit("status", true);
       Object.keys(this.sessions).forEach((sid) =>
-        this.send({ t: "REATTACH", sid })
+        this.send({ t: "REATTACH", sid }),
       );
     });
+
     socket.on("message", (frame: ServerFrame) => this.handleFrame(frame));
   }
 
-  // --- TRIGGER ACTIONS  ---
+  // --- Actions ---
   public createInvite() {
     this.send({ t: "CREATE_SESSION" });
   }
 
   public async joinByCode(code: string) {
-    const myPub = await this.exportPub();
+    const pub = await this.exportPub();
     this.emit("waiting_for_accept", true);
-    this.send({ t: "JOIN", data: { code, publicKey: myPub } });
+    this.send({ t: "JOIN", data: { code, publicKey: pub } });
   }
 
   public async acceptFriend(sid: string, remotePub: string) {
-    const myPub = await this.exportPub();
-    this.send({ t: "JOIN_ACCEPT", sid, data: { publicKey: myPub } });
+    const pub = await this.exportPub();
+    this.send({ t: "JOIN_ACCEPT", sid, data: { publicKey: pub } });
     await this.finalizeSession(sid, remotePub);
-  }
-
-  public async sendMessage(sid: string, text: string) {
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const enc = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      this.sessions[sid].cryptoKey,
-      new TextEncoder().encode(
-        JSON.stringify({
-          t: "MSG",
-          data: text,
-        })
-      )
-    );
-    const combined = new Uint8Array(12 + enc.byteLength);
-    combined.set(iv, 0);
-    combined.set(new Uint8Array(enc), 12);
-    this.send({
-      t: "MSG",
-      sid,
-      data: { payload: btoa(String.fromCharCode(...combined)) },
-    });
-    await queryDB(
-      "INSERT INTO messages (sid, sender, text) VALUES (?, 'me', ?)",
-      [sid, text]
-    );
   }
 
   public denyFriend(sid: string) {
     this.send({ t: "JOIN_DENY", sid });
   }
 
-  // --- INTERNAL HANDLERS ---
+  public async sendMessage(sid: string, text: string) {
+    if (!this.sessions[sid]) throw new Error("Session not found");
+
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      this.sessions[sid].cryptoKey,
+      new TextEncoder().encode(JSON.stringify({ t: "MSG", data: text })),
+    );
+
+    const combined = new Uint8Array(12 + enc.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(enc), 12);
+
+    this.send({
+      t: "MSG",
+      sid,
+      data: { payload: btoa(String.fromCharCode(...combined)) },
+    });
+
+    await queryDB(
+      "INSERT INTO messages (sid, sender, text) VALUES (?, 'me', ?)",
+      [sid, text],
+    );
+  }
+
+  public async startCall(sid: string, mode: "Audio" | "Video" = "Audio") {
+    try {
+      if (!this.sessions[sid]) throw new Error("Session not found");
+
+      const status = await navigator.permissions.query({
+        name: "microphone" as any,
+      });
+
+      if (status.state === "denied") {
+        this.emit(
+          "error",
+          "Microphone access denied. Please enable it in your browser settings.",
+        );
+        return;
+      }
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          mode === "Audio" ? { audio: true } : { audio: true, video: true },
+        );
+      } catch (err) {
+        console.error("getUserMedia failed", err);
+        this.emit("error", "Microphone access is required to start the call.");
+      }
+
+      if (!stream) return;
+
+      if (!this.audioContext) this.audioContext = new AudioContext();
+      await this.audioContext.audioWorklet.addModule(
+        "audioWorkletProcessor.js",
+      );
+      const source = this.audioContext.createMediaStreamSource(stream);
+      const workletNode = new AudioWorkletNode(
+        this.audioContext,
+        "call-processor",
+      );
+      source.connect(workletNode);
+      workletNode.connect(this.audioContext.destination);
+
+      workletNode.port.onmessage = async (event) => {
+        const pcmBuffer = event.data as ArrayBuffer;
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt(
+          { name: "AES-GCM", iv },
+          this.sessions[sid].cryptoKey,
+          pcmBuffer,
+        );
+
+        this.send({
+          t: "CALL_AUDIO",
+          sid,
+          data: {
+            payload: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+            iv: btoa(String.fromCharCode(...iv)),
+          },
+        });
+      };
+    } catch (err) {
+      console.error("Could not start call:", err);
+      this.emit(
+        "error",
+        "Call could not start. Make sure microphone access is allowed.",
+      );
+    }
+  }
+
+  public async acceptCall(sid: string) {
+    this.send({ t: "CALL_ACCEPT", sid });
+    this.emit("call_started", { sid, status: "connected" });
+  }
+
+  public rejectCall(sid: string) {
+    this.send({ t: "CALL_REJECT", sid });
+    this.emit("call_ended", sid);
+  }
+
+  public endCall(sid: string) {
+    this.send({ t: "CALL_END", sid });
+    this.emit("call_ended", sid);
+  }
+
+  public stopCall(sid: string) {
+    this.send({ t: "CALL_END", sid });
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    this.emit("call_ended", sid);
+  }
+
+  // --- Internal Handlers ---
   private async handleFrame(frame: ServerFrame) {
     const { t, sid, data } = frame;
 
@@ -124,105 +213,91 @@ class ChatClient extends EventEmitter {
         await this.handleMsg(sid, data.payload);
         break;
       case "PEER_ONLINE":
-        if (!this.sessions[sid]) return;
-        this.sessions[sid].online = true;
+        if (this.sessions[sid]) this.sessions[sid].online = true;
         this.emit("presence_update", { sid, online: true });
         break;
       case "PEER_OFFLINE":
-        if (!this.sessions[sid]) return;
-        this.sessions[sid].online = false;
+        if (this.sessions[sid]) this.sessions[sid].online = false;
         this.emit("presence_update", { sid, online: false });
         break;
       default:
+        console.warn("Unknown frame type:", t);
         break;
     }
   }
 
   private async handleMsg(sid: string, payload: string) {
     if (!this.sessions[sid]) return;
+
     try {
       const combined = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-      const dec = await window.crypto.subtle.decrypt(
+      const dec = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: combined.slice(0, 12) },
         this.sessions[sid].cryptoKey,
-        combined.slice(12)
+        combined.slice(12),
       );
-      const JSON_DATA = new TextDecoder().decode(dec);
-      const { t, data } = JSON.parse(JSON_DATA);
-      switch (t) {
-        case "MSG":
-          await this.decryptAndStore(sid, data);
-          break;
-      }
+      const { t, data } = JSON.parse(new TextDecoder().decode(dec));
+
+      if (t === "MSG") await this.decryptAndStore(sid, data);
     } catch (e) {
-      console.error("Decryption failed", e);
+      console.error("Failed to decrypt message", e);
     }
   }
 
-  // --- HELPERS ---
+  // --- Helpers ---
   public send(f: any) {
     socket.send(f);
   }
 
   private async finalizeSession(sid: string, remotePubB64: string) {
     const sharedKey = await this.deriveSharedKey(remotePubB64);
-    this.sessions[sid] = {
-      cryptoKey: sharedKey,
-      online: false,
-    };
-    const jwk = await window.crypto.subtle.exportKey("jwk", sharedKey);
+    this.sessions[sid] = { cryptoKey: sharedKey, online: false };
+    const jwk = await crypto.subtle.exportKey("jwk", sharedKey);
     await queryDB(
       "INSERT OR REPLACE INTO sessions (sid, keyJWK) VALUES (?, ?)",
-      [sid, JSON.stringify(jwk)]
+      [sid, JSON.stringify(jwk)],
     );
     this.emit("session_updated");
   }
 
-  // --- Identity & crypto ---
   private async loadIdentity() {
     const privJWK = await getKeyFromSecureStorage("identity_priv");
     const pubJWK = await getKeyFromSecureStorage("identity_pub");
 
     if (privJWK && pubJWK) {
       this.identityKeyPair = {
-        privateKey: await window.crypto.subtle.importKey(
+        privateKey: await crypto.subtle.importKey(
           "jwk",
           JSON.parse(privJWK),
           { name: "ECDH", namedCurve: "P-256" },
           true,
-          ["deriveKey"]
+          ["deriveKey"],
         ),
-        publicKey: await window.crypto.subtle.importKey(
+        publicKey: await crypto.subtle.importKey(
           "jwk",
           JSON.parse(pubJWK),
           { name: "ECDH", namedCurve: "P-256" },
           true,
-          []
+          [],
         ),
       };
     } else {
-      this.identityKeyPair = await window.crypto.subtle.generateKey(
+      this.identityKeyPair = await crypto.subtle.generateKey(
         { name: "ECDH", namedCurve: "P-256" },
         true,
-        ["deriveKey"]
+        ["deriveKey"],
       );
       await setKeyFromSecureStorage(
         "identity_priv",
         JSON.stringify(
-          await window.crypto.subtle.exportKey(
-            "jwk",
-            this.identityKeyPair.privateKey
-          )
-        )
+          await crypto.subtle.exportKey("jwk", this.identityKeyPair.privateKey),
+        ),
       );
       await setKeyFromSecureStorage(
         "identity_pub",
         JSON.stringify(
-          await window.crypto.subtle.exportKey(
-            "jwk",
-            this.identityKeyPair.publicKey
-          )
-        )
+          await crypto.subtle.exportKey("jwk", this.identityKeyPair.publicKey),
+        ),
       );
     }
   }
@@ -231,12 +306,12 @@ class ChatClient extends EventEmitter {
     const rows = await queryDB("SELECT * FROM sessions");
     for (const row of rows) {
       this.sessions[row.sid] = {
-        cryptoKey: await window.crypto.subtle.importKey(
+        cryptoKey: await crypto.subtle.importKey(
           "jwk",
           JSON.parse(row.keyJWK),
           { name: "AES-GCM" },
           false,
-          ["encrypt", "decrypt"]
+          ["encrypt", "decrypt"],
         ),
         online: false,
       };
@@ -244,28 +319,28 @@ class ChatClient extends EventEmitter {
   }
 
   public async exportPub() {
-    const raw = await window.crypto.subtle.exportKey(
+    const raw = await crypto.subtle.exportKey(
       "raw",
-      this.identityKeyPair!.publicKey
+      this.identityKeyPair!.publicKey,
     );
     return btoa(String.fromCharCode(...new Uint8Array(raw)));
   }
 
   private async deriveSharedKey(pubB64: string) {
     const raw = Uint8Array.from(atob(pubB64), (c) => c.charCodeAt(0));
-    const pub = await window.crypto.subtle.importKey(
+    const pub = await crypto.subtle.importKey(
       "raw",
       raw,
       { name: "ECDH", namedCurve: "P-256" },
       false,
-      []
+      [],
     );
-    return await window.crypto.subtle.deriveKey(
+    return crypto.subtle.deriveKey(
       { name: "ECDH", public: pub },
       this.identityKeyPair!.privateKey,
       { name: "AES-GCM", length: 256 },
       true,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
   }
 
@@ -273,19 +348,20 @@ class ChatClient extends EventEmitter {
     if (!this.sessions[sid]) return;
     try {
       const combined = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-      const dec = await window.crypto.subtle.decrypt(
+      const dec = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: combined.slice(0, 12) },
         this.sessions[sid].cryptoKey,
-        combined.slice(12)
+        combined.slice(12),
       );
       const text = new TextDecoder().decode(dec);
+
       await queryDB(
         "INSERT INTO messages (sid, sender, text) VALUES (?, 'other', ?)",
-        [sid, text]
+        [sid, text],
       );
       this.emit("message", { sid, text, sender: "other" });
     } catch (e) {
-      console.error("Decryption failed", e);
+      console.error("Failed to decrypt and store message", e);
     }
   }
 }

@@ -355,10 +355,6 @@ appContainer: {
     animation: "spin 1s linear infinite",
     margin: "0 auto 15px",
   },
-
-  // NEW CALLING STYLES
-
-
   callCard: {
     background: "#0b1120",
     border: "1px solid #1e293b",

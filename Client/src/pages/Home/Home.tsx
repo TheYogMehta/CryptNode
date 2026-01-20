@@ -9,7 +9,7 @@ import { styles } from "./Home.styles";
 const Home = () => {
   const { state, actions } = useChatLogic();
   const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 768 : false
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
 
   useEffect(() => {
@@ -44,7 +44,7 @@ const Home = () => {
       />
 
       <main style={styles.mainContent}>
-        {/* Main Header with Call Actions */}
+        {/* Main Header */}
         <header style={styles.mainHeader}>
           {isMobile && (
             <button
@@ -54,8 +54,11 @@ const Home = () => {
               ☰
             </button>
           )}
-          
-          <div onClick={actions.resetToHome} style={{ cursor: "pointer", flex: 1 }}>
+
+          <div
+            onClick={actions.resetToHome}
+            style={{ cursor: "pointer", flex: 1 }}
+          >
             <h2 style={styles.headerTitle}>
               {state.activeChat
                 ? `Peer ${state.activeChat.slice(0, 8)}`
@@ -74,29 +77,22 @@ const Home = () => {
             )}
           </div>
 
-          {/* Call Icons - Only visible when a chat is active */}
-          {state.activeChat && (
+          {/* Call Buttons */}
+          {state.activeChat && !state.activeCall && (
             <div style={styles.callButtonsContainer}>
-              <button 
-                style={styles.iconBtn} 
+              <button
+                style={styles.iconBtn}
                 onClick={() => actions.startCall("Audio")}
                 title="Audio Call"
               >
                 📞
               </button>
-              <button 
-                style={styles.iconBtn} 
+              <button
+                style={styles.iconBtn}
                 onClick={() => actions.startCall("Video")}
                 title="Video Call"
               >
                 📹
-              </button>
-              {/* Dev Shortcut to simulate receiving a call */}
-              <button 
-                style={{ ...styles.iconBtn, fontSize: '10px', opacity: 0.5 }} 
-                onClick={actions.receiveCallSim}
-              >
-                SIM INCOMING
               </button>
             </div>
           )}
@@ -131,53 +127,62 @@ const Home = () => {
         </div>
       </main>
 
-      {/* CALL OVERLAY (Scenario: Outgoing & Incoming) */}
-      {state.tempCall?.isOpen && (
+      {/* CALL OVERLAY */}
+      {state.activeCall && (
         <div style={styles.modalOverlay}>
           <div style={styles.callCard}>
             <div style={styles.avatarLarge}>
               {state.activeChat ? state.activeChat[0].toUpperCase() : "P"}
             </div>
             <h2 style={{ marginBottom: "8px" }}>
-              {state.activeChat ? `Peer ${state.activeChat.slice(0, 8)}` : "Unknown Peer"}
+              {state.activeChat
+                ? `Peer ${state.activeChat.slice(0, 8)}`
+                : "Unknown Peer"}
             </h2>
-            
+
             <p style={styles.callStatus}>
-              {state.tempCall.type === "outgoing" 
-                ? `${state.tempCall.mode} calling...` 
-                : `Incoming ${state.tempCall.mode} Call`}
+              {state.activeCall.status === "outgoing" &&
+                `${state.activeCall.type} calling...`}
+              {state.activeCall.status === "ringing" &&
+                `Incoming ${state.activeCall.type} call...`}
+              {state.activeCall.status === "connected" && "00:00"}
             </p>
 
-            <div style={{ display: "flex", justifyContent: "center", gap: "32px" }}>
-              {state.tempCall.type === "incoming" ? (
+            <div
+              style={{ display: "flex", justifyContent: "center", gap: "32px" }}
+            >
+              {state.activeCall.status === "ringing" ? (
                 <>
-                  {/* Reject Button */}
-                  <button 
-                    onClick={actions.endCall}
-                    style={{ ...styles.actionCircle, backgroundColor: "#ef4444" }}
+                  <button
+                    onClick={actions.rejectCall}
+                    style={{
+                      ...styles.actionCircle,
+                      backgroundColor: "#ef4444",
+                    }}
                   >
                     ✖
                   </button>
-                  {/* Accept Button */}
-                  <button 
-                    onClick={() => alert("Connecting Call...")}
-                    style={{ ...styles.actionCircle, backgroundColor: "#22c55e" }}
+                  <button
+                    onClick={actions.acceptCall}
+                    style={{
+                      ...styles.actionCircle,
+                      backgroundColor: "#22c55e",
+                    }}
                   >
                     ✔
                   </button>
                 </>
               ) : (
-                /* Cancel/End Button for Outgoing */
-                <button 
+                <button
                   onClick={actions.endCall}
-                  style={{ 
-                    ...styles.actionCircle, 
-                    backgroundColor: "#ef4444", 
-                    width: "120px", 
-                    borderRadius: "20px" 
+                  style={{
+                    ...styles.actionCircle,
+                    backgroundColor: "#ef4444",
+                    width: "120px",
+                    borderRadius: "20px",
                   }}
                 >
-                  Cancel
+                  End Call
                 </button>
               )}
             </div>
