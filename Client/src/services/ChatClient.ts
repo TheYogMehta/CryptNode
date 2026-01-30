@@ -29,7 +29,8 @@ export class ChatClient extends EventEmitter {
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
-  private iceCandidatesQueue: RTCIceCandidate[] = [];
+  private pendingLocalCandidates: RTCIceCandidate[] = []; // Local candidates buffer
+  private canSendCandidates: boolean = false;
   private remoteAudio: HTMLAudioElement | null = null;
 
   static getInstance() {
@@ -284,6 +285,10 @@ export class ChatClient extends EventEmitter {
       );
       this.send({ t: "MSG", sid, data: { payload } });
 
+      // Unlock candidate sending and flush buffer
+      this.canSendCandidates = true;
+      this.processLocalCandidates(sid);
+
       this.emit("call_outgoing", { sid, type: mode, remoteSid: sid });
 
     } catch (err) {
@@ -327,6 +332,10 @@ export class ChatClient extends EventEmitter {
       );
       this.send({ t: "MSG", sid, data: { payload } });
 
+      // Unlock candidate sending and flush buffer
+      this.canSendCandidates = true;
+      this.processLocalCandidates(sid);
+
       this.emit("call_started", { sid, status: "connected", remoteSid: sid });
 
     } catch (err) {
@@ -335,6 +344,20 @@ export class ChatClient extends EventEmitter {
         type: "error",
         message: "Failed to accept call (Microphone error?)"
       });
+    }
+  }
+
+  private async processLocalCandidates(sid: string) {
+    while (this.pendingLocalCandidates.length) {
+      const candidate = this.pendingLocalCandidates.shift();
+      if (candidate) {
+        console.log("[ChatClient] Sending Buffered ICE candidate");
+        const payload = await this.encryptForSession(
+          sid,
+          JSON.stringify({ t: "ICE_CANDIDATE", data: candidate.toJSON() })
+        );
+        this.send({ t: "MSG", sid, data: { payload } });
+      }
     }
   }
 
@@ -349,6 +372,8 @@ export class ChatClient extends EventEmitter {
   }
 
   private cleanupCall() {
+    this.pendingLocalCandidates = [];
+    this.canSendCandidates = false;
     if (this.localStream) {
       this.localStream.getTracks().forEach(t => t.stop());
       this.localStream = null;
@@ -375,12 +400,17 @@ export class ChatClient extends EventEmitter {
 
     this.peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        console.log("[ChatClient] Sending ICE candidate");
-        const payload = await this.encryptForSession(
-          sid,
-          JSON.stringify({ t: "ICE_CANDIDATE", data: event.candidate.toJSON() })
-        );
-        this.send({ t: "MSG", sid, data: { payload } });
+        if (this.canSendCandidates) {
+          console.log("[ChatClient] Sending ICE candidate");
+          const payload = await this.encryptForSession(
+            sid,
+            JSON.stringify({ t: "ICE_CANDIDATE", data: event.candidate.toJSON() })
+          );
+          this.send({ t: "MSG", sid, data: { payload } });
+        } else {
+          console.log("[ChatClient] Buffering ICE candidate (Signaling not sent)");
+          this.pendingLocalCandidates.push(event.candidate);
+        }
       }
     };
 
