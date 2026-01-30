@@ -545,6 +545,7 @@ export class ChatClient extends EventEmitter {
               if (this.peerConnection.remoteDescription) {
                 await this.peerConnection.addIceCandidate(candidate).catch(e => {
                   console.error("[ChatClient] AddIceCandidate failed", e);
+                  this.emit("notification", { type: "error", message: "ICE Error: " + e.message });
                 });
               } else {
                 console.log("[ChatClient] Queuing ICE candidate (no remote desc)");

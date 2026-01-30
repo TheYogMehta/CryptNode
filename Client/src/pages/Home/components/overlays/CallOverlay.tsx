@@ -50,7 +50,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           {callState.status === "outgoing" && `${callState.type} calling...`}
           {callState.status === "ringing" &&
             `Incoming ${callState.type} call...`}
-          {callState.status === "connected" && formatTime(duration)}
+          {callState.status === "connected" && (
+            (callState.iceStatus === 'connected' || callState.iceStatus === 'completed')
+              ? formatTime(duration)
+              : "Connecting Media..."
+          )}
 
           {/* Debug Info */}
           {callState?.iceStatus && (
