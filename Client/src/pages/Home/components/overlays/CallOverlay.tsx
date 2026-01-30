@@ -54,8 +54,15 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
           {/* Debug Info */}
           {callState?.iceStatus && (
-            <span style={{ display: 'block', fontSize: '10px', marginTop: 10, color: '#aaa' }}>
-              Status: {callState.iceStatus}
+            <span style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              marginTop: 10,
+              color: callState.iceStatus === 'connected' ? '#22c55e' :
+                callState.iceStatus === 'failed' ? '#ef4444' : '#fbbf24'
+            }}>
+              Debug Status: {callState.iceStatus}
             </span>
           )}
         </div>

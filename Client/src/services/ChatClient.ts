@@ -261,6 +261,9 @@ export class ChatClient extends EventEmitter {
     await this.setupPeerConnection(sid);
 
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone access not supported (Check SSL/HTTPS)");
+      }
       const stream = await navigator.mediaDevices.getUserMedia(
         mode === "Audio" ? { audio: true } : { audio: true, video: true }
       );
@@ -395,8 +398,14 @@ export class ChatClient extends EventEmitter {
       const audio = document.createElement("audio");
       audio.srcObject = stream;
       audio.autoplay = true;
-      // Attach to DOM (hidden) to prevent GC and ensure playback policies
-      audio.style.display = "none";
+      audio.controls = true;
+      // Debug: Make player visible to confirm reception
+      audio.style.position = "fixed";
+      audio.style.bottom = "10px";
+      audio.style.right = "10px";
+      audio.style.zIndex = "999999";
+      audio.style.backgroundColor = "white";
+      audio.style.border = "2px solid red";
       document.body.appendChild(audio);
       this.remoteAudio = audio;
 
