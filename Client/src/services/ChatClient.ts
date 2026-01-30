@@ -29,6 +29,7 @@ export class ChatClient extends EventEmitter {
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
+  private iceCandidatesQueue: RTCIceCandidate[] = []; // Remote candidates buffer
   private pendingLocalCandidates: RTCIceCandidate[] = []; // Local candidates buffer
   private canSendCandidates: boolean = false;
   private remoteAudio: HTMLAudioElement | null = null;
