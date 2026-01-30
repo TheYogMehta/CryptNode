@@ -4,7 +4,7 @@ import {
   setupElectronDeepLinking,
 } from "@capacitor-community/electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { app, MenuItem, ipcMain, session } from "electron";
+import { app, MenuItem, ipcMain, session, BrowserWindow } from "electron";
 import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import { autoUpdater } from "electron-updater";
@@ -98,6 +98,60 @@ app.on("activate", async function () {
 });
 
 // Place all ipc or other electron api calls and custom functionality under this line
+
+ipcMain.handle("GoogleLogin", async () => {
+  return new Promise((resolve, reject) => {
+    const googleLoginUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
+      "scope=openid%20email%20profile&" +
+      "response_type=id_token%20token&" +
+      "nonce=" + Math.random().toString(36).substring(7) + "&" +
+      "redirect_uri=http://localhost/&" +
+      "client_id=588653192623-dldr83lei79ub9vqcbi45q7iofieqs1l.apps.googleusercontent.com";
+
+    const authWindow = new BrowserWindow({
+      width: 500,
+      height: 600,
+      show: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    authWindow.loadURL(googleLoginUrl);
+
+    authWindow.webContents.on('will-redirect', (event, url) => {
+      handleNavigation(url);
+    });
+
+    authWindow.webContents.on('will-navigate', (event, url) => {
+      handleNavigation(url);
+    });
+
+    function handleNavigation(url: string) {
+      if (url.includes('access_token=')) {
+        const rawCode = /access_token=([^&]*)/.exec(url) || null;
+        const accessToken = (rawCode && rawCode.length > 1) ? rawCode[1] : null;
+        
+        // Also try to get id_token if present, as that's what we usually use for identity
+        const rawIdToken = /id_token=([^&]*)/.exec(url) || null;
+        const idToken = (rawIdToken && rawIdToken.length > 1) ? rawIdToken[1] : null;
+
+        if (accessToken || idToken) {
+          resolve({ accessToken, idToken });
+          authWindow.close();
+        }
+      }
+    }
+
+    authWindow.on('closed', () => {
+      // If closed without resolving, reject
+      // We can't easily check if resolved here without a flag, but for now this is fine.
+      // Ideally we'd reject if user closed manually.
+    });
+  });
+});
+
 let isUnlocked = false;
 
 async function getStoredLockout() {

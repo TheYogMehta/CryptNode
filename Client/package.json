@@ -30,6 +30,7 @@
     "@capacitor/preferences": "^7.0.3",
     "@capacitor/push-notifications": "^7.0.0",
     "@capacitor/status-bar": "^7.0.4",
+    "@capgo/capacitor-social-login": "^7.20.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@ionic/react": "^8.5.0",

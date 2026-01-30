@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
+import { SocialLogin } from '@capgo/capacitor-social-login';
 import { styles } from './Home/Home.styles';
+import { Capacitor } from '@capacitor/core';
 import { colors } from '../theme/colors';
 
 
@@ -8,11 +10,55 @@ interface LoginProps {
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
-
+  useEffect(() => {
+    const initSocialLogin = async () => {
+      if (Capacitor.getPlatform() !== 'web' && Capacitor.getPlatform() !== 'electron') {
+         await SocialLogin.initialize({
+          google: {
+            webClientId: '588653192623-dldr83lei79ub9vqcbi45q7iofieqs1l.apps.googleusercontent.com',
+            mode: 'online', // Get profile data
+          },
+        });
+      }
+    };
+    initSocialLogin();
+  }, []);
 
   const signIn = async () => {
-    console.log('Performing mock login...');
-    onLogin("mock-auth-token-" + Date.now());
+    try {
+      if (Capacitor.getPlatform() === 'electron') {
+        // Electron Login
+        console.log('Starting Electron Google Login...');
+        const result = await window.SafeStorage.googleLogin();
+        if (result && result.idToken) {
+           console.log('Electron Login Success', result);
+           onLogin(result.idToken);
+        } else {
+           console.error('Electron Login Failed or Cancelled');
+        }
+      } else {
+        // Mobile/Web Login
+        const res = await SocialLogin.login({
+          provider: 'google',
+          options: {
+            scopes: ['email', 'profile'],
+          },
+        });
+        
+        console.log('SocialLogin Result:', res);
+        if (res.result.responseType === 'online') {
+           if (res.result.idToken) {
+             onLogin(res.result.idToken);
+           } else if (res.result.accessToken?.token) {
+              onLogin(res.result.accessToken.token); 
+           }
+        } else {
+           console.log('Received offline response:', res.result);
+        }
+      }
+    } catch (error) {
+      console.error('Sign-In Error:', error);
+    }
   };
 
   return (

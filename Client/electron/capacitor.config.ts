@@ -22,11 +22,13 @@ const config: CapacitorConfig = {
       contentMode: "scaleAspectFit",
       preventScreenshots: true,
     },
-    GoogleAuth: {
-      scopes: ["profile", "email"],
-      serverClientId: "588653192623-dldr83lei79ub9vqcbi45q7iofieqs1l.apps.googleusercontent.com",
-      forceCodeForRefreshToken: true,
+    SocialLogin: {
+      google: {
+        webClientId: "588653192623-dldr83lei79ub9vqcbi45q7iofieqs1l.apps.googleusercontent.com",
+        mode: "online"
+      }
     },
+
   },
   server: {
     androidScheme: "http",
