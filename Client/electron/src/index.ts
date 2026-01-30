@@ -105,7 +105,7 @@ ipcMain.handle("GoogleLogin", async () => {
       "scope=openid%20email%20profile&" +
       "response_type=id_token%20token&" +
       "nonce=" + Math.random().toString(36).substring(7) + "&" +
-      "redirect_uri=http://localhost/&" +
+      "redirect_uri=http://localhost:5173&" +
       "client_id=588653192623-dldr83lei79ub9vqcbi45q7iofieqs1l.apps.googleusercontent.com";
 
     const authWindow = new BrowserWindow({
