@@ -594,16 +594,18 @@ export const MessageBubble = ({ msg }: { msg: ChatMessage }) => {
       }}
     >
       <div
+        className="animate-scale-in"
         style={{
           ...styles.messageBubble,
-          backgroundColor: isMe ? "#6366f1" : "#1e293b",
+          backgroundColor: isMe ? "#6366f1" : "#27272a",
           color: "white",
           maxWidth: "70%",
-          padding: "10px 14px",
-          borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+          padding: "12px 16px",
+          borderRadius: isMe ? "20px 20px 4px 20px" : "20px 20px 20px 4px",
           display: "flex",
           flexDirection: "column",
           gap: "4px",
+          transformOrigin: isMe ? "bottom right" : "bottom left",
         }}
       >
         {msg.type === "live share port" ? (

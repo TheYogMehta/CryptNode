@@ -5,6 +5,7 @@ import { ChatWindow } from "./components/chat/ChatWindow";
 import { ConnectionSetup } from "./components/overlays/ConnectionSetup";
 import { RequestModal } from "./components/overlays/RequestModal";
 import { CallOverlay } from "./components/overlays/CallOverlay";
+import { WelcomeView } from "./components/views/WelcomeView";
 import LoadingScreen from "../LoadingScreen";
 import { Login } from "../Login";
 import { styles } from "./Home.styles";
@@ -92,7 +93,10 @@ const Home = () => {
           actions.setIsSidebarOpen(false);
         }}
         onClose={() => actions.setIsSidebarOpen(false)}
-        onLogoClick={() => actions.setView("chat")}
+        onLogoClick={() => {
+          actions.setView("welcome");
+          actions.setActiveChat(null);
+        }}
       />
 
       <main
@@ -111,7 +115,7 @@ const Home = () => {
             >
               ☰
             </button>
-            <h2 style={styles.headerTitle}>GhostTalk</h2>
+            <h2 style={styles.headerTitle} onClick={() => actions.setView("welcome")}>Chatapp</h2>
           </div>
         )}
         {state.view === "chat" && state.activeChat ? (
@@ -125,13 +129,15 @@ const Home = () => {
             peerOnline={state.peerOnline}
             onStartCall={(mode: any) => actions.startCall(mode)}
           />
-        ) : (
+        ) : state.view === "add" ? (
           <ConnectionSetup
             targetEmail={state.targetEmail}
             setTargetEmail={actions.setTargetEmail}
             onConnect={actions.handleConnect}
             isJoining={state.isJoining}
           />
+        ) : (
+          <WelcomeView onAddFriend={() => actions.setView("add")} />
         )}
       </main>
 

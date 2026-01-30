@@ -1,16 +1,16 @@
 export const colors = {
-  background: "#050505", // Deep OLED black
-  surface: "#101010",    // Slightly lighter for cards
-  surfaceHighlight: "#1c1c1e",
+  background: "#121212", // Lighter Dark / Zinc-900
+  surface: "#1e1e1e",    // Lighter surface
+  surfaceHighlight: "#272727",
   border: "#27272a",
   primary: "#6366f1",    // Indigo-500
   primaryHover: "#4f46e5",
   primaryLight: "rgba(99, 102, 241, 0.15)",
   secondary: "#10b981",  // Emerald-500
   text: {
-    primary: "#f8fafc",
+    primary: "#e2e8f0",
     secondary: "#94a3b8",
-    muted: "#52525b",
+    muted: "#71717a",
     inverse: "#000000"
   },
   status: {

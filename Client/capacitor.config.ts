@@ -22,6 +22,7 @@ const config: CapacitorConfig = {
       contentMode: "scaleAspectFit",
       preventScreenshots: true,
     },
+
   },
   server: {
     androidScheme: "http",

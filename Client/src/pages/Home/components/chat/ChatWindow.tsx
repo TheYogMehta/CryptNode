@@ -156,7 +156,7 @@ export const ChatWindow = ({
         style={{ display: "none" }}
         onChange={handleFileSelect}
       />
-      <div ref={scrollRef} style={styles.messageList}>
+      <div ref={scrollRef} style={styles.messageList} className="animate-fade-up">
         {messages.map((msg: any, i: number) => (
           <MessageBubble key={i} msg={msg} />
         ))}

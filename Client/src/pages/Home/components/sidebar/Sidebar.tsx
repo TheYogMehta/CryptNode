@@ -24,7 +24,7 @@ export const Sidebar = ({
     >
       <div style={styles.sidebarHeader}>
         <h2 style={styles.logo} onClick={onLogoClick}>
-          Ghost<span>Talk</span>
+          Chat<span>app</span>
         </h2>
         {isMobile && (
           <button onClick={onClose} style={styles.closeBtn}>

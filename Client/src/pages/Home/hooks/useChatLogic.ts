@@ -4,7 +4,7 @@ import { queryDB } from "../../../services/sqliteService";
 import { ChatMessage, InboundReq } from "../types";
 
 export const useChatLogic = () => {
-  const [view, setView] = useState<"chat" | "add">("chat");
+  const [view, setView] = useState<"chat" | "add" | "welcome">("welcome");
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<string[]>([]);
