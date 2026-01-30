@@ -320,6 +320,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.send(client, Frame{T: "DELIVERED_FAILED", SID: frame.SID})
 			}
+		case "STREAM":
+			// Fast relay for media streams (Audio/Video). No logging of content, no DB storage.
+			s.mu.Lock()
+			sess, ok := s.sessions[frame.SID]
+			s.mu.Unlock()
+
+			if !ok {
+				continue
+			}
+
+			sess.mu.Lock()
+			// Ensure sender is still part of the session
+			if _, exists := sess.clients[client.id]; exists {
+				for _, c := range sess.clients {
+					if c.id != client.id {
+						// Fire and forget - if send fails, we drop the frame to maintain real-time sync
+						// We use s.send which has a deadline, providing some backpressure handling
+						s.send(c, frame)
+					}
+				}
+			}
+			sess.mu.Unlock()
 		}
 	}
 }

@@ -26,12 +26,10 @@ export class ChatClient extends EventEmitter {
   public userEmail: string | null = null;
   private authToken: string | null = null;
   private identityKeyPair: CryptoKeyPair | null = null;
-  private peerConnection: RTCPeerConnection | null = null;
-  private localStream: MediaStream | null = null;
-  private remoteStream: MediaStream | null = null;
-  private iceCandidatesQueue: RTCIceCandidate[] = []; // Remote candidates buffer
-  private pendingLocalCandidates: RTCIceCandidate[] = []; // Local candidates buffer
-  private canSendCandidates: boolean = false;
+  private mediaRecorder: MediaRecorder | null = null;
+  private audioContext: AudioContext | null = null;
+  private nextStartTime: number = 0;
+  private isCalling: boolean = false;
   private remoteAudio: HTMLAudioElement | null = null;
 
   static getInstance() {
@@ -259,106 +257,88 @@ export class ChatClient extends EventEmitter {
 
   public async startCall(sid: string, mode: "Audio" | "Video" = "Audio") {
     if (!this.sessions[sid]) throw new Error("Session not found");
-
-    await this.setupPeerConnection(sid);
+    if (this.isCalling) return;
 
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Microphone access not supported (Check SSL/HTTPS)");
-      }
-      const stream = await navigator.mediaDevices.getUserMedia(
-        mode === "Audio" ? { audio: true } : { audio: true, video: true }
-      );
+      this.isCalling = true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log("[ChatClient] startCall: Got local stream", stream.id);
-      this.localStream = stream;
-      stream.getTracks().forEach(track => {
-        if (this.peerConnection) {
-          this.peerConnection.addTrack(track, stream);
+      
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      
+      this.mediaRecorder.ondataavailable = async (e) => {
+        if (e.data.size > 0) {
+          try {
+            const buffer = await e.data.arrayBuffer();
+            const encrypted = await this.encryptForSession(sid, buffer);
+            this.send({ t: "STREAM", sid, data: encrypted });
+          } catch (err) {
+            console.error("Encryption streaming error:", err);
+          }
         }
-      });
+      };
 
-      const offer = await this.peerConnection!.createOffer();
-      await this.peerConnection!.setLocalDescription(offer);
-
+      this.mediaRecorder.start(100); // 100ms chunks
+      
       const payload = await this.encryptForSession(
         sid,
-        JSON.stringify({ t: "OFFER", data: offer })
+        JSON.stringify({ t: "CALL_START", data: { type: mode } })
       );
       this.send({ t: "MSG", sid, data: { payload } });
 
-      // Unlock candidate sending and flush buffer
-      this.canSendCandidates = true;
-      this.processLocalCandidates(sid);
-
       this.emit("call_outgoing", { sid, type: mode, remoteSid: sid });
 
-    } catch (err) {
+    } catch (err: any) {
+      this.isCalling = false;
       console.error("Error starting call:", err);
-      // Emit notification so UI shows toast
       this.emit("notification", {
         type: "error",
         message: "Could not access microphone/camera. Please check permissions."
       });
-      // Also emit legacy error for logs
       this.emit("error", "Could not start call");
-      this.endCall(sid);
     }
   }
 
   public async acceptCall(sid: string) {
     if (!this.sessions[sid]) return;
+    if (this.isCalling) return;
 
     try {
-      if (!this.peerConnection) {
-        console.error("No peer connection to accept");
-        // Attempt to setup if missing (e.g. slight race condition or logic miss)
-        await this.setupPeerConnection(sid);
-      }
-
+      this.isCalling = true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log("[ChatClient] acceptCall: Got local stream", stream.id);
-      this.localStream = stream;
-      stream.getTracks().forEach(track => {
-        if (this.peerConnection) {
-          this.peerConnection.addTrack(track, stream);
+      
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      
+      this.mediaRecorder.ondataavailable = async (e) => {
+        if (e.data.size > 0) {
+            const buffer = await e.data.arrayBuffer();
+            const encrypted = await this.encryptForSession(sid, buffer);
+            this.send({ t: "STREAM", sid, data: encrypted });
         }
-      });
+      };
 
-      const answer = await this.peerConnection!.createAnswer();
-      await this.peerConnection!.setLocalDescription(answer);
+      this.mediaRecorder.start(100);
 
       const payload = await this.encryptForSession(
         sid,
-        JSON.stringify({ t: "ANSWER", data: answer })
+        JSON.stringify({ t: "CALL_ACCEPT" })
       );
       this.send({ t: "MSG", sid, data: { payload } });
 
-      // Unlock candidate sending and flush buffer
-      this.canSendCandidates = true;
-      this.processLocalCandidates(sid);
+      // Init playback context
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      this.nextStartTime = this.audioContext.currentTime;
 
       this.emit("call_started", { sid, status: "connected", remoteSid: sid });
 
     } catch (err) {
+      this.isCalling = false;
       console.error("Error accepting call:", err);
       this.emit("notification", {
         type: "error",
         message: "Failed to accept call (Microphone error?)"
       });
-    }
-  }
-
-  private async processLocalCandidates(sid: string) {
-    while (this.pendingLocalCandidates.length) {
-      const candidate = this.pendingLocalCandidates.shift();
-      if (candidate) {
-        console.log("[ChatClient] Sending Buffered ICE candidate");
-        const payload = await this.encryptForSession(
-          sid,
-          JSON.stringify({ t: "ICE_CANDIDATE", data: candidate.toJSON() })
-        );
-        this.send({ t: "MSG", sid, data: { payload } });
-      }
     }
   }
 
@@ -373,96 +353,44 @@ export class ChatClient extends EventEmitter {
   }
 
   private cleanupCall() {
-    this.pendingLocalCandidates = [];
-    this.canSendCandidates = false;
-    if (this.localStream) {
-      this.localStream.getTracks().forEach(t => t.stop());
-      this.localStream = null;
+    this.isCalling = false;
+    if (this.mediaRecorder) {
+      if (this.mediaRecorder.state !== 'inactive') {
+        this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        this.mediaRecorder.stop();
+      }
+      this.mediaRecorder = null;
     }
-    if (this.peerConnection) {
-      this.peerConnection.close();
-      this.peerConnection = null;
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
     }
-    if (this.remoteAudio) {
-      this.remoteAudio.pause();
-      this.remoteAudio.remove();
-      this.remoteAudio = null;
-    }
-    this.remoteStream = null;
-    this.iceCandidatesQueue = [];
   }
 
-  private async setupPeerConnection(sid: string) {
-    if (this.peerConnection) return;
-
-    this.peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-    });
-
-    this.peerConnection.onicecandidate = async (event) => {
-      if (event.candidate) {
-        if (this.canSendCandidates) {
-          console.log("[ChatClient] Sending ICE candidate");
-          const payload = await this.encryptForSession(
-            sid,
-            JSON.stringify({ t: "ICE_CANDIDATE", data: event.candidate.toJSON() })
-          );
-          this.send({ t: "MSG", sid, data: { payload } });
-        } else {
-          console.log("[ChatClient] Buffering ICE candidate (Signaling not sent)");
-          this.pendingLocalCandidates.push(event.candidate);
-        }
+  private async handleStream(frame: ServerFrame) {
+    const { sid, data } = frame;
+    try {
+      if (!this.audioContext) {
+         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+         this.nextStartTime = this.audioContext.currentTime;
       }
-    };
-
-    this.peerConnection.oniceconnectionstatechange = () => {
-      console.log("[ChatClient] ICE State:", this.peerConnection?.iceConnectionState);
-      this.emit("ice_status", this.peerConnection?.iceConnectionState);
-    };
-
-    this.peerConnection.ontrack = (event) => {
-      console.log("[ChatClient] Received remote track", event.track.kind);
-      // Use the first stream if available, otherwise create a new one with the track
-      const stream = event.streams[0] || new MediaStream([event.track]);
-      this.remoteStream = stream;
-
-      const audio = document.createElement("audio");
-      audio.srcObject = stream;
-      audio.autoplay = true;
-      audio.controls = true;
-      // Debug: Make player visible to confirm reception
-      audio.style.position = "fixed";
-      audio.style.bottom = "10px";
-      audio.style.right = "10px";
-      audio.style.zIndex = "999999";
-      audio.style.backgroundColor = "white";
-      audio.style.border = "2px solid red";
-      document.body.appendChild(audio);
-      this.remoteAudio = audio;
-
-      audio.play().catch(e => {
-        console.error("[ChatClient] Audio auto-play failed", e);
-        // Retry on interaction if needed, but for now just log
-      });
-
-      // Cleanup on track end
-      event.track.onended = () => {
-        audio.remove();
-      };
-    };
-
-    this.peerConnection.onconnectionstatechange = () => {
-      console.log("[ChatClient] Connection state:", this.peerConnection?.connectionState);
-      if (this.peerConnection?.connectionState === 'disconnected' ||
-        this.peerConnection?.connectionState === 'failed') {
-        this.cleanupCall();
-        this.emit("call_ended", sid);
+      
+      const decryptedBuffer = await this.decryptFromSession(sid, data);
+      if (decryptedBuffer) {
+         this.audioContext.decodeAudioData(decryptedBuffer, (decoded) => {
+             const source = this.audioContext!.createBufferSource();
+             source.buffer = decoded;
+             source.connect(this.audioContext!.destination);
+             if (this.nextStartTime < this.audioContext!.currentTime) {
+                 this.nextStartTime = this.audioContext!.currentTime;
+             }
+             source.start(this.nextStartTime);
+             this.nextStartTime += decoded.duration;
+         }, (e) => console.error("Decode error", e));
       }
-    };
-
-    this.peerConnection.oniceconnectionstatechange = () => {
-      console.log("[ChatClient] ICE Connection state:", this.peerConnection?.iceConnectionState);
-    };
+    } catch (e) {
+      console.error("Stream handling error", e);
+    }
   }
 
   private async handleMsg(sid: string, payload: string) {
@@ -542,50 +470,19 @@ export class ChatClient extends EventEmitter {
         case "FILE_CHUNK":
           await this.handleFileChunk(sid, data);
           break;
-        case "OFFER":
-          console.log("[ChatClient] Received OFFER");
-          await this.setupPeerConnection(sid);
-          await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(data));
-
-          while (this.iceCandidatesQueue.length) {
-            const c = this.iceCandidatesQueue.shift();
-            await this.peerConnection!.addIceCandidate(c!);
-          }
+          
+        case "CALL_START":
+          console.log("[ChatClient] Received CALL_START");
           this.emit("call_incoming", { sid, type: "Audio", remoteSid: sid });
           break;
 
-        case "ANSWER":
-          console.log("[ChatClient] Received ANSWER");
-          if (this.peerConnection) {
-            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-          }
-          // Process queued ICE candidates
-          while (this.iceCandidatesQueue.length) {
-            const c = this.iceCandidatesQueue.shift();
-            if (this.peerConnection) await this.peerConnection.addIceCandidate(c!);
+        case "CALL_ACCEPT":
+          console.log("[ChatClient] Received CALL_ACCEPT");
+          if (!this.audioContext) {
+             this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+             this.nextStartTime = this.audioContext.currentTime;
           }
           this.emit("call_started", { sid, status: "connected", remoteSid: sid });
-          break;
-
-        case "ICE_CANDIDATE":
-          try {
-            console.log("[ChatClient] Received ICE_CANDIDATE", data);
-            // Ensure data is in correct format (it should be since we send .toJSON())
-            const candidate = new RTCIceCandidate(data);
-            if (this.peerConnection) {
-              if (this.peerConnection.remoteDescription) {
-                await this.peerConnection.addIceCandidate(candidate).catch(e => {
-                  console.error("[ChatClient] AddIceCandidate failed", e);
-                  this.emit("notification", { type: "error", message: "ICE Error: " + e.message });
-                });
-              } else {
-                console.log("[ChatClient] Queuing ICE candidate (no remote desc)");
-                this.iceCandidatesQueue.push(candidate);
-              }
-            }
-          } catch (e) {
-            console.error("[ChatClient] Error handling ICE candidate", e);
-          }
           break;
 
         case "CALL_END":
@@ -760,6 +657,9 @@ export class ChatClient extends EventEmitter {
         break;
       case "MSG":
         await this.handleMsg(sid, data.payload);
+        break;
+      case "STREAM":
+        await this.handleStream(frame);
         break;
       case "PEER_ONLINE":
         if (this.sessions[sid]) {
