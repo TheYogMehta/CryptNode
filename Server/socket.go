@@ -25,10 +25,13 @@ type Frame struct {
 }
 
 type Client struct {
-	id    string
-	email string
-	conn  *websocket.Conn
-	mu    sync.Mutex
+	id          string
+	email       string
+	conn        *websocket.Conn
+	mu          sync.Mutex
+	msgCount    int
+	msgWindow   time.Time
+	lastConnect time.Time
 }
 
 type Session struct {
@@ -37,17 +40,52 @@ type Session struct {
 	mu      sync.Mutex
 }
 
+type RateLimiter struct {
+	ipAttempts map[string][]time.Time
+	mu         sync.Mutex
+}
+
 type Server struct {
 	clients         map[string]*Client
 	sessions        map[string]*Session
 	emailToClientId map[string]string
 	mu              sync.Mutex
 	logger          *log.Logger
+	rateLimiter     *RateLimiter
 }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
+
+func (rl *RateLimiter) checkAuthRateLimit(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	attempts, exists := rl.ipAttempts[ip]
+
+	// Clean up old attempts (> 1 minute)
+	validAttempts := []time.Time{}
+	if exists {
+		for _, t := range attempts {
+			if now.Sub(t) < time.Minute {
+				validAttempts = append(validAttempts, t)
+			}
+		}
+	}
+
+	if len(validAttempts) >= 3 {
+		rl.ipAttempts[ip] = validAttempts
+		return false
+	}
+
+	validAttempts = append(validAttempts, now)
+	rl.ipAttempts[ip] = validAttempts
+	return true
+}
+
+
 
 func (s *Server) newID() string {
 	b := make([]byte, 4)
@@ -218,6 +256,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 		switch frame.T {
 		case "AUTH":
+			// 1. IP Rate Limiting
+			ip := strings.Split(r.RemoteAddr, ":")[0]
+			if !s.rateLimiter.checkAuthRateLimit(ip) {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Too many login attempts. Try again later."}`)})
+				// Optional: Close connection to discourage spam
+				return
+			}
+
 			var d struct {
 				Token string `json:"token"`
 			}
@@ -252,6 +298,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
 
 		case "CONNECT_REQ":
+			client.mu.Lock()
+			if time.Since(client.lastConnect) < 5*time.Second {
+				client.mu.Unlock()
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Wait 5s between connection requests"}`)})
+				continue
+			}
+			client.lastConnect = time.Now()
+			client.mu.Unlock()
+
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Authentication required"}`)})
 				continue
@@ -354,6 +409,22 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					frame.SID,
 				)
 		case "MSG":
+			// MSG Rate Limiting
+			client.mu.Lock()
+			now := time.Now()
+			// Reset window if > 1 second has passed
+			if now.Sub(client.msgWindow) > time.Second {
+				client.msgWindow = now
+				client.msgCount = 0
+			}
+			client.msgCount++
+			if client.msgCount > 100 {
+				client.mu.Unlock()
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Max 100 msgs/sec"}`)})
+				continue
+			}
+			client.mu.Unlock()
+
 			delivered := false
 			s.mu.Lock()
 
@@ -427,6 +498,9 @@ func main() {
 		sessions:        make(map[string]*Session),
 		emailToClientId: make(map[string]string),
 		logger:          log.New(f, "", 0),
+		rateLimiter: &RateLimiter{
+			ipAttempts: make(map[string][]time.Time),
+		},
 	}
 	http.HandleFunc("/", s.handle)
 	log.Println("✅ Secure E2E Relay Server running on :9000")

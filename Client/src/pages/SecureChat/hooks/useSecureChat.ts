@@ -14,6 +14,8 @@ import {
 } from "../../../utils/secureStorage";
 import { v4 as uuidv4 } from "uuid";
 import ChatClient from "../../../services/ChatClient";
+import { AccountService } from "../../../services/AccountService";
+import { getKeyFromSecureStorage } from "../../../services/SafeStorage";
 
 export const useSecureChat = () => {
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -30,47 +32,52 @@ export const useSecureChat = () => {
     async (password: string) => {
       if (!userEmail) return;
       try {
+        // 1. Verify PIN
+        const pinKey = await AccountService.getStorageKey(
+          userEmail,
+          "app_lock_pin",
+        );
+        const storedPin = await getKeyFromSecureStorage(pinKey);
+
+        if (storedPin !== password) {
+          throw new Error("Incorrect Password");
+        }
+
+        // 2. Get Master Key
+        const masterStorageKey = await AccountService.getStorageKey(
+          userEmail,
+          "MASTER_KEY",
+        );
+        const mnemonic = await getKeyFromSecureStorage(masterStorageKey);
+
+        if (!mnemonic) {
+          throw new Error("Master Key not found. Please reset profile.");
+        }
+
+        // 3. Derive Encryption Key from Master Key (Mnemonic)
+        // We use a fixed salt for Master Key derivation to ensure determinism
+        // since the mnemonic ITSELF is high entropy.
+        // Or we can use the stored salt if we want to be extra safe, but
+        // typically the mnemonic + passphrase (optional) is the seed.
+        // Let's use the existing salt mechanism but applied to the mnemonic.
+
         let saltHex = localStorage.getItem(getSaltKey());
         let salt: Uint8Array;
 
         if (!saltHex) {
-          throw new Error("Vault not set up");
+          // If no salt exists, we might be in a weird state or first run.
+          // But valid vault should have salt.
+          // If we really want to switch to Master Key, we should validly have salt.
+          // For now, let's auto-generate if missing (implied setup) or error.
+          // Let's stick to error if missing for unlock.
+          throw new Error("Vault integrity error: Salt missing");
         } else {
           salt = new Uint8Array(
             saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
           );
         }
 
-        const derivedKey = await deriveKey(password, salt);
-
-        // Verify key by attempting to decrypt the verifier item
-        const allItems = await getAllItems();
-        // Look for the special verifier item for this user
-        const verifierItem = allItems.find(
-          (i) =>
-            i.id === `verifier_${userEmail}` ||
-            (i.metadata?.isVerifier && i.metadata?.owner === userEmail),
-        );
-
-        if (verifierItem) {
-          try {
-            const decrypted = await decryptString(
-              verifierItem.encryptedContent,
-              verifierItem.iv,
-              derivedKey,
-            );
-            if (decrypted !== "VERIFIER_CHECK") {
-              throw new Error("Incorrect Password");
-            }
-          } catch (e) {
-            // Decryption failed means wrong key
-            throw new Error("Incorrect Password");
-          }
-        }
-        // Note: For existing vaults without a verifier, we might auto-migrate or just proceed.
-        // For strict security, we should enforce it, but let's allow legacy for now or re-encrypt.
-        // Given this is a refactor, we can assume we might reset or just create it if missing?
-        // Let's assume strict check if verifier exists, else (legacy dev state) pass.
+        const derivedKey = await deriveKey(mnemonic, salt);
 
         setKey(derivedKey);
         setIsUnlocked(true);
@@ -82,7 +89,7 @@ export const useSecureChat = () => {
         setError(
           e.message === "Incorrect Password"
             ? "Incorrect Password"
-            : "Failed to unlock",
+            : "Failed to unlock: " + e.message,
         );
         return false;
       }
@@ -93,20 +100,48 @@ export const useSecureChat = () => {
 
   const setupVault = useCallback(
     async (password: string) => {
+      // NOTE: In the new flow, 'password' here is the PIN user just set/confirmed
+      // But setupVault is slightly redundant now because ProfileSetup handles PIN and Master Key.
+      // However, we still need to initialize the 'salt' and maybe a welcome message.
       if (!userEmail) return;
       try {
-        const salt = generateSalt();
-        const saltHex = Array.from(salt)
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
-        localStorage.setItem(getSaltKey(), saltHex);
+        // 1. Verify PIN (Optional, but good sanity check if we passed it in)
+        // Actually, ProfileSetup just calls this on success.
 
-        const derivedKey = await deriveKey(password, salt);
+        // 2. Ensure Master Key Exists
+        const masterStorageKey = await AccountService.getStorageKey(
+          userEmail,
+          "MASTER_KEY",
+        );
+        const mnemonic = await getKeyFromSecureStorage(masterStorageKey);
+
+        if (!mnemonic) {
+          throw new Error(
+            "Master Key not found. Complete profile setup first.",
+          );
+        }
+
+        // 3. Generate/Get Salt
+        let saltHex = localStorage.getItem(getSaltKey());
+        if (!saltHex) {
+          const salt = generateSalt();
+          saltHex = Array.from(salt)
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+          localStorage.setItem(getSaltKey(), saltHex);
+        }
+
+        const salt = new Uint8Array(
+          saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+        );
+
+        // 4. Derive Key from Mnemonic
+        const derivedKey = await deriveKey(mnemonic, salt);
         setKey(derivedKey);
         setIsUnlocked(true);
         setError(null);
 
-        // Create Verifier Item
+        // Create Verifier Item (using Mnemonic-derived key)
         const { content: encryptedVerifier, iv: verifierIv } =
           await encryptData("VERIFIER_CHECK", derivedKey);
         await storeItem({
@@ -122,7 +157,7 @@ export const useSecureChat = () => {
         await addItemWithKey(
           derivedKey,
           "text",
-          "Welcome to your Secure Vault! This data is encrypted and stored locally on your device.",
+          "Welcome to your Secure Vault! This data is encrypted using your Master Key.",
           { title: "Welcome" },
         );
         loadItems(derivedKey);
