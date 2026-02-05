@@ -14,6 +14,7 @@ import {
   Globe,
   Phone,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import { ChatMessage, SessionData } from "../../types";
 import UserAvatar from "../../../../components/UserAvatar";
@@ -29,6 +30,8 @@ interface ChatWindowProps {
   onStartCall: (mode: "Audio" | "Video") => void;
   peerOnline?: boolean;
   onBack?: () => void;
+  replyingTo?: ChatMessage | null;
+  setReplyingTo?: (msg: ChatMessage | null) => void;
 }
 
 export const ChatWindow = ({
@@ -42,6 +45,8 @@ export const ChatWindow = ({
   onStartCall,
   peerOnline,
   onBack,
+  replyingTo,
+  setReplyingTo,
 }: ChatWindowProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -321,9 +326,79 @@ export const ChatWindow = ({
         className="animate-fade-up"
       >
         {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
+          <MessageBubble key={i} msg={msg} onReply={setReplyingTo} />
         ))}
       </div>
+
+      {replyingTo && (
+        <div
+          style={{
+            margin: "0 16px 8px 16px",
+            padding: "12px",
+            backgroundColor: "rgba(255, 255, 255, 0.05)",
+            borderRadius: "12px",
+            borderLeft: "4px solid #6366f1",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            position: "relative",
+            animation: "slideUp 0.2s ease-out",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "#6366f1",
+                fontWeight: "bold",
+                marginBottom: "2px",
+              }}
+            >
+              Replying to {replyingTo.sender === "me" ? "Me" : "Other"}
+            </div>
+            <div
+              style={{
+                fontSize: "0.9rem",
+                color: "rgba(255,255,255,0.7)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {replyingTo.type === "text"
+                ? replyingTo.text
+                : `[${replyingTo.type}] ${replyingTo.text || ""}`}
+            </div>
+          </div>
+          {replyingTo.thumbnail && (
+            <img
+              src={
+                replyingTo.thumbnail.startsWith("data:")
+                  ? replyingTo.thumbnail
+                  : `data:image/jpeg;base64,${replyingTo.thumbnail}`
+              }
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "4px",
+                objectFit: "cover",
+              }}
+            />
+          )}
+          <button
+            onClick={() => setReplyingTo?.(null)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.5)",
+              cursor: "pointer",
+              padding: "4px",
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
 
       {showMenu && (
         <div style={styles.attachmentMenu}>

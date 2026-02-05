@@ -12,6 +12,7 @@ import {
   Loader2,
   Check,
   CheckCheck,
+  Reply,
 } from "lucide-react";
 
 const AudioPlayer = ({
@@ -197,9 +198,19 @@ const AudioPlayer = ({
   );
 };
 
-export const MessageBubble = ({ msg }: { msg: ChatMessage }) => {
+export const MessageBubble = ({
+  msg,
+  onReply,
+}: {
+  msg: ChatMessage;
+  onReply?: (msg: ChatMessage | null) => void;
+}) => {
   const isMe = msg.sender === "me";
   const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const touchStartX = useRef(0);
+  const touchMoveX = useRef(0);
 
   const [isDecrypted, setIsDecrypted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -583,6 +594,31 @@ export const MessageBubble = ({ msg }: { msg: ChatMessage }) => {
     return null;
   };
 
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    setIsSwiping(true);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!isSwiping) return;
+    touchMoveX.current = e.touches[0].clientX;
+    const diff = touchMoveX.current - touchStartX.current;
+    if (diff > 0) {
+      setSwipeOffset(Math.min(diff, 60));
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (swipeOffset >= 50 && onReply) {
+      onReply(msg);
+      if (window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(10);
+      }
+    }
+    setSwipeOffset(0);
+    setIsSwiping(false);
+  };
+
   return (
     <div
       style={{
@@ -591,8 +627,31 @@ export const MessageBubble = ({ msg }: { msg: ChatMessage }) => {
         display: "flex",
         width: "100%",
         marginBottom: "8px",
+        overflow: "hidden",
+        position: "relative",
       }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: "60px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: swipeOffset / 50,
+          transform: `translateX(${swipeOffset - 60}px)`,
+          color: "#6366f1",
+        }}
+      >
+        <Reply size={20} />
+      </div>
+
       <div
         className="animate-scale-in"
         style={{
@@ -604,10 +663,111 @@ export const MessageBubble = ({ msg }: { msg: ChatMessage }) => {
           borderRadius: isMe ? "20px 20px 4px 20px" : "20px 20px 20px 4px",
           display: "flex",
           flexDirection: "column",
-          gap: "4px",
           transformOrigin: isMe ? "bottom right" : "bottom left",
+          transform: `translateX(${swipeOffset}px)`,
+          transition: isSwiping
+            ? "none"
+            : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
         }}
       >
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReply?.(msg);
+            }}
+            className="reply-btn"
+            style={{
+              position: "absolute",
+              right: isMe ? "auto" : "-40px",
+              left: isMe ? "-40px" : "auto",
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "rgba(255,255,255,0.05)",
+              border: "none",
+              borderRadius: "50%",
+              width: "32px",
+              height: "32px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "rgba(255,255,255,0.4)",
+              cursor: "pointer",
+              opacity: 0,
+              transition: "opacity 0.2s, background 0.2s",
+            }}
+          >
+            <Reply size={16} />
+          </button>
+
+          <style>
+            {`
+               .animate-scale-in:hover .reply-btn {
+                 opacity: 1 !important;
+               }
+               .reply-btn:hover {
+                 background: rgba(255,255,255,0.1) !important;
+                 color: white !important;
+               }
+             `}
+          </style>
+        </div>
+        {msg.replyTo && (
+          <div
+            style={{
+              padding: "8px",
+              backgroundColor: "rgba(0,0,0,0.15)",
+              borderRadius: "8px",
+              borderLeft: "3px solid rgba(255,255,255,0.3)",
+              marginBottom: "4px",
+              fontSize: "0.85rem",
+              opacity: 0.9,
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontWeight: "bold",
+                  fontSize: "0.75rem",
+                  marginBottom: "2px",
+                }}
+              >
+                {msg.replyTo.sender}
+              </div>
+              <div
+                style={{
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  fontSize: "0.8rem",
+                  opacity: 0.8,
+                }}
+              >
+                {msg.replyTo.type === "text"
+                  ? msg.replyTo.text
+                  : `[${msg.replyTo.type}] ${msg.replyTo.text || ""}`}
+              </div>
+            </div>
+            {msg.replyTo.thumbnail && (
+              <img
+                src={
+                  msg.replyTo.thumbnail.startsWith("data:")
+                    ? msg.replyTo.thumbnail
+                    : `data:image/jpeg;base64,${msg.replyTo.thumbnail}`
+                }
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "4px",
+                  objectFit: "cover",
+                }}
+              />
+            )}
+          </div>
+        )}
         {msg.type === "system" ? (
           <div
             style={{

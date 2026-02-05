@@ -42,6 +42,7 @@ const SCHEMA = {
       status INTEGER DEFAULT 1,
       is_read INTEGER DEFAULT 0,
       _ver INTEGER DEFAULT 2,
+      reply_to TEXT,
       FOREIGN KEY(sid) REFERENCES sessions(sid) ON DELETE CASCADE
     `,
     indices: ["CREATE INDEX IF NOT EXISTS idx_msg_sid ON messages(sid);"],

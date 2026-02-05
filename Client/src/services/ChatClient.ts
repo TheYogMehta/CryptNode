@@ -79,7 +79,12 @@ export class ChatClient extends EventEmitter {
             row.sid,
             JSON.stringify({
               t: "MSG",
-              data: { text: row.text, id: row.id, timestamp: row.timestamp },
+              data: {
+                text: row.text,
+                id: row.id,
+                timestamp: row.timestamp,
+                replyTo: row.reply_to ? JSON.parse(row.reply_to) : undefined,
+              },
             }),
           );
           this.send({ t: "MSG", sid: row.sid, data: { payload } });
@@ -118,20 +123,23 @@ export class ChatClient extends EventEmitter {
     this.send({ t: "JOIN_DENY", sid });
   }
 
-  public async sendMessage(sid: string, text: string) {
+  public async sendMessage(sid: string, text: string, replyTo?: any) {
     if (!this.sessions[sid]) throw new Error("Session not found");
 
     const msgId = crypto.randomUUID();
     const timestamp = Date.now();
     const payload = await this.encryptForSession(
       sid,
-      JSON.stringify({ t: "MSG", data: { text, id: msgId, timestamp } }),
+      JSON.stringify({
+        t: "MSG",
+        data: { text, id: msgId, timestamp, replyTo },
+      }),
     );
     this.send({ t: "MSG", sid, data: { payload } });
     try {
       await executeDB(
-        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, 'me', ?, 'text', ?, 1)",
-        [msgId, sid, text, timestamp],
+        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
+        [msgId, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
     } catch (e) {
       console.error("[Client] Failed to save sent message:", e);
@@ -502,8 +510,14 @@ export class ChatClient extends EventEmitter {
         case "MSG":
           try {
             await executeDB(
-              "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, 'other', ?, 'text', ?, 2)",
-              [data.id, sid, data.text, data.timestamp],
+              "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, 'text', ?, 2, ?)",
+              [
+                data.id,
+                sid,
+                data.text,
+                data.timestamp,
+                data.replyTo ? JSON.stringify(data.replyTo) : null,
+              ],
             );
           } catch (e) {
             console.error("[Client] Failed to save received message:", e);
@@ -514,6 +528,7 @@ export class ChatClient extends EventEmitter {
             sender: "other",
             type: "text",
             id: data.id,
+            replyTo: data.replyTo,
           });
           break;
         case "FILE_INFO":
@@ -657,7 +672,7 @@ export class ChatClient extends EventEmitter {
                     avatarBase64 = await StorageService.readChunk(
                       me.public_avatar,
                       0,
-                    ); 
+                    );
                     const src = await StorageService.getFileSrc(
                       me.public_avatar,
                     );
@@ -805,12 +820,21 @@ export class ChatClient extends EventEmitter {
     type: string,
     sender: string,
     forceId?: string,
+    replyTo?: any,
   ): Promise<string> {
     const id = forceId || crypto.randomUUID();
     const timestamp = Date.now();
     await executeDB(
-      "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, ?, ?, ?, ?, 1)",
-      [id, sid, sender, text, type, timestamp],
+      "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+      [
+        id,
+        sid,
+        sender,
+        text,
+        type,
+        timestamp,
+        replyTo ? JSON.stringify(replyTo) : null,
+      ],
     );
     return id;
   }

@@ -43,6 +43,14 @@ export interface ChatMessage {
   mediaCurrentSize?: number;
   mediaProgress?: number;
   mediaMime?: string;
+  replyTo?: {
+    id: string;
+    text?: string;
+    sender: string;
+    type: string;
+    mediaFilename?: string;
+    thumbnail?: string;
+  };
 }
 
 export interface InboundReq {

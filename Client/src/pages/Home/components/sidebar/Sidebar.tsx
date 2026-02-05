@@ -13,6 +13,7 @@ export const Sidebar = ({
   onLogoClick,
   onSettings,
   onRename,
+  onOpenVault,
 }: {
   sessions: SessionData[];
   activeChat: string | null;
@@ -24,6 +25,7 @@ export const Sidebar = ({
   onLogoClick: () => void;
   onSettings: () => void;
   onRename: (sid: string, currentName: string) => void;
+  onOpenVault: () => void;
 }) => (
   <>
     {isOpen && isMobile && (
@@ -48,6 +50,27 @@ export const Sidebar = ({
       </div>
 
       <div style={styles.sessionList}>
+        <p style={styles.sectionLabel}>PINNED</p>
+        <SidebarItem
+          key="secure-chat"
+          data={{
+            sid: "secure-vault",
+            alias_name: "Secure Vault",
+            alias_avatar: "",
+            peer_name: "Secure Vault",
+            peer_avatar: "",
+            lastMsg: "Encrypted Storage",
+            lastMsgType: "text",
+            lastTs: Date.now(),
+            unread: 0,
+            online: true,
+            peerEmail: "vault@local",
+          }}
+          isActive={activeChat === "secure-vault"}
+          onSelect={() => onOpenVault()}
+          onRename={() => {}}
+        />
+
         <p style={styles.sectionLabel}>SECURE SESSIONS</p>
 
         {sessions.length === 0 ? (

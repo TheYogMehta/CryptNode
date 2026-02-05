@@ -16,6 +16,8 @@ import ChatClient from "../../services/ChatClient";
 import { Login } from "../Login";
 import { styles } from "./Home.styles";
 import { RenameModal } from "./components/overlays/RenameModal";
+import { useHistory } from "react-router-dom";
+import SecureChatWindow from "../../pages/SecureChat/SecureChatWindow";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -45,6 +47,7 @@ class ErrorBoundary extends React.Component<
 }
 
 const Home = () => {
+  const history = useHistory();
   const { state, actions } = useChatLogic();
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
@@ -202,6 +205,11 @@ const Home = () => {
           onRename={(sid, currentName) =>
             setRenameTarget({ sid, name: currentName })
           }
+          onOpenVault={() => {
+            actions.setActiveChat("secure-vault");
+            actions.setView("chat");
+            actions.setIsSidebarOpen(false);
+          }}
         />
 
         <main
@@ -226,9 +234,21 @@ const Home = () => {
               >
                 Chatapp
               </h2>
+              <button
+                onClick={() => history.push("/secure-chat")}
+                style={{
+                  ...styles.menuBtn,
+                  marginLeft: "auto",
+                  fontSize: "1.2rem",
+                }}
+              >
+                🔒
+              </button>
             </div>
           )}
-          {state.view === "chat" && state.activeChat ? (
+          {state.view === "chat" && state.activeChat === "secure-vault" ? (
+            <SecureChatWindow />
+          ) : state.view === "chat" && state.activeChat ? (
             <ChatWindow
               messages={state.messages}
               input={state.input}
@@ -242,6 +262,8 @@ const Home = () => {
               onBack={
                 isMobile ? () => actions.setIsSidebarOpen(true) : undefined
               }
+              replyingTo={state.replyingTo}
+              setReplyingTo={actions.setReplyingTo}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup

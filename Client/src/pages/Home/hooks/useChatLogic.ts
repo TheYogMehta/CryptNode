@@ -11,6 +11,7 @@ export const useChatLogic = () => {
   const [input, setInput] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [targetEmail, setTargetEmail] = useState("");
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
 
   const [isWaiting, setIsWaiting] = useState(false);
   const [inboundReq, setInboundReq] = useState<InboundReq | null>(null);
@@ -45,6 +46,9 @@ export const useChatLogic = () => {
   }, [activeChat]);
 
   const loadSessions = async () => {
+    // Prevent DB access before auth (key not set)
+    if (!ChatClient.userEmail) return;
+
     const rows = await queryDB(`
       SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email,
              (SELECT text FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsg,
@@ -88,7 +92,11 @@ export const useChatLogic = () => {
        LIMIT 30`,
       [sid],
     );
-    setMessages((rows as any).reverse());
+    const formatted = rows.map((r: any) => ({
+      ...r,
+      replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
+    }));
+    setMessages(formatted.reverse());
   };
 
   useEffect(() => {
@@ -251,8 +259,27 @@ export const useChatLogic = () => {
   const handleSend = async () => {
     if (!input.trim() || !activeChat) return;
     const currentInput = input;
+    const currentReplyTo = replyingTo;
+
     setInput("");
-    await ChatClient.sendMessage(activeChat, currentInput);
+    setReplyingTo(null);
+
+    const replyContext =
+      currentReplyTo && currentReplyTo.id
+        ? {
+            id: currentReplyTo.id,
+            text: currentReplyTo.text,
+            sender:
+              currentReplyTo.sender === "me"
+                ? "Me"
+                : currentReplyTo.sender || "Other",
+            type: currentReplyTo.type,
+            mediaFilename: currentReplyTo.mediaFilename,
+            thumbnail: currentReplyTo.thumbnail,
+          }
+        : undefined;
+
+    await ChatClient.sendMessage(activeChat, currentInput, replyContext);
 
     const newMsg: ChatMessage = {
       sid: activeChat,
@@ -261,6 +288,7 @@ export const useChatLogic = () => {
       timestamp: Date.now(),
       type: "text",
       status: 1,
+      replyTo: replyContext,
     };
 
     setMessages((prev) => [...prev, newMsg]);
@@ -335,12 +363,14 @@ export const useChatLogic = () => {
       notification,
       userEmail,
       isLoading,
+      replyingTo,
     },
     actions: {
       login: (token: string) => ChatClient.login(token),
       setView,
       setActiveChat,
       setInput,
+      setReplyingTo,
       setTargetEmail,
       setIsSidebarOpen,
       setInboundReq,
