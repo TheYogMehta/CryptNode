@@ -1,10 +1,10 @@
 import { CapacitorSQLite } from "@capacitor-community/sqlite";
 import { Filesystem, Directory } from "@capacitor/filesystem";
-import { getKeyFromSecureStorage } from "./SafeStorage";
 
 let dbReady: Promise<void> | null = null;
 let currentDbName = "chatapp";
 let currentKey: string | null = null;
+let lastSecretSet: string | null = null;
 
 const SCHEMA = {
   me: {
@@ -75,26 +75,9 @@ const SCHEMA = {
       "CREATE INDEX IF NOT EXISTS idx_shares_msg ON live_shares(message_id);",
     ],
   },
-  vault: {
-    columns: `
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT,
-      metadata TEXT,
-      encrypted_data TEXT,
-      timestamp INTEGER
-    `,
-    indices: [],
-  },
 };
 
-const tableOrder = [
-  "me",
-  "sessions",
-  "messages",
-  "media",
-  "live_shares",
-  "vault",
-];
+const tableOrder = ["me", "sessions", "messages", "media", "live_shares"];
 
 export const getCurrentDbName = () => currentDbName;
 
@@ -114,12 +97,15 @@ export const dbInit = () => {
   if (dbReady) return dbReady;
   dbReady = (async () => {
     const key = currentKey;
-    if (key) {
+    if (key && lastSecretSet !== key) {
       try {
         await CapacitorSQLite.setEncryptionSecret({ passphrase: key });
+        lastSecretSet = key;
       } catch (e: any) {
-        if (e.message && e.message.includes("passphrase already in store")) {
+        const msg = e.message || JSON.stringify(e);
+        if (msg.includes("passphrase already in store")) {
           console.log("[sqlite] Passphrase already in store, continuing...");
+          lastSecretSet = key; // Treat as success since it's already set
         } else {
           console.warn("Failed to set encryption key/secret:", e);
         }
@@ -245,7 +231,6 @@ export const getMessages = async (
     "SELECT * FROM messages WHERE sid = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
     [sid, limit, offset],
   );
-  // Return in chronological order for the UI
   return res ? res.reverse() : [];
 };
 
@@ -312,27 +297,4 @@ export const deleteDatabase = async () => {
   } catch (e) {
     console.error(`[sqlite] Failed to delete database ${currentDbName}`, e);
   }
-};
-
-export const getVaultItems = async () => {
-  const rows = await queryDB("SELECT * FROM vault ORDER BY timestamp DESC");
-  return rows.map((row) => ({
-    ...row,
-    metadata: JSON.parse(row.metadata),
-  }));
-};
-
-export const addVaultItem = async (
-  type: string,
-  encrypted_data: string,
-  metadata: any,
-) => {
-  await executeDB(
-    "INSERT INTO vault (type, encrypted_data, metadata, timestamp) VALUES (?, ?, ?, ?)",
-    [type, encrypted_data, JSON.stringify(metadata), Date.now()],
-  );
-};
-
-export const deleteVaultItem = async (id: number) => {
-  await executeDB("DELETE FROM vault WHERE id = ?", [id]);
 };

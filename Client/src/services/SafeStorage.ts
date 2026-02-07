@@ -65,6 +65,7 @@ export async function decryptData(payload: string): Promise<string | null> {
       key,
       raw.slice(12),
     );
+
     return new TextDecoder().decode(decrypted);
   } catch (e) {
     console.error("[SafeStorage] Decryption failed:", e);
@@ -84,7 +85,9 @@ export async function setKeyFromSecureStorage(
       await SecureStoragePlugin.set({ key, value: await encryptData(value) });
     } else {
       const encrypted = await encryptData(value);
-      console.log(`[SafeStorage] Setting key ${key}, encrypted size: ${encrypted.length}`);
+      console.log(
+        `[SafeStorage] Setting key ${key}, encrypted size: ${encrypted.length}`,
+      );
       await (window as any).SafeStorage.setKey(key, encrypted);
     }
   } catch (e) {

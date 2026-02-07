@@ -35,7 +35,6 @@ export const StorageService = {
     const fileName = `${identifier}.jpg`;
     const path = `${PROFILE_DIR}/${fileName}`;
 
-    // Ensure directory exists
     try {
       await Filesystem.mkdir({
         path: PROFILE_DIR,
@@ -46,7 +45,6 @@ export const StorageService = {
       // Ignore if exists
     }
 
-    // Overwrite existing
     await Filesystem.writeFile({
       path,
       data,
@@ -212,7 +210,7 @@ export const StorageService = {
     if (start >= base64.length) return "";
 
     const end = Math.min(start + CHUNK_SIZE, base64.length);
-    return base64.slice(start, end); // ✅ PURE BASE64
+    return base64.slice(start, end);
   },
 
   readFile: async (fileName: string): Promise<string> => {
@@ -221,7 +219,6 @@ export const StorageService = {
     const directory = isLocal ? undefined : Directory.Data;
 
     try {
-      // Try reading from PROFILE_DIR first if it's a jpg
       if (!isLocal && fileName.endsWith(".jpg")) {
         try {
           const file = await Filesystem.readFile({
@@ -284,8 +281,6 @@ export const StorageService = {
           });
         }
       } else {
-        // Try reading from PROFILE_DIR first if it looks like a profile image or just try both
-        // Profile images are forced to .jpg in saveProfileImage
         if (fileName.endsWith(".jpg")) {
           try {
             const file = await Filesystem.readFile({
@@ -295,10 +290,9 @@ export const StorageService = {
             });
             base64Data = typeof file.data === "string" ? file.data : "";
           } catch {
-            // Fallback to vault if not found (legacy or misnamed)
             try {
               const file = await Filesystem.readFile({
-                path, // VAULT_DIR path
+                path,
                 directory,
                 encoding: Encoding.UTF8,
               });
@@ -310,7 +304,6 @@ export const StorageService = {
             }
           }
         } else {
-          // Standard vault file
           const file = await Filesystem.readFile({
             path,
             directory,
@@ -358,7 +351,6 @@ export const StorageService = {
   ): Promise<string> => {
     const platform = Capacitor.getPlatform();
 
-    // ---------- ANDROID ----------
     if (platform === "android") {
       const srcPath = `${VAULT_DIR}/${vaultFileName}`;
       const folderName = "Download/chatapp";
@@ -405,7 +397,6 @@ export const StorageService = {
       return `Downloads/chatapp/${finalName}`;
     }
 
-    // ---------- ELECTRON ----------
     if (platform === "electron") {
       const fs = window.require("fs");
       const path = window.require("path");
@@ -437,7 +428,6 @@ export const StorageService = {
       return path.join("Downloads", "chatapp", finalName);
     }
 
-    // ---------- UNSUPPORTED ----------
     throw new Error(`UNSUPPORTED_PLATFORM: ${platform}`);
   },
 };

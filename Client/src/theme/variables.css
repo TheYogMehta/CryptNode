@@ -1,6 +1,4 @@
-/* Ionic Variables Override - Premium Dark Theme */
 :root {
-  /* Core Colors */
   --ion-color-primary: #6366f1;
   --ion-color-primary-rgb: 99, 102, 241;
   --ion-color-primary-contrast: #ffffff;
@@ -11,15 +9,10 @@
   --ion-color-secondary: #10b981;
   --ion-color-secondary-rgb: 16, 185, 129;
   --ion-color-secondary-contrast: #ffffff;
-
-  /* App Background (Lighter Dark / Zinc-900) - Changed from #050505 */
   --ion-background-color: #121212;
   --ion-background-color-rgb: 18, 18, 18;
-
   --ion-text-color: #e2e8f0;
   --ion-text-color-rgb: 226, 232, 240;
-
-  /* Step Colors for transparency layers - Adjusted for #121212 base */
   --ion-color-step-50: #1e1e1e;
   --ion-color-step-100: #292929;
   --ion-color-step-150: #353535;
@@ -39,18 +32,13 @@
   --ion-color-step-850: #d6d6d6;
   --ion-color-step-900: #e1e1e1;
   --ion-color-step-950: #ededed;
-  
   --ion-toolbar-background: #121212;
   --ion-toolbar-border-color: #27272a;
-  
-  --ion-item-background: #1e1e1e; /* Lighter than background for depth */
+  --ion-item-background: #1e1e1e;
   --ion-item-border-color: #3f3f46;
-  
   --ion-card-background: #1e1e1e;
   --ion-card-color: #f1f5f9;
-
-  /* Rounded + Square Mix */
-  --ion-border-radius: 16px; /* Increased from default */
+  --ion-border-radius: 16px;
   --border-radius-large: 24px;
 }
 
@@ -58,16 +46,14 @@
 
 body {
   background-color: var(--ion-background-color);
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: "Inter", system-ui, sans-serif !important;
 }
-
-/* Custom Utilities for Premium Look */
 .glass-panel {
-  background: rgba(30, 30, 30, 0.7); /* Adjusted for lighter theme */
+  background: rgba(30, 30, 30, 0.7);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px; 
+  border-radius: 16px;
 }
 
 .title-large {
@@ -89,7 +75,6 @@ ion-content {
   justify-content: flex-start;
 }
 
-/* Animations */
 @keyframes fadeInScale {
   from {
     opacity: 0;
@@ -120,7 +105,6 @@ ion-content {
   animation: slideUpFade 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-/* Mixed Shape Utility specifically for chat bubbles or cards */
 .shape-mixed {
   border-radius: 20px 20px 4px 20px;
 }

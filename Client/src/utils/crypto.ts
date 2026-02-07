@@ -94,7 +94,6 @@ export const generateRandomPassword = (length: number = 16): string => {
   return retVal;
 };
 
-// Helper to convert buffers to base64 for storage if needed, though IndexedDB handles blobs/buffers fine.
 export function bufferToBase64(buf: Uint8Array): string {
   const binString = Array.from(buf, (byte) => String.fromCodePoint(byte)).join(
     "",

@@ -5,6 +5,8 @@ import {
   decryptString,
   decryptData,
   generateSalt,
+  bufferToBase64,
+  base64ToBuffer,
 } from "../../../utils/crypto";
 import {
   storeItem,
@@ -12,6 +14,7 @@ import {
   deleteItem,
   VaultItem,
 } from "../../../utils/secureStorage";
+import { StorageService } from "../../../utils/Storage";
 import { v4 as uuidv4 } from "uuid";
 import ChatClient from "../../../services/ChatClient";
 import { AccountService } from "../../../services/AccountService";
@@ -22,8 +25,6 @@ export const useSecureChat = () => {
   const [key, setKey] = useState<CryptoKey | null>(null);
   const [items, setItems] = useState<VaultItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  // Get current user email for namespacing
   const userEmail = ChatClient.userEmail;
 
   const getSaltKey = () => `secure_chat_salt_${userEmail}`;
@@ -53,23 +54,10 @@ export const useSecureChat = () => {
         if (!mnemonic) {
           throw new Error("Master Key not found. Please reset profile.");
         }
-
-        // 3. Derive Encryption Key from Master Key (Mnemonic)
-        // We use a fixed salt for Master Key derivation to ensure determinism
-        // since the mnemonic ITSELF is high entropy.
-        // Or we can use the stored salt if we want to be extra safe, but
-        // typically the mnemonic + passphrase (optional) is the seed.
-        // Let's use the existing salt mechanism but applied to the mnemonic.
-
         const saltHex = localStorage.getItem(getSaltKey());
         let salt: Uint8Array;
 
         if (!saltHex) {
-          // If no salt exists, we might be in a weird state or first run.
-          // But valid vault should have salt.
-          // If we really want to switch to Master Key, we should validly have salt.
-          // For now, let's auto-generate if missing (implied setup) or error.
-          // Let's stick to error if missing for unlock.
           throw new Error("Vault integrity error: Salt missing");
         } else {
           salt = new Uint8Array(
@@ -100,15 +88,8 @@ export const useSecureChat = () => {
 
   const setupVault = useCallback(
     async (password: string) => {
-      // NOTE: In the new flow, 'password' here is the PIN user just set/confirmed
-      // But setupVault is slightly redundant now because ProfileSetup handles PIN and Master Key.
-      // However, we still need to initialize the 'salt' and maybe a welcome message.
       if (!userEmail) return;
       try {
-        // 1. Verify PIN (Optional, but good sanity check if we passed it in)
-        // Actually, ProfileSetup just calls this on success.
-
-        // 2. Ensure Master Key Exists
         const masterStorageKey = await AccountService.getStorageKey(
           userEmail,
           "MASTER_KEY",
@@ -121,7 +102,6 @@ export const useSecureChat = () => {
           );
         }
 
-        // 3. Generate/Get Salt
         let saltHex = localStorage.getItem(getSaltKey());
         if (!saltHex) {
           const salt = generateSalt();
@@ -135,25 +115,26 @@ export const useSecureChat = () => {
           saltHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
         );
 
-        // 4. Derive Key from Mnemonic
         const derivedKey = await deriveKey(mnemonic, salt);
         setKey(derivedKey);
         setIsUnlocked(true);
         setError(null);
 
-        // Create Verifier Item (using Mnemonic-derived key)
         const { content: encryptedVerifier, iv: verifierIv } =
           await encryptData("VERIFIER_CHECK", derivedKey);
+
+        const verifierBase64 = bufferToBase64(encryptedVerifier);
+        const verifierFile = await StorageService.saveRawFile(verifierBase64);
+
         await storeItem({
           id: `verifier_${userEmail}`,
           type: "text",
-          encryptedContent: encryptedVerifier,
+          encryptedFilePath: verifierFile,
           iv: verifierIv,
           metadata: { owner: userEmail, isVerifier: true },
           timestamp: Date.now(),
         });
 
-        // Create a welcome note
         await addItemWithKey(
           derivedKey,
           "text",
@@ -170,14 +151,6 @@ export const useSecureChat = () => {
 
   const loadItems = async (currentKey: CryptoKey) => {
     try {
-      // Filter items by userEmail if we add user separation to IndexedDB too.
-      // For now, since it's local only, we might want to filter by ownership or use separate stores.
-      // But for this refactor, let's just filter by a naming convention or metadata?
-      // Actually, since encryption key depends on user password, other user's items won't decrypt properly anyway (garbage),
-      // but it's cleaner to only show owned items.
-      // Let's assume we filter by metadata.owner if we add it, or just rely on encryption.
-      // UPDATED PLAN: Add `owner` field to metadata.
-
       const all = await getAllItems();
       const myItems = all.filter((i) => i.metadata?.owner === userEmail);
 
@@ -210,10 +183,13 @@ export const useSecureChat = () => {
     metadata: any,
   ) => {
     const { content: encrypted, iv } = await encryptData(content, k);
+    const base64 = bufferToBase64(encrypted);
+    const fileName = await StorageService.saveRawFile(base64);
+
     const item: VaultItem = {
       id: uuidv4(),
       type,
-      encryptedContent: encrypted,
+      encryptedFilePath: fileName,
       iv,
       metadata,
       timestamp: Date.now(),
@@ -232,10 +208,21 @@ export const useSecureChat = () => {
   const decryptItemContent = useCallback(
     async (item: VaultItem) => {
       if (!key) throw new Error("Locked");
-      if (item.type === "text" || item.type === "password") {
-        return decryptString(item.encryptedContent, item.iv, key);
+
+      let encryptedContent: Uint8Array;
+
+      if (item.encryptedFilePath) {
+        const base64 = await StorageService.readFile(item.encryptedFilePath);
+        if (!base64) throw new Error("File not found or empty");
+        encryptedContent = base64ToBuffer(base64);
       } else {
-        return decryptData(item.encryptedContent, item.iv, key);
+        throw new Error("Invalid item format");
+      }
+
+      if (item.type === "text" || item.type === "password") {
+        return decryptString(encryptedContent, item.iv, key);
+      } else {
+        return decryptData(encryptedContent, item.iv, key);
       }
     },
     [key],

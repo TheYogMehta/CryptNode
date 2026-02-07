@@ -1,13 +1,15 @@
+import { StorageService } from "./Storage";
+
 const DB_NAME = "SecureChatVault";
 const STORE_NAME = "vault_items";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface VaultItem {
-  id: string; // unique ID
+  id: string;
   type: "text" | "file" | "password";
-  encryptedContent: Uint8Array;
+  encryptedFilePath: string;
   iv: Uint8Array;
-  metadata: any; // Unencrypted metadata (e.g. timestamp, or encrypted metadata if preferred, but type/timestamp is usually fine)
+  metadata: any;
   timestamp: number;
 }
 
@@ -17,9 +19,12 @@ export const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
+
+      if (db.objectStoreNames.contains(STORE_NAME)) {
+        db.deleteObjectStore(STORE_NAME);
       }
+
+      const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
     };
 
     request.onsuccess = (event) => {
@@ -70,6 +75,19 @@ export const getAllItems = async (): Promise<VaultItem[]> => {
 
 export const deleteItem = async (id: string): Promise<void> => {
   const db = await openDB();
+  const item = await getItem(id);
+
+  if (item?.encryptedFilePath) {
+    try {
+      await StorageService.deleteFile(item.encryptedFilePath);
+    } catch (e) {
+      console.warn(
+        `[SecureStorage] Failed to delete file ${item.encryptedFilePath}`,
+        e,
+      );
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], "readwrite");
     const store = transaction.objectStore(STORE_NAME);
