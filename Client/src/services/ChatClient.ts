@@ -9,6 +9,10 @@ import {
 import socket from "./SocketManager";
 import { generateThumbnail } from "../utils/imageUtils";
 import { StorageService } from "../utils/Storage";
+import * as bip39 from "bip39";
+import { Buffer } from "buffer";
+
+(window as any).Buffer = Buffer;
 
 interface ServerFrame {
   t: string;
@@ -1096,10 +1100,7 @@ export class ChatClient extends EventEmitter {
           );
           if (!key) {
             console.log("[Client] Generating new MASTER_KEY for user");
-            const raw = crypto.getRandomValues(new Uint8Array(32));
-            key = Array.from(raw)
-              .map((b) => b.toString(16).padStart(2, "0"))
-              .join("");
+            key = bip39.generateMnemonic(128);
             await setKeyFromSecureStorage(
               await AccountService.getStorageKey(data.email, "MASTER_KEY"),
               key,

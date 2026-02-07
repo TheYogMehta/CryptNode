@@ -5,6 +5,7 @@ import {
   getKeyFromSecureStorage,
   setKeyFromSecureStorage,
 } from "../../../../services/SafeStorage";
+import { StorageService } from "../../../../utils/Storage";
 import { AppLockScreen } from "./AppLockScreen";
 import { Clipboard } from "@capacitor/clipboard";
 import * as bip39 from "bip39";
@@ -47,12 +48,24 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         "MASTER_KEY",
       );
       let key = await getKeyFromSecureStorage(storageKey);
+
       if (!key) {
         key = bip39.generateMnemonic(128);
         await setKeyFromSecureStorage(storageKey, key);
         setMasterKey(key);
         setStep("master_key");
         return;
+      }
+
+      if (key && !key.includes(" ") && /^[0-9a-fA-F]+$/.test(key)) {
+        try {
+          const mnemonic = bip39.entropyToMnemonic(key);
+          setMasterKey(mnemonic);
+          setStep("master_key");
+          return;
+        } catch (e) {
+          console.log("Failed to convert hex to mnemonic", e);
+        }
       }
 
       // 2. Check PIN
@@ -87,7 +100,17 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
     }
   };
 
-  const handleMasterKeyNext = () => {
+  const handleMasterKeyNext = async () => {
+    try {
+      // Ensure we persist the mnemonic (if it was legacy hex) so we don't show this screen again
+      const storageKey = await AccountService.getStorageKey(
+        userEmail,
+        "MASTER_KEY",
+      );
+      await setKeyFromSecureStorage(storageKey, masterKey);
+    } catch (e) {
+      console.error("Failed to update master key format", e);
+    }
     setStep("pin");
   };
 
@@ -103,11 +126,28 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
 
   const handleSaveProfile = async () => {
     try {
+      let finalAvatar = avatar;
+      if (avatar && avatar.startsWith("data:")) {
+        try {
+          const identifier = await AccountService.getDbName(userEmail);
+          finalAvatar = await StorageService.saveProfileImage(
+            avatar.split(",")[1],
+            identifier,
+          );
+        } catch (e) {
+          console.error("Failed to save profile image to disk", e);
+        }
+      }
+
       await executeDB(
         "INSERT OR REPLACE INTO me (id, public_name, public_avatar) VALUES (1, ?, ?)",
-        [username, avatar],
+        [username, finalAvatar],
       );
-      await AccountService.updateProfile(userEmail, username, avatar || "");
+      await AccountService.updateProfile(
+        userEmail,
+        username,
+        finalAvatar || "",
+      );
       onComplete();
     } catch (e) {
       console.error("Failed to save profile", e);
@@ -151,6 +191,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         }
       };
       reader.readAsDataURL(e.target.files[0]);
+      e.target.value = "";
     }
   };
 

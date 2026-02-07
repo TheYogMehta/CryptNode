@@ -87,7 +87,14 @@ const SCHEMA = {
   },
 };
 
-const tableOrder = ["me", "sessions", "messages", "media", "live_shares", "vault"];
+const tableOrder = [
+  "me",
+  "sessions",
+  "messages",
+  "media",
+  "live_shares",
+  "vault",
+];
 
 export const getCurrentDbName = () => currentDbName;
 
@@ -110,8 +117,12 @@ export const dbInit = () => {
     if (key) {
       try {
         await CapacitorSQLite.setEncryptionSecret({ passphrase: key });
-      } catch (e) {
-        console.warn("Failed to set encryption key/secret:", e);
+      } catch (e: any) {
+        if (e.message && e.message.includes("passphrase already in store")) {
+          console.log("[sqlite] Passphrase already in store, continuing...");
+        } else {
+          console.warn("Failed to set encryption key/secret:", e);
+        }
       }
     }
 
@@ -209,8 +220,8 @@ async function syncTableSchema(tableName: string, targetColumnsRaw: string) {
       `CREATE TABLE ${tableName}_new(${targetColumnsStr});`,
       ...(sharedColumns.length > 0
         ? [
-          `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
-        ]
+            `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
+          ]
         : []),
       `DROP TABLE ${tableName};`,
       `ALTER TABLE ${tableName}_new RENAME TO ${tableName};`,
@@ -292,16 +303,20 @@ export const deleteDatabase = async () => {
 
 export const getVaultItems = async () => {
   const rows = await queryDB("SELECT * FROM vault ORDER BY timestamp DESC");
-  return rows.map(row => ({
+  return rows.map((row) => ({
     ...row,
-    metadata: JSON.parse(row.metadata)
+    metadata: JSON.parse(row.metadata),
   }));
 };
 
-export const addVaultItem = async (type: string, encrypted_data: string, metadata: any) => {
+export const addVaultItem = async (
+  type: string,
+  encrypted_data: string,
+  metadata: any,
+) => {
   await executeDB(
     "INSERT INTO vault (type, encrypted_data, metadata, timestamp) VALUES (?, ?, ?, ?)",
-    [type, encrypted_data, JSON.stringify(metadata), Date.now()]
+    [type, encrypted_data, JSON.stringify(metadata), Date.now()],
   );
 };
 
