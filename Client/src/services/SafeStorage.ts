@@ -83,7 +83,9 @@ export async function setKeyFromSecureStorage(
       if (!isUnlockedAndroid && !init) return;
       await SecureStoragePlugin.set({ key, value: await encryptData(value) });
     } else {
-      await (window as any).SafeStorage.setKey(key, await encryptData(value));
+      const encrypted = await encryptData(value);
+      console.log(`[SafeStorage] Setting key ${key}, encrypted size: ${encrypted.length}`);
+      await (window as any).SafeStorage.setKey(key, encrypted);
     }
   } catch (e) {
     console.error("Error setting key in secure storage:", e);

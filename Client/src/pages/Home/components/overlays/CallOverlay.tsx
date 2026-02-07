@@ -12,6 +12,8 @@ import {
   Phone,
 } from "lucide-react";
 
+import ChatClient from "../../../../services/ChatClient";
+
 import { IconButton } from "../../../../components/ui/IconButton";
 import {
   OverlayContainer,
@@ -206,7 +208,32 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     );
   }
 
-  // Full Screen Active Call
+  // Local Video Effect
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    // Check for existing stream
+    if (ChatClient.currentLocalStream && localVideoRef.current) {
+      localVideoRef.current.srcObject = ChatClient.currentLocalStream;
+    }
+
+    // Listen for new stream
+    const handleStream = (stream: MediaStream | null) => {
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+    };
+
+    ChatClient.on("local_stream_ready", handleStream);
+    return () => {
+      ChatClient.off("local_stream_ready", handleStream);
+    };
+  }, [isVideoEnabled]); // Re-check when video is toggled
+
+  // We need to import ChatClient to access the stream if it's not passed in callState.
+  // Assuming callState might not have it.
+
+  // I should add the import at the top of the file first.
+
   return (
     <OverlayContainer>
       <FullScreenContainer>
@@ -223,6 +250,30 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               display: callState.remoteVideo ? "block" : "none",
             }}
           />
+
+          {/* Local Video PiP */}
+          {isVideoEnabled && (
+            <div style={{
+              position: 'absolute',
+              top: '80px',
+              right: '20px',
+              width: '120px',
+              height: '160px',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              border: '2px solid rgba(255,255,255,0.1)',
+              zIndex: 10
+            }}>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+              />
+            </div>
+          )}
 
           {!callState.remoteVideo && (
             <AvatarContainer style={{ width: 150, height: 150 }}>
