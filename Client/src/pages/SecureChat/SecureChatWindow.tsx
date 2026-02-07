@@ -347,7 +347,7 @@ export const SecureChatWindow: React.FC = () => {
                       {item.type === 'password' ? item.metadata.username : item.metadata.filename || "Note"}
                     </span>
                     <span style={{ fontSize: '0.7rem', color: colors.text.tertiary }}>
-                      {new Date(item.timestamp).toLocaleDateString()}
+                      {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : 'Unknown Date'}
                     </span>
                   </div>
                   <button

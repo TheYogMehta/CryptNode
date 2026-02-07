@@ -461,6 +461,12 @@ export const MessageBubble = ({
     setIsSwiping(false);
   };
 
+  const isValidDate = (d: any) => d instanceof Date && !isNaN(d.getTime());
+  const safeDate = new Date(msg.timestamp);
+  const timeString = isValidDate(safeDate)
+    ? safeDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+
   return (
     <BubbleWrapper
       isMe={isMe}
@@ -613,10 +619,7 @@ export const MessageBubble = ({
             gap: "4px",
           }}
         >
-          {new Date(msg.timestamp).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {timeString}
           {isMe && (
             <span>
               {msg.status === 2 ? (

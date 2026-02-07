@@ -46,6 +46,7 @@ export class ChatClient extends EventEmitter {
   private callStartTime: number = 0;
   private currentStreamArgs: MediaStreamConstraints | null = null;
   private remoteMimeType: string | null = null;
+  public currentLocalStream: MediaStream | null = null;
 
   static getInstance() {
     if (!ChatClient.instance) ChatClient.instance = new ChatClient();
@@ -234,10 +235,10 @@ export class ChatClient extends EventEmitter {
     const msgType = isImage
       ? "image"
       : isVideo
-      ? "video"
-      : isAudio
-      ? "audio"
-      : "file";
+        ? "video"
+        : isAudio
+          ? "audio"
+          : "file";
     const messageId = await this.insertMessageRecord(sid, "", msgType, "me");
 
     await StorageService.initMediaEntry(
@@ -421,6 +422,10 @@ export class ChatClient extends EventEmitter {
         bitsPerSecond,
       });
 
+      this.currentLocalStream = stream;
+      // Emit local stream for UI
+      this.emit("local_stream_ready", stream);
+
       this.mediaRecorder.ondataavailable = async (e) => {
         if (e.data.size > 0) {
           try {
@@ -527,6 +532,8 @@ export class ChatClient extends EventEmitter {
     this.audioQueue = [];
     this.isSourceOpen = false;
     this.remoteMimeType = null;
+    this.currentLocalStream = null;
+    this.emit("local_stream_ready", null);
   }
 
   private setupMediaPlayback() {
@@ -673,10 +680,10 @@ export class ChatClient extends EventEmitter {
           const msgType = isImage
             ? "image"
             : isVideo
-            ? "video"
-            : isAudio
-            ? "audio"
-            : "file";
+              ? "video"
+              : isAudio
+                ? "audio"
+                : "file";
 
           const localId = await this.insertMessageRecord(
             sid,
