@@ -418,9 +418,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				client.msgCount = 0
 			}
 			client.msgCount++
-			if client.msgCount > 100 {
+			if client.msgCount > 50 {
 				client.mu.Unlock()
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Max 100 msgs/sec"}`)})
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Max 5 msgs/sec"}`)})
 				continue
 			}
 			client.mu.Unlock()

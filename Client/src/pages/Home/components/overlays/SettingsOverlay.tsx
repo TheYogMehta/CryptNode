@@ -24,6 +24,15 @@ import {
   DangerZone,
   DangerButton,
   CodeBlock,
+  ProfileHeader,
+  ProfileInfo,
+  EditProfileContainer,
+  EditProfileForm,
+  EditProfileActions,
+  SecuritySection,
+  SecurityRow,
+  BackupContainer,
+  SignOutButton,
 } from "./Settings.styles";
 import { colors } from "../../../../theme/design-system";
 import { ArrowLeft } from "lucide-react";
@@ -252,13 +261,19 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 color: colors.text.primary,
                 cursor: "pointer",
                 padding: "4px",
-                display: 'flex',
-                alignItems: 'center'
+                display: "flex",
+                alignItems: "center",
               }}
             >
               <ArrowLeft size={20} />
             </button>
-            <h2 style={{ margin: 0, fontSize: "20px", color: colors.text.primary }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "20px",
+                color: colors.text.primary,
+              }}
+            >
               Settings
             </h2>
           </div>
@@ -290,20 +305,16 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               <h3 style={{ marginTop: 0, color: "white" }}>Profile</h3>
 
               {isEditingProfile ? (
-                <div style={{ marginBottom: "30px" }}>
-                  <div
-                    style={{
-                      marginBottom: "20px",
-                      display: "flex",
-                      gap: "20px",
-                      alignItems: "center",
-                    }}
-                  >
+                <EditProfileContainer>
+                  <EditProfileForm>
                     <UserAvatar
                       avatarUrl={editAvatar}
                       name={currentUserEmail || "?"}
                       size={80}
-                      style={{ border: `2px solid ${colors.primary.main}` }}
+                      style={{
+                        border: `2px solid ${colors.primary.main}`,
+                        flexShrink: 0,
+                      }}
                       onClick={() =>
                         document.getElementById("edit-avatar-input")?.click()
                       }
@@ -332,7 +343,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       style={{ display: "none" }}
                     />
 
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, width: "100%" }}>
                       <label
                         style={{
                           display: "block",
@@ -359,9 +370,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         }}
                       />
                     </div>
-                  </div>
+                  </EditProfileForm>
 
-                  <div style={{ display: "flex", gap: "10px" }}>
+                  <EditProfileActions>
                     <button
                       onClick={handleSaveProfile}
                       style={{
@@ -389,24 +400,12 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     >
                       Cancel
                     </button>
-                  </div>
-                </div>
+                  </EditProfileActions>
+                </EditProfileContainer>
               ) : (
                 <ProfileSection>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "20px",
-                      }}
-                    >
+                  <ProfileHeader>
+                    <ProfileInfo>
                       <UserAvatar
                         avatarUrl={
                           accounts.find((a) => a.email === currentUserEmail)
@@ -426,11 +425,16 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           {accounts.find((a) => a.email === currentUserEmail)
                             ?.displayName || "No Name Set"}
                         </div>
-                        <div style={{ color: colors.text.secondary, fontSize: "14px" }}>
+                        <div
+                          style={{
+                            color: colors.text.secondary,
+                            fontSize: "14px",
+                          }}
+                        >
                           {currentUserEmail}
                         </div>
                       </div>
-                    </div>
+                    </ProfileInfo>
                     <button
                       onClick={handleEditProfile}
                       style={{
@@ -444,7 +448,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     >
                       Edit Profile
                     </button>
-                  </div>
+                  </ProfileHeader>
                 </ProfileSection>
               )}
             </div>
@@ -507,19 +511,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
               <h3 style={{ color: "white" }}>Danger Zone</h3>
               <DangerZone>
-                <button
-                  onClick={handleSignOut}
-                  style={{
-                    padding: "10px 20px",
-                    borderRadius: "6px",
-                    background: colors.background.tertiary,
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Sign Out
-                </button>
+                <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
                 <DangerButton onClick={handleDeleteAccount}>
                   Delete Account
                 </DangerButton>
@@ -531,59 +523,40 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             <div>
               <h3 style={{ marginTop: 0, color: "white" }}>Security</h3>
 
-              <div
-                style={{
-                  marginBottom: "20px",
-                  padding: "15px",
-                  backgroundColor: colors.background.secondary,
-                  borderRadius: "8px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ color: "white", fontWeight: 500 }}>
-                    App Lock
+              <SecuritySection>
+                <SecurityRow>
+                  <div>
+                    <div style={{ color: "white", fontWeight: 500 }}>
+                      App Lock
+                    </div>
+                    <div
+                      style={{ color: colors.text.secondary, fontSize: "13px" }}
+                    >
+                      Secured with PIN
+                    </div>
                   </div>
-                  <div style={{ color: colors.text.secondary, fontSize: "13px" }}>
-                    Secured with PIN
-                  </div>
-                </div>
-                <button
-                  onClick={handleChangePin}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
-                    background: colors.background.tertiary,
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Change PIN
-                </button>
-              </div>
+                  <button
+                    onClick={handleChangePin}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "6px",
+                      background: colors.background.tertiary,
+                      color: "white",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Change PIN
+                  </button>
+                </SecurityRow>
+              </SecuritySection>
 
-              <div
-                style={{
-                  marginBottom: "20px",
-                  padding: "15px",
-                  backgroundColor: colors.background.secondary,
-                  borderRadius: "8px",
-                }}
-              >
+              <SecuritySection>
                 <div style={{ color: "white", marginBottom: "10px" }}>
                   Backup Code
                 </div>
                 {backupCode ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "10px",
-                    }}
-                  >
+                  <BackupContainer>
                     <CodeBlock>
                       {backupCode.split(" ").map((word, i) => (
                         <span
@@ -596,7 +569,10 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           }}
                         >
                           <span
-                            style={{ color: colors.text.secondary, marginRight: "4px" }}
+                            style={{
+                              color: colors.text.secondary,
+                              marginRight: "4px",
+                            }}
                           >
                             {i + 1}.
                           </span>
@@ -631,7 +607,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       WARNING: This key allows full access to your account.
                       Never share it.
                     </p>
-                  </div>
+                  </BackupContainer>
                 ) : (
                   <button
                     onClick={handleViewBackup}
@@ -647,7 +623,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     View Backup Code
                   </button>
                 )}
-              </div>
+              </SecuritySection>
             </div>
           )}
         </SettingsContent>

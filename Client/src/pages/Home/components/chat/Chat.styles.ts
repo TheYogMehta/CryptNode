@@ -1,6 +1,13 @@
 import styled from "@emotion/styled";
 import { css, keyframes } from "@emotion/react";
-import { colors, spacing, radii, typography, glassEffect, shadows } from "../../../../theme/design-system";
+import {
+  colors,
+  spacing,
+  radii,
+  typography,
+  glassEffect,
+  shadows,
+} from "../../../../theme/design-system";
 
 // Animations
 const slideUp = keyframes`
@@ -82,12 +89,14 @@ export const HeaderStatus = styled.div<{ isOnline?: boolean }>`
   font-weight: ${typography.fontWeight.medium};
 
   &::before {
-    content: '';
+    content: "";
     width: 8px;
     height: 8px;
     border-radius: ${radii.full};
-    background-color: ${props => props.isOnline ? colors.status.success : colors.text.tertiary};
-    box-shadow: ${props => props.isOnline ? `0 0 8px ${colors.status.success}` : 'none'};
+    background-color: ${(props) =>
+      props.isOnline ? colors.status.success : colors.text.tertiary};
+    box-shadow: ${(props) =>
+      props.isOnline ? `0 0 8px ${colors.status.success}` : "none"};
   }
 `;
 
@@ -106,6 +115,14 @@ export const MessageList = styled.div`
   overscroll-behavior-y: contain;
 `;
 
+const shake = keyframes`
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+`;
+
+// ... (Layout)
+
 // Input Area
 export const InputContainer = styled.div`
   padding: ${spacing[4]};
@@ -117,7 +134,7 @@ export const InputContainer = styled.div`
   position: relative;
 `;
 
-export const InputWrapper = styled.div`
+export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
   flex: 1;
   background-color: ${colors.background.tertiary};
   border-radius: ${radii.xl};
@@ -126,12 +143,21 @@ export const InputWrapper = styled.div`
   align-items: center;
   gap: ${spacing[2]};
   min-height: 48px;
-  border: 1px solid transparent;
+  border: 1px solid
+    ${(props) => (props.isRateLimited ? colors.status.error : "transparent")};
   transition: all 0.2s;
+  ${(props) =>
+    props.isRateLimited &&
+    css`
+      animation: ${shake} 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    `}
 
   &:focus-within {
-    border-color: ${colors.primary.DEFAULT};
-    box-shadow: 0 0 0 2px ${colors.primary.subtle};
+    border-color: ${(props) =>
+      props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
+    box-shadow: 0 0 0 2px
+      ${(props) =>
+        props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
   }
 `;
 
@@ -157,7 +183,8 @@ export const SendButton = styled.button<{ isRecording?: boolean }>`
   height: 40px;
   border-radius: ${radii.full};
   border: none;
-  background-color: ${props => props.isRecording ? colors.status.error : colors.primary.DEFAULT};
+  background-color: ${(props) =>
+    props.isRecording ? colors.status.error : colors.primary.DEFAULT};
   color: white;
   display: flex;
   align-items: center;
@@ -165,11 +192,16 @@ export const SendButton = styled.button<{ isRecording?: boolean }>`
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
-  ${props => props.isRecording && css`animation: ${pulse} 1.5s infinite;`}
+  ${(props) =>
+    props.isRecording &&
+    css`
+      animation: ${pulse} 1.5s infinite;
+    `}
 
   &:hover {
     transform: scale(1.05);
-    background-color: ${props => props.isRecording ? colors.status.error : colors.primary.hover};
+    background-color: ${(props) =>
+      props.isRecording ? colors.status.error : colors.primary.hover};
   }
 
   &:active {
@@ -185,7 +217,7 @@ export const AttachmentButton = styled.button<{ active?: boolean }>`
   cursor: pointer;
   border-radius: ${radii.full};
   transition: all 0.2s;
-  transform: rotate(${props => props.active ? '45deg' : '0deg'});
+  transform: rotate(${(props) => (props.active ? "45deg" : "0deg")});
 
   &:hover {
     color: ${colors.text.primary};
@@ -218,7 +250,7 @@ export const MenuItem = styled.div`
   cursor: pointer;
   padding: ${spacing[2]};
   border-radius: ${radii.lg};
-  
+
   &:hover {
     background-color: ${colors.background.tertiary};
   }
@@ -228,13 +260,13 @@ export const MenuIcon = styled.div<{ color: string }>`
   width: 48px;
   height: 48px;
   border-radius: ${radii.full};
-  background-color: ${props => props.color};
+  background-color: ${(props) => props.color};
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   transition: transform 0.2s;
-  
+
   ${MenuItem}:hover & {
     transform: scale(1.1);
   }
@@ -282,25 +314,29 @@ export const ReplyText = styled.div`
 // Message Bubble Styles
 export const BubbleWrapper = styled.div<{ isMe: boolean }>`
   display: flex;
-  justify-content: ${props => props.isMe ? 'flex-end' : 'flex-start'};
+  justify-content: ${(props) => (props.isMe ? "flex-end" : "flex-start")};
   width: 100%;
   position: relative;
-  padding-left: ${props => props.isMe ? spacing[12] : '0'};
-  padding-right: ${props => props.isMe ? '0' : spacing[12]};
+  padding-left: ${(props) => (props.isMe ? spacing[12] : "0")};
+  padding-right: ${(props) => (props.isMe ? "0" : spacing[12])};
 `;
 
 export const Bubble = styled.div<{ isMe: boolean }>`
-  background-color: ${props => props.isMe ? colors.primary.DEFAULT : colors.background.tertiary};
-  color: ${props => props.isMe ? 'white' : colors.text.primary};
+  background-color: ${(props) =>
+    props.isMe ? colors.primary.DEFAULT : colors.background.tertiary};
+  color: ${(props) => (props.isMe ? "white" : colors.text.primary)};
   padding: ${spacing[3]} ${spacing[4]};
-  border-radius: ${props => props.isMe ? `${radii.xl} ${radii.xl} ${radii.sm} ${radii.xl}` : `${radii.xl} ${radii.xl} ${radii.xl} ${radii.sm}`};
+  border-radius: ${(props) =>
+    props.isMe
+      ? `${radii.xl} ${radii.xl} ${radii.sm} ${radii.xl}`
+      : `${radii.xl} ${radii.xl} ${radii.xl} ${radii.sm}`};
   max-width: 100%;
   position: relative;
   box-shadow: ${shadows.sm};
   word-break: break-word;
 
   a {
-    color: ${props => props.isMe ? 'white' : colors.primary.DEFAULT};
+    color: ${(props) => (props.isMe ? "white" : colors.primary.DEFAULT)};
     text-decoration: underline;
   }
 `;
@@ -315,7 +351,7 @@ export const ReplyContext = styled.div`
   display: flex;
   gap: ${spacing[2]};
   cursor: pointer;
-  
+
   &:hover {
     background-color: rgba(0, 0, 0, 0.2);
   }
@@ -325,7 +361,7 @@ export const ReplyButton = styled.button<{ isMe: boolean }>`
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  ${props => props.isMe ? `left: -40px;` : `right: -40px;`}
+  ${(props) => (props.isMe ? `left: -40px;` : `right: -40px;`)}
   width: 32px;
   height: 32px;
   border-radius: ${radii.full};
@@ -341,7 +377,7 @@ export const ReplyButton = styled.button<{ isMe: boolean }>`
 
   ${BubbleWrapper}:hover & {
     opacity: 1;
-    ${props => props.isMe ? `left: -36px;` : `right: -36px;`}
+    ${(props) => (props.isMe ? `left: -36px;` : `right: -36px;`)}
   }
 
   &:hover {
@@ -391,7 +427,8 @@ export const MediaContainer = styled.div`
   align-items: center;
   justify-content: center;
 
-  img, video {
+  img,
+  video {
     max-width: 100%;
     max-height: 300px;
     display: block;
@@ -410,7 +447,7 @@ export const DownloadOverlay = styled.div<{ isDownloading?: boolean }>`
   background-color: rgba(0, 0, 0, 0.4);
   color: white;
   cursor: pointer;
-  
+
   &:hover {
     background-color: rgba(0, 0, 0, 0.5);
   }
@@ -460,7 +497,8 @@ export const PlayPauseBtn = styled.div<{ isMe: boolean }>`
   height: 40px;
   border-radius: ${radii.full};
   flex-shrink: 0;
-  background-color: ${props => props.isMe ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'};
+  background-color: ${(props) =>
+    props.isMe ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.1)"};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -469,7 +507,8 @@ export const PlayPauseBtn = styled.div<{ isMe: boolean }>`
 
   &:hover {
     transform: scale(1.05);
-    background-color: ${props => props.isMe ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)'};
+    background-color: ${(props) =>
+      props.isMe ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)"};
   }
 `;
 
@@ -482,15 +521,23 @@ export const WaveformContainer = styled.div`
   overflow: hidden;
 `;
 
-export const WaveformBar = styled.div<{ height: number; active: boolean; isMe: boolean }>`
+export const WaveformBar = styled.div<{
+  height: number;
+  active: boolean;
+  isMe: boolean;
+}>`
   width: 3px;
   flex-shrink: 0;
-  height: ${props => props.height * 100}%;
+  height: ${(props) => props.height * 100}%;
   border-radius: 2px;
-  background-color: ${props => props.active
-    ? (props.isMe ? '#a5b4fc' : '#64748b')
-    : (props.isMe ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.1)')
-  };
+  background-color: ${(props) =>
+    props.active
+      ? props.isMe
+        ? "#a5b4fc"
+        : "#64748b"
+      : props.isMe
+      ? "rgba(255, 255, 255, 0.4)"
+      : "rgba(0, 0, 0, 0.1)"};
 `;
 
 export const SpeedButton = styled.div`
@@ -501,7 +548,7 @@ export const SpeedButton = styled.div`
   text-align: center;
   flex-shrink: 0;
   opacity: 0.8;
-  
+
   &:hover {
     opacity: 1;
   }

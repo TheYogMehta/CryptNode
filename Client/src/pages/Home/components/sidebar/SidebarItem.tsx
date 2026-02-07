@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { StorageService } from "../../../../utils/Storage";
 import { SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
 import {
@@ -37,7 +38,24 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
   const isOnline = online;
   const displayName =
     alias_name || peer_name || peerEmail || `Peer ${sid.slice(0, 6)}`;
+  const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
+    undefined,
+  );
   const avatarUrl = alias_avatar || peer_avatar;
+
+  useEffect(() => {
+    let active = true;
+    if (avatarUrl && !avatarUrl.startsWith("data:")) {
+      StorageService.getFileSrc(avatarUrl).then((src) => {
+        if (active) setResolvedAvatar(src);
+      });
+    } else {
+      if (active) setResolvedAvatar(avatarUrl);
+    }
+    return () => {
+      active = false;
+    };
+  }, [avatarUrl]);
 
   const getPreviewText = () => {
     if (!lastMsg && !lastMsgType) return isOnline ? "Online" : "Offline";
@@ -68,7 +86,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
       }}
     >
       <Avatar
-        src={avatarUrl}
+        src={resolvedAvatar}
         name={displayName}
         size="md"
         status={isOnline ? "online" : "offline"}
@@ -78,16 +96,10 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
         <ItemName>
           <span>{displayName}</span>
         </ItemName>
-        <ItemPreview isActive={isActive}>
-          {getPreviewText()}
-        </ItemPreview>
+        <ItemPreview isActive={isActive}>{getPreviewText()}</ItemPreview>
       </ItemInfo>
 
-      {unread > 0 && (
-        <UnreadBadge>
-          {unread > 99 ? "99+" : unread}
-        </UnreadBadge>
-      )}
+      {unread > 0 && <UnreadBadge>{unread > 99 ? "99+" : unread}</UnreadBadge>}
     </ItemContainer>
   );
 };

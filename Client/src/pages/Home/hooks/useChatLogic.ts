@@ -26,13 +26,14 @@ export const useChatLogic = () => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [offset, setOffset] = useState(0);
 
   const activeChatRef = useRef<string | null>(null);
   activeChatRef.current = activeChat;
 
   useEffect(() => {
     if (activeChat) {
-      loadHistory(activeChat);
+      loadHistory(activeChat, true);
       executeDB(
         "UPDATE messages SET is_read = 1 WHERE sid = ? AND sender != 'me'",
         [activeChat],
@@ -76,7 +77,9 @@ export const useChatLogic = () => {
     setSessions(formatted);
   };
 
-  const loadHistory = async (sid: string) => {
+  const loadHistory = async (sid: string, reset: boolean = false) => {
+    const limit = 50;
+    const currentOffset = reset ? 0 : offset;
     const rows = await queryDB(
       `SELECT m.*, 
               md.status as mediaStatus, 
@@ -98,6 +101,12 @@ export const useChatLogic = () => {
       replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
     }));
     setMessages(formatted.reverse());
+  };
+
+  const loadMoreHistory = () => {
+    if (activeChatRef.current) {
+      loadHistory(activeChatRef.current, false);
+    }
   };
 
   useEffect(() => {
@@ -265,7 +274,7 @@ export const useChatLogic = () => {
       client.off("session_updated", onSessionUpdate);
       client.off("message", onMsg);
       client.off("file_downloaded", onFileDownloaded);
-      client.off("auth_success", () => { });
+      client.off("auth_success", () => {});
       client.off("remote_stream_ready", onRemoteStream);
     };
   }, []);
@@ -281,16 +290,16 @@ export const useChatLogic = () => {
     const replyContext =
       currentReplyTo && currentReplyTo.id
         ? {
-          id: currentReplyTo.id,
-          text: currentReplyTo.text,
-          sender:
-            currentReplyTo.sender === "me"
-              ? "Me"
-              : currentReplyTo.sender || "Other",
-          type: currentReplyTo.type,
-          mediaFilename: currentReplyTo.mediaFilename,
-          thumbnail: currentReplyTo.thumbnail,
-        }
+            id: currentReplyTo.id,
+            text: currentReplyTo.text,
+            sender:
+              currentReplyTo.sender === "me"
+                ? "Me"
+                : currentReplyTo.sender || "Other",
+            type: currentReplyTo.type,
+            mediaFilename: currentReplyTo.mediaFilename,
+            thumbnail: currentReplyTo.thumbnail,
+          }
         : undefined;
 
     await ChatClient.sendMessage(activeChat, currentInput, replyContext);
@@ -321,8 +330,8 @@ export const useChatLogic = () => {
       type: file.type.startsWith("image")
         ? "image"
         : file.type.startsWith("video")
-          ? "video"
-          : "file",
+        ? "video"
+        : "file",
       timestamp: Date.now(),
       mediaTotalSize: file.size,
       tempUrl: URL.createObjectURL(file),
@@ -359,6 +368,22 @@ export const useChatLogic = () => {
     }
   };
 
+  const [isRateLimited, setIsRateLimited] = useState(false);
+
+  useEffect(() => {
+    const handleRateLimit = () => {
+      setIsRateLimited(true);
+      setTimeout(() => setIsRateLimited(false), 1000);
+      setNotification({ type: "error", message: "You are sending too fast!" });
+    };
+
+    const client = ChatClient;
+    client.on("rate_limit_exceeded", handleRateLimit);
+    return () => {
+      client.off("rate_limit_exceeded", handleRateLimit);
+    };
+  }, []);
+
   return {
     state: {
       view,
@@ -379,6 +404,7 @@ export const useChatLogic = () => {
       isLoading,
       replyingTo,
       localStream,
+      isRateLimited,
     },
     actions: {
       login: (token: string) => ChatClient.login(token),
@@ -400,6 +426,7 @@ export const useChatLogic = () => {
       rejectCall: () => ChatClient.endCall(activeCall.sid),
       endCall: () => ChatClient.endCall(activeCall.sid),
       clearNotification: () => setNotification(null),
+      loadMoreHistory,
       handleSetAlias: async (sid: string, name: string) => {
         try {
           await executeDB("UPDATE sessions SET alias_name = ? WHERE sid = ?", [

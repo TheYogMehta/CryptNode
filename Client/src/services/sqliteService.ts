@@ -236,6 +236,19 @@ async function syncTableSchema(tableName: string, targetColumnsRaw: string) {
   }
 }
 
+export const getMessages = async (
+  sid: string,
+  limit: number = 50,
+  offset: number = 0,
+): Promise<any[]> => {
+  const res = await queryDB(
+    "SELECT * FROM messages WHERE sid = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+    [sid, limit, offset],
+  );
+  // Return in chronological order for the UI
+  return res ? res.reverse() : [];
+};
+
 export const queryDB = async (sql: string, values: any[] = []) => {
   await dbInit();
   const res = await CapacitorSQLite.query({

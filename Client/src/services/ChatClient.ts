@@ -9,6 +9,8 @@ import {
 import socket from "./SocketManager";
 import { generateThumbnail } from "../utils/imageUtils";
 import { StorageService } from "../utils/Storage";
+import { MessageQueue } from "../utils/MessageQueue";
+import { RateLimiter } from "../utils/RateLimiter";
 import * as bip39 from "bip39";
 import { Buffer } from "buffer";
 
@@ -42,6 +44,8 @@ export class ChatClient extends EventEmitter {
   private mediaSource: MediaSource | null = null;
   private sourceBuffer: SourceBuffer | null = null;
   private audioQueue: ArrayBuffer[] = [];
+  private messageQueue = new MessageQueue();
+  private rateLimiters: Record<string, RateLimiter> = {};
   private isSourceOpen = false;
   private callStartTime: number = 0;
   private currentStreamArgs: MediaStreamConstraints | null = null;
@@ -646,6 +650,7 @@ export class ChatClient extends EventEmitter {
       console.warn(`[Client] Received MSG for unknown session ${sid}`);
       return;
     }
+
     try {
       const decryptedBuffer = await this.decryptFromSession(sid, payload);
       if (!decryptedBuffer) {
@@ -1091,6 +1096,10 @@ export class ChatClient extends EventEmitter {
     switch (t) {
       case "ERROR":
         console.error("[Client] Server Error:", data);
+        if (data.message && data.message.includes("Rate limit")) {
+          this.emit("rate_limit_exceeded");
+          return;
+        }
         if (
           data.message === "Auth failed" ||
           data.message === "Authentication required" ||
@@ -1157,7 +1166,9 @@ export class ChatClient extends EventEmitter {
         this.emit("joined_success", sid);
         break;
       case "MSG":
-        await this.handleMsg(sid, data.payload);
+        this.messageQueue.enqueue(async () => {
+          await this.handleMsg(sid, data.payload);
+        });
         break;
       case "STREAM":
         await this.handleStream(frame);
@@ -1201,7 +1212,33 @@ export class ChatClient extends EventEmitter {
       "INSERT OR REPLACE INTO sessions (sid, keyJWK, peer_email) VALUES (?, ?, ?)",
       [sid, JSON.stringify(jwk), peerEmail || null],
     );
+    this.sendProfileTo(sid);
     this.emit("session_updated");
+  }
+
+  private async sendProfileTo(sid: string) {
+    try {
+      const rows = await queryDB(
+        "SELECT name_version, avatar_version FROM me WHERE id = 1",
+      );
+      if (!rows.length) return;
+      const { name_version, avatar_version } = rows[0];
+
+      console.log(
+        `[ChatClient] Sending profile version to ${sid}: v${name_version}/${avatar_version}`,
+      );
+
+      const payload = await this.encryptForSession(
+        sid,
+        JSON.stringify({
+          t: "PROFILE_VERSION",
+          data: { name_version, avatar_version },
+        }),
+      );
+      this.send({ t: "MSG", sid, data: { payload } });
+    } catch (e) {
+      console.error(`[ChatClient] Failed to send profile to ${sid}`, e);
+    }
   }
 
   private async loadIdentity() {

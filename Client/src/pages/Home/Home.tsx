@@ -23,7 +23,7 @@ import {
   MobileHeader,
   HeaderTitle,
   MenuButton,
-  ErrorToast
+  ErrorToast,
 } from "./Home.styles";
 import { Menu, Lock } from "lucide-react";
 
@@ -157,7 +157,7 @@ const Home = () => {
         accounts={storedAccounts}
         onUnlockAccount={handleUnlock}
         onAddAccount={() => setIsLocked(false)}
-        onSuccess={() => { }}
+        onSuccess={() => {}}
       />
     );
   }
@@ -253,6 +253,8 @@ const Home = () => {
               }
               replyingTo={state.replyingTo}
               setReplyingTo={actions.setReplyingTo}
+              onLoadMore={actions.loadMoreHistory}
+              isRateLimited={state.isRateLimited}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup

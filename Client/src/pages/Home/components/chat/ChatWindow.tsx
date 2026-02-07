@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { StorageService } from "../../../../utils/Storage";
 import { MessageBubble } from "./MessageBubble";
 import { PortShareModal } from "./PortShareModal";
 import {
@@ -56,6 +57,8 @@ interface ChatWindowProps {
   onBack?: () => void;
   replyingTo?: ChatMessage | null;
   setReplyingTo?: (msg: ChatMessage | null) => void;
+  onLoadMore?: () => void;
+  isRateLimited?: boolean;
 }
 
 export const ChatWindow = ({
@@ -71,6 +74,8 @@ export const ChatWindow = ({
   onBack,
   replyingTo,
   setReplyingTo,
+  onLoadMore,
+  isRateLimited,
 }: ChatWindowProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -79,6 +84,7 @@ export const ChatWindow = ({
   const [showPortModal, setShowPortModal] = useState(false);
   const [port, setPort] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [prevHeight, setPrevHeight] = useState(0);
 
   const headerName =
     session?.alias_name ||
@@ -87,11 +93,44 @@ export const ChatWindow = ({
     activeChat ||
     "Chat";
   const avatarToUse = session?.alias_avatar || session?.peer_avatar;
+  const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
-    if (scrollRef.current)
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    let active = true;
+    if (avatarToUse && !avatarToUse.startsWith("data:")) {
+      StorageService.getFileSrc(avatarToUse).then((src) => {
+        if (active) setResolvedAvatar(src);
+      });
+    } else {
+      if (active) setResolvedAvatar(avatarToUse);
+    }
+    return () => {
+      active = false;
+    };
+  }, [avatarToUse]);
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const currentHeight = scrollRef.current.scrollHeight;
+
+    // If messages activeChat changed completely or first load, scroll to bottom
+    // If we loaded more messages (prepended), adjust scroll top to maintain position
+    if (prevHeight > 0 && currentHeight > prevHeight) {
+      scrollRef.current.scrollTop = currentHeight - prevHeight;
+    } else {
+      scrollRef.current.scrollTop = currentHeight;
+    }
+    setPrevHeight(currentHeight);
   }, [messages]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollTop === 0 && onLoadMore) {
+      onLoadMore();
+    }
+  };
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -216,7 +255,7 @@ export const ChatWindow = ({
         )}
 
         <Avatar
-          src={avatarToUse}
+          src={resolvedAvatar}
           name={headerName}
           size="md"
           status={peerOnline ? "online" : "offline"}
@@ -256,7 +295,7 @@ export const ChatWindow = ({
         onChange={handleFileSelect}
       />
 
-      <MessageList ref={scrollRef}>
+      <MessageList ref={scrollRef} onScroll={handleScroll}>
         {messages.map((msg, i) => (
           <MessageBubble key={i} msg={msg} onReply={setReplyingTo} />
         ))}
@@ -264,7 +303,15 @@ export const ChatWindow = ({
 
       {replyingTo && (
         <ReplyPreview>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
             {replyingTo.thumbnail && (
               <img
                 src={
@@ -304,13 +351,8 @@ export const ChatWindow = ({
       {showMenu && (
         <AttachmentMenu>
           {attachments.map((item, i) => (
-            <MenuItem
-              key={i}
-              onClick={item.onClick}
-            >
-              <MenuIcon color={item.color}>
-                {item.icon}
-              </MenuIcon>
+            <MenuItem key={i} onClick={item.onClick}>
+              <MenuIcon color={item.color}>{item.icon}</MenuIcon>
               <MenuLabel>{item.label}</MenuLabel>
             </MenuItem>
           ))}
@@ -325,7 +367,7 @@ export const ChatWindow = ({
           <Plus size={24} />
         </AttachmentButton>
 
-        <InputWrapper>
+        <InputWrapper isRateLimited={isRateLimited}>
           <ChatInput
             ref={textareaRef}
             rows={1}
@@ -347,10 +389,7 @@ export const ChatWindow = ({
             <Send size={20} />
           </SendButton>
         ) : (
-          <SendButton
-            isRecording={isRecording}
-            onClick={handleRecord}
-          >
+          <SendButton isRecording={isRecording} onClick={handleRecord}>
             <Mic size={20} />
           </SendButton>
         )}
