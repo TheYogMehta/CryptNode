@@ -1,6 +1,12 @@
-import { styles } from "../../Home.styles";
-import ChatClient from "../../../../services/ChatClient";
 import { colors } from "../../../../theme/colors";
+import ChatClient from "../../../../services/ChatClient";
+import {
+  ModalOverlay,
+  GlassModal,
+  ModalButtons,
+  PrimaryButton,
+  CancelButton,
+} from "./Overlay.styles";
 
 export const RequestModal = ({
   inboundReq,
@@ -8,16 +14,16 @@ export const RequestModal = ({
   setInboundReq,
   setIsWaiting,
 }: any) => (
-  <div style={styles.modalOverlay}>
-    <div style={styles.glassModal}>
+  <ModalOverlay>
+    <GlassModal>
       {isWaiting ? (
         <>
-          <div style={styles.spinner}></div>
+          <div className="spinner" style={{ margin: "0 auto 15px" }}></div>
           <h3 style={{ color: colors.text.primary, marginTop: 0 }}>Waiting for Peer...</h3>
           <p style={{ color: colors.text.secondary }}>Establishing secure handshake.</p>
-          <button onClick={() => setIsWaiting(false)} style={styles.cancelBtn}>
+          <CancelButton onClick={() => setIsWaiting(false)}>
             Cancel
-          </button>
+          </CancelButton>
         </>
       ) : (
         <>
@@ -31,8 +37,8 @@ export const RequestModal = ({
           <p style={{ fontSize: "0.8em", color: colors.text.muted }}>
             Session ID: {inboundReq?.sid.slice(0, 8)}
           </p>
-          <div style={styles.modalButtons}>
-            <button
+          <ModalButtons>
+            <PrimaryButton
               onClick={async () => {
                 await ChatClient.acceptFriend(
                   inboundReq!.sid,
@@ -40,22 +46,20 @@ export const RequestModal = ({
                 );
                 setInboundReq(null);
               }}
-              style={styles.primaryBtn}
             >
               Accept
-            </button>
-            <button
+            </PrimaryButton>
+            <CancelButton
               onClick={() => {
                 ChatClient.denyFriend(inboundReq!.sid);
                 setInboundReq(null);
               }}
-              style={styles.cancelBtn}
             >
               Decline
-            </button>
-          </div>
+            </CancelButton>
+          </ModalButtons>
         </>
       )}
-    </div>
-  </div>
+    </GlassModal>
+  </ModalOverlay>
 );

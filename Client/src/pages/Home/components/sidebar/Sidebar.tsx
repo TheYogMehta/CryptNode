@@ -1,6 +1,18 @@
-import { styles } from "../../Home.styles";
+import React from "react";
 import { SidebarItem } from "./SidebarItem";
 import { SessionData } from "../../types";
+import {
+  SidebarContainer,
+  MobileOverlay,
+  SidebarHeader,
+  Logo,
+  CloseButton,
+  SessionList,
+  SectionLabel,
+  EmptyText,
+  SidebarFooter,
+} from "./Sidebar.styles";
+import { Button } from "../../../../components/ui/Button";
 
 export const Sidebar = ({
   sessions,
@@ -28,29 +40,20 @@ export const Sidebar = ({
   onOpenVault: () => void;
 }) => (
   <>
-    {isOpen && isMobile && (
-      <div onClick={onClose} style={styles.mobileOverlay} />
-    )}
-    <nav
-      style={{
-        ...styles.sidebar,
-        left: isMobile ? (isOpen ? 0 : "-100%") : 0,
-        position: isMobile ? "fixed" : "relative",
-      }}
-    >
-      <div style={styles.sidebarHeader}>
-        <h2 style={styles.logo} onClick={onLogoClick}>
-          Chat<span>app</span>
-        </h2>
-        {isMobile && (
-          <button onClick={onClose} style={styles.closeBtn}>
-            ✕
-          </button>
-        )}
-      </div>
+    {isOpen && isMobile && <MobileOverlay onClick={onClose} />}
 
-      <div style={styles.sessionList}>
-        <p style={styles.sectionLabel}>PINNED</p>
+    <SidebarContainer isOpen={isOpen} isMobile={isMobile}>
+      <SidebarHeader>
+        <Logo onClick={onLogoClick}>
+          Chat<span>app</span>
+        </Logo>
+        {isMobile && (
+          <CloseButton onClick={onClose}>✕</CloseButton>
+        )}
+      </SidebarHeader>
+
+      <SessionList>
+        <SectionLabel>PINNED</SectionLabel>
         <SidebarItem
           key="secure-chat"
           data={{
@@ -59,22 +62,22 @@ export const Sidebar = ({
             alias_avatar: "",
             peer_name: "Secure Vault",
             peer_avatar: "",
+            peerEmail: "vault@local",
             lastMsg: "Encrypted Storage",
             lastMsgType: "text",
             lastTs: Date.now(),
             unread: 0,
             online: true,
-            peerEmail: "vault@local",
           }}
           isActive={activeChat === "secure-vault"}
           onSelect={() => onOpenVault()}
-          onRename={() => {}}
+          onRename={() => { }}
         />
 
-        <p style={styles.sectionLabel}>SECURE SESSIONS</p>
+        <SectionLabel>SECURE SESSIONS</SectionLabel>
 
         {sessions.length === 0 ? (
-          <p style={styles.emptyText}>No active links</p>
+          <EmptyText>No active links</EmptyText>
         ) : (
           sessions.map((session) => (
             <SidebarItem
@@ -86,19 +89,20 @@ export const Sidebar = ({
             />
           ))
         )}
-      </div>
+      </SessionList>
 
-      <div style={styles.sidebarFooter}>
-        <button onClick={onAddPeer} style={styles.addBtn}>
-          <span>+</span> Connect
-        </button>
-        <button
+      <SidebarFooter>
+        <Button onClick={onAddPeer} fullWidth variant="primary">
+          + Connect
+        </Button>
+        <Button
           onClick={onSettings}
-          style={{ ...styles.addBtn, marginTop: "10px", background: "#333" }}
+          fullWidth
+          variant="secondary"
         >
-          <span>⚙</span> Settings
-        </button>
-      </div>
-    </nav>
+          ⚙ Settings
+        </Button>
+      </SidebarFooter>
+    </SidebarContainer>
   </>
 );

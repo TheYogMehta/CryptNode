@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { styles } from "../../Home.styles";
 import {
   User,
   PhoneOff,
@@ -10,9 +9,27 @@ import {
   Video,
   VideoOff,
   Monitor,
+  Phone,
 } from "lucide-react";
 
+import { IconButton } from "../../../../components/ui/IconButton";
+import {
+  OverlayContainer,
+  CallCard,
+  AvatarContainer,
+  CallerInfo,
+  CallerName,
+  CallStatus,
+  ControlsRow,
+  MinimizedContainer,
+  MaximizeButton,
+  FullScreenContainer,
+  MainVideoArea,
+  MinimizeButton,
+} from "./CallOverlay.styles";
+
 interface CallOverlayProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   callState: any;
   onAccept: () => void;
   onReject: () => void;
@@ -38,13 +55,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const dragStart = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let interval: any;
     if (callState?.status === "connected") {
       interval = setInterval(() => setDuration((d) => d + 1), 1000);
-      // Auto-enable video UI if type is Video/Screen, but toggle state only if we initiated?
-      // Actually callState.type tells us if WE started it as video.
-      // But remote stream type is what matters for clear indication?
-      // For now, rely on manual toggle or if remote video exists.
     } else {
       setDuration(0);
       setIsMinimized(false);
@@ -55,7 +69,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   useEffect(() => {
     if (callState?.remoteVideo && videoContainerRef.current) {
-      // Clear previous
       videoContainerRef.current.innerHTML = "";
       videoContainerRef.current.appendChild(callState.remoteVideo);
       callState.remoteVideo.style.width = "100%";
@@ -106,89 +119,70 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const shareScreen = () => {
     if (onSwitchStream) {
       onSwitchStream("Screen");
-      setIsVideoEnabled(true); // Screen implies video UI
+      setIsVideoEnabled(true);
     }
   };
 
   if (!callState || callState.status === "idle") return null;
 
+  // Incoming / Outgoing Call Interface
   if (callState.status === "ringing" || callState.status === "outgoing") {
+    const isIncoming = callState.status === "ringing";
     return (
-      <div style={styles.modalOverlay}>
-        <div
-          style={{
-            ...styles.glassModal,
-            maxWidth: "400px",
-            padding: "40px",
-            textAlign: "center",
-          }}
-        >
-          <div style={{ ...styles.avatarLarge, margin: "0 auto" }}>
-            {callState.remoteSid?.[0]?.toUpperCase() || (
-              <User size={64} color="white" />
-            )}
-          </div>
-          <h2 style={{ marginTop: "20px", color: "white" }}>
-            {callState.remoteSid
-              ? `Peer ${callState.remoteSid.slice(0, 6)}`
-              : "Unknown"}
-          </h2>
-          <p style={{ color: "#94a3b8", marginBottom: "40px" }}>
-            {callState.status === "outgoing"
-              ? `Calling (${callState.type || "Audio"})...`
-              : `Incoming ${callState.type || "Audio"} Call...`}
-          </p>
+      <OverlayContainer>
+        <CallCard>
+          <AvatarContainer isCalling>
+            {callState.remoteSid?.[0]?.toUpperCase() || <User size={48} />}
+          </AvatarContainer>
+          <CallerInfo>
+            <CallerName>
+              {callState.remoteSid
+                ? `Peer ${callState.remoteSid.slice(0, 6)}`
+                : "Unknown"}
+            </CallerName>
+            <CallStatus>
+              {isIncoming ? "Incoming Call..." : "Calling..."}
+            </CallStatus>
+          </CallerInfo>
 
-          <div
-            style={{ display: "flex", gap: "40px", justifyContent: "center" }}
-          >
-            {callState.status === "ringing" ? (
+          <ControlsRow>
+            {isIncoming ? (
               <>
-                <button
+                <IconButton
+                  variant="success"
+                  size="xl"
                   onClick={onAccept}
-                  style={{
-                    ...styles.iconBtnLarge,
-                    backgroundColor: "#22c55e",
-                    width: 64,
-                    height: 64,
-                  }}
                 >
-                  <PhoneOff size={28} style={{ transform: "rotate(135deg)" }} />
-                </button>
-                <button
+                  <Phone size={32} />
+                </IconButton>
+                <IconButton
+                  variant="danger"
+                  size="xl"
                   onClick={onReject}
-                  style={{
-                    ...styles.iconBtnLarge,
-                    backgroundColor: "#ef4444",
-                    width: 64,
-                    height: 64,
-                  }}
                 >
-                  <PhoneOff size={28} />
-                </button>
+                  <PhoneOff size={32} />
+                </IconButton>
               </>
             ) : (
-              <button
+              <IconButton
+                variant="danger"
+                size="xl"
                 onClick={onHangup}
-                style={{
-                  ...styles.iconBtnLarge,
-                  backgroundColor: "#ef4444",
-                  width: 64,
-                  height: 64,
-                }}
               >
-                <PhoneOff size={28} />
-              </button>
+                <PhoneOff size={32} />
+              </IconButton>
             )}
-          </div>
-        </div>
-      </div>
+          </ControlsRow>
+        </CallCard>
+      </OverlayContainer>
     );
   }
 
+  // Minimized Active Call
   if (isMinimized) {
     return (
-      <div
+      <MinimizedContainer
+        position={position}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -196,222 +190,92 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         onMouseUp={handleMouseUp}
         onTouchEnd={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        style={{
-          position: "fixed",
-          left: position.x,
-          top: position.y,
-          width: "200px",
-          height: "150px", // Fixed height for video
-          backgroundColor: "#1e293b",
-          borderRadius: "12px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          padding: "0",
-          zIndex: 1000,
-          cursor: "grab",
-          border: "1px solid rgba(255,255,255,0.1)",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
       >
-        <div
-          style={{ flex: 1, position: "relative", backgroundColor: "black" }}
-        >
-          {/* Video Container */}
-          <div
-            ref={videoContainerRef}
-            style={{ width: "100%", height: "100%" }}
-          />
-
-          {/* Overlay controls when minimized? kept minimal */}
-          <button
+        <div style={{ flex: 1, position: "relative", backgroundColor: "black" }}>
+          <div ref={videoContainerRef} style={{ width: "100%", height: "100%" }} />
+          <MaximizeButton
             onClick={(e) => {
               e.stopPropagation();
               setIsMinimized(false);
             }}
-            style={{
-              position: "absolute",
-              top: 5,
-              right: 5,
-              background: "rgba(0,0,0,0.5)",
-              border: "none",
-              color: "white",
-              cursor: "pointer",
-              borderRadius: "4px",
-            }}
           >
             <Maximize2 size={16} />
-          </button>
+          </MaximizeButton>
         </div>
-      </div>
+      </MinimizedContainer>
     );
   }
 
+  // Full Screen Active Call
   return (
-    <div style={{ ...styles.modalOverlay, backgroundColor: "#0f172a" }}>
-      <div
-        style={{
-          position: "absolute",
-          top: "40px",
-          left: "40px",
-          cursor: "pointer",
-          color: "white",
-          opacity: 0.7,
-          zIndex: 10,
-        }}
-        onClick={() => setIsMinimized(true)}
-      >
-        <Minimize2 size={32} />
-      </div>
+    <OverlayContainer>
+      <FullScreenContainer>
+        <MinimizeButton onClick={() => setIsMinimized(true)}>
+          <Minimize2 size={32} />
+        </MinimizeButton>
 
-      <div
-        style={{
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          width: "100%",
-          height: "100%",
-          justifyContent: "space-between",
-          paddingBottom: "40px",
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            position: "relative",
-          }}
-        >
-          {/* Main Video Area */}
+        <MainVideoArea>
           <div
             ref={videoContainerRef}
             style={{
               width: "100%",
               height: "100%",
-              maxWidth: "1000px",
-              maxHeight: "80vh",
-              backgroundColor: "black",
-              borderRadius: "16px",
-              overflow: "hidden",
               display: callState.remoteVideo ? "block" : "none",
             }}
           />
 
           {!callState.remoteVideo && (
-            <div
-              style={{
-                width: "150px",
-                height: "150px",
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #6366f1, #a855f7)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 0 60px rgba(99, 102, 241, 0.4)",
-              }}
-            >
-              <span
-                style={{ fontSize: "64px", color: "white", fontWeight: "bold" }}
-              >
-                {callState.remoteSid?.[0]?.toUpperCase()}
-              </span>
-            </div>
+            <AvatarContainer style={{ width: 150, height: 150 }}>
+              {callState.remoteSid?.[0]?.toUpperCase()}
+            </AvatarContainer>
           )}
-        </div>
+        </MainVideoArea>
 
-        <div>
-          <h2 style={{ fontSize: "32px", marginBottom: "8px", color: "white" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <CallerName style={{ color: "white", marginBottom: 8 }}>
             Peer {callState.remoteSid?.slice(0, 6)}
-          </h2>
-          <p style={{ color: "#94a3b8", fontSize: "18px" }}>
+          </CallerName>
+          <CallStatus style={{ color: "#94a3b8" }}>
             {formatTime(duration)} • Connected
-          </p>
+          </CallStatus>
+
+          <ControlsRow>
+            <IconButton
+              variant={isMuted ? "primary" : "glass"}
+              isActive={isMuted}
+              size="xl"
+              onClick={() => setIsMuted(!isMuted)}
+            >
+              {isMuted ? <MicOff size={28} /> : <Mic size={28} />}
+            </IconButton>
+
+            <IconButton
+              variant={isVideoEnabled ? "primary" : "glass"}
+              isActive={isVideoEnabled}
+              size="xl"
+              onClick={toggleVideo}
+            >
+              {isVideoEnabled ? <Video size={28} /> : <VideoOff size={28} />}
+            </IconButton>
+
+            <IconButton
+              variant="glass"
+              size="xl"
+              onClick={shareScreen}
+            >
+              <Monitor size={28} />
+            </IconButton>
+
+            <IconButton
+              variant="danger"
+              size="xl"
+              onClick={onHangup}
+            >
+              <PhoneOff size={28} />
+            </IconButton>
+          </ControlsRow>
         </div>
-
-        <div style={{ display: "flex", gap: "32px", marginTop: "20px" }}>
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "50%",
-              backgroundColor: isMuted ? "white" : "rgba(255,255,255,0.1)",
-              color: isMuted ? "black" : "white",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-          >
-            {isMuted ? <MicOff size={28} /> : <Mic size={28} />}
-          </button>
-
-          <button
-            onClick={toggleVideo}
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "50%",
-              backgroundColor: isVideoEnabled
-                ? "white"
-                : "rgba(255,255,255,0.1)",
-              color: isVideoEnabled ? "black" : "white",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-          >
-            {isVideoEnabled ? <Video size={28} /> : <VideoOff size={28} />}
-          </button>
-
-          <button
-            onClick={shareScreen}
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "50%",
-              backgroundColor: "rgba(255,255,255,0.1)",
-              color: "white",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-          >
-            <Monitor size={28} />
-          </button>
-
-          <button
-            onClick={onHangup}
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "50%",
-              backgroundColor: "#ef4444",
-              color: "white",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",
-            }}
-          >
-            <PhoneOff size={28} />
-          </button>
-        </div>
-      </div>
-    </div>
+      </FullScreenContainer>
+    </OverlayContainer>
   );
 };

@@ -1,5 +1,12 @@
 import React from "react";
-import { styles } from "../../Home.styles";
+import {
+  ModalOverlay,
+  GlassModal,
+  ModalButtons,
+  PrimaryButton,
+  CancelButton,
+  InputField
+} from "../overlays/Overlay.styles";
 
 interface PortShareModalProps {
   isOpen: boolean;
@@ -19,29 +26,27 @@ export const PortShareModal: React.FC<PortShareModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div style={styles.modalOverlay}>
-      <div style={styles.glassModal}>
+    <ModalOverlay>
+      <GlassModal>
         <h3>Share Local Port</h3>
         <p>Forward a local web app (e.g., 3000) to this peer.</p>
-        <input
+        <InputField
           type="number"
           value={port}
           onChange={(e) => setPort(e.target.value)}
           placeholder="e.g. 3000"
-          style={styles.joinInput}
         />
-        <div style={styles.modalButtons}>
-          <button
+        <ModalButtons>
+          <PrimaryButton
             onClick={() => onConfirm(parseInt(port))}
-            style={styles.primaryBtn}
           >
             Start Sharing
-          </button>
-          <button onClick={onClose} style={styles.cancelBtn}>
+          </PrimaryButton>
+          <CancelButton onClick={onClose}>
             Cancel
-          </button>
-        </div>
-      </div>
-    </div>
+          </CancelButton>
+        </ModalButtons>
+      </GlassModal>
+    </ModalOverlay>
   );
 };

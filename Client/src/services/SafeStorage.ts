@@ -2,7 +2,7 @@ import { SecureStoragePlugin } from "capacitor-secure-storage-plugin";
 import { Device } from "@capacitor/device";
 
 let cachedKey: CryptoKey | null = null;
-let isUnlockedAndroid = true;
+const isUnlockedAndroid = true;
 
 export async function Platform(): Promise<string> {
   const info = await Device.getInfo();
@@ -36,7 +36,7 @@ async function getCryptoKey(): Promise<CryptoKey> {
   return cachedKey;
 }
 
-async function encrypt(value: string): Promise<string> {
+export async function encryptData(value: string): Promise<string> {
   const key = await getCryptoKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
@@ -56,7 +56,7 @@ async function encrypt(value: string): Promise<string> {
   return btoa(chunks.join(""));
 }
 
-async function decrypt(payload: string): Promise<string | null> {
+export async function decryptData(payload: string): Promise<string | null> {
   try {
     const raw = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
     const key = await getCryptoKey();
@@ -81,9 +81,9 @@ export async function setKeyFromSecureStorage(
     const p = await Platform();
     if (p === "android") {
       if (!isUnlockedAndroid && !init) return;
-      await SecureStoragePlugin.set({ key, value: await encrypt(value) });
+      await SecureStoragePlugin.set({ key, value: await encryptData(value) });
     } else {
-      await (window as any).SafeStorage.setKey(key, await encrypt(value));
+      await (window as any).SafeStorage.setKey(key, await encryptData(value));
     }
   } catch (e) {
     console.error("Error setting key in secure storage:", e);
@@ -103,7 +103,7 @@ export async function getKeyFromSecureStorage(
     } else {
       encrypted = await (window as any).SafeStorage.getKey(key);
     }
-    return encrypted ? decrypt(encrypted) : null;
+    return encrypted ? decryptData(encrypted) : null;
   } catch (e: any) {
     console.error("Error getting key from secure storage:", JSON.stringify(e));
     return null;

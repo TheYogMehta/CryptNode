@@ -61,7 +61,7 @@ export const useSecureChat = () => {
         // typically the mnemonic + passphrase (optional) is the seed.
         // Let's use the existing salt mechanism but applied to the mnemonic.
 
-        let saltHex = localStorage.getItem(getSaltKey());
+        const saltHex = localStorage.getItem(getSaltKey());
         let salt: Uint8Array;
 
         if (!saltHex) {

@@ -1,583 +1,80 @@
-import React from "react";
-import { colors } from "../../theme/colors";
+import styled from "@emotion/styled";
+import { colors, spacing, typography, radii, shadows } from "../../theme/design-system";
 
-export const styles: { [key: string]: React.CSSProperties } = {
-  appContainer: {
-    display: "flex",
-    height: "100vh",
-    backgroundColor: colors.background,
-    color: colors.text.primary,
-    fontFamily: "'Inter', sans-serif",
-  },
-  sidebar: {
-    width: "320px",
-    height: "100%",
-    backgroundColor: colors.surface,
-    borderRight: `1px solid ${colors.border}`,
-    zIndex: 2000,
-    transition: "0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    display: "flex",
-    flexDirection: "column",
-  },
-  sidebarHeader: {
-    padding: "24px",
-    paddingTop: "max(24px, env(safe-area-inset-top))",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottom: `1px solid ${colors.border}`,
-  },
-  logo: {
-    fontSize: "1.2rem",
-    fontWeight: 800,
-    color: colors.primary,
-    margin: 0,
-    cursor: "pointer",
-  },
-  closeBtn: {
-    background: "none",
-    border: "none",
-    color: "white",
-    fontSize: 24,
-  },
-  sessionList: { flex: 1, overflowY: "auto", padding: "16px" },
-  sectionLabel: {
-    fontSize: "0.7rem",
-    fontWeight: 700,
-    color: colors.text.muted,
-    letterSpacing: "1px",
-    marginBottom: "12px",
-    paddingLeft: "8px",
-  },
-  sessionItem: {
-    display: "flex",
-    alignItems: "center",
-    padding: "12px",
-    borderRadius: "16px",
-    cursor: "pointer",
-    marginBottom: "4px",
-    transition: "0.2s",
-  },
-  avatar: {
-    width: "48px",
-    height: "48px",
-    borderRadius: "16px",
-    backgroundColor: colors.surfaceHighlight,
-    border: `1px solid ${colors.border}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: "bold",
-    marginRight: "12px",
-    color: "#818cf8",
-  },
-  sessionInfo: { flex: 1 },
-  sessionName: {
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    color: colors.text.primary,
-  },
-  sidebarFooter: { padding: "16px", borderTop: `1px solid ${colors.border}` },
-  addBtn: {
-    width: "100%",
-    padding: "14px",
-    borderRadius: "20px",
-    backgroundColor: colors.primary,
-    border: "none",
-    color: "white",
-    fontWeight: 700,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "10px",
-  },
+export const AppContainer = styled.div`
+  display: flex;
+  height: 100vh;
+  background-color: ${colors.background.primary};
+  color: ${colors.text.primary};
+  overflow: hidden;
+  font-family: ${typography.fontFamily.sans};
+`;
 
-  mainContent: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    position: "relative",
-  },
-  mainHeader: {
-    position: "sticky",
-    top: 0,
-    zIndex: 100,
-    paddingTop: "max(16px, env(safe-area-inset-top))",
-    paddingLeft: 24,
-    paddingRight: 24,
-    minHeight: 64,
-    display: "flex",
-    alignItems: "center",
-    borderBottom: `1px solid ${colors.border}`,
-    backgroundColor: "rgba(5, 5, 5, 0.8)",
-    backdropFilter: "blur(12px)",
-  },
-  headerTitle: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    margin: 0,
-    cursor: "pointer",
-  },
-  callButtonsContainer: {
-    display: "flex",
-    gap: "12px",
-    marginLeft: "auto",
-  },
+export const MainContent = styled.main`
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: ${colors.background.primary};
+`;
 
-  iconBtn: {
-    background: "none",
-    border: "none",
-    color: colors.text.secondary,
-    fontSize: "22px",
-    cursor: "pointer",
-    padding: "8px",
-    borderRadius: "16px",
-    transition: "0.2s",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  menuBtn: {
-    background: "none",
-    border: "none",
-    color: "white",
-    fontSize: 24,
-    marginRight: "16px",
-    padding: "8px",
-    touchAction: "manipulation",
-  },
-  contentBody: {
-    flex: 1,
-    display: "flex",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  chatContainer: {
-    width: "100%",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-  },
-  messageArea: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  messageRow: { display: "flex", marginBottom: "12px" },
-  bubble: {
-    padding: "10px 14px",
-    borderRadius: "18px",
-    maxWidth: "75%",
-    fontSize: "0.95rem",
-    lineHeight: "1.4",
-    boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-    position: "relative",
-  },
-  inputField: {
-    flex: 1,
-    background: "none",
-    border: "none",
-    padding: "12px 16px",
-    color: "white",
-    outline: "none",
-    resize: "none" as "none",
-    maxHeight: "150px",
-    fontFamily: "inherit",
-    fontSize: "0.95rem",
-  },
-  setupCard: {
-    maxWidth: "420px",
-    width: "92%",
-    alignSelf: "center",
-    padding: "32px",
-    borderRadius: "24px",
-    backgroundColor: colors.surface,
-    border: `1px solid ${colors.border}`,
-    textAlign: "center" as "center",
-  },
-  setupSub: {
-    color: colors.text.secondary,
-    fontSize: "0.85rem",
-    marginBottom: "24px",
-  },
-  primaryBtn: {
-    width: "100%",
-    padding: "14px",
-    borderRadius: "20px",
-    backgroundColor: colors.primary,
-    border: "none",
-    color: "white",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  inviteCodeContainer: {
-    marginTop: "20px",
-    padding: "20px",
-    borderRadius: "12px",
-    backgroundColor: colors.primaryLight,
-    border: `1px dashed ${colors.primary}`,
-    cursor: "pointer",
-  },
-  codeLabel: {
-    fontSize: "0.6rem",
-    fontWeight: 800,
-    color: "#818cf8",
-    marginBottom: "4px",
-  },
-  codeText: {
-    fontSize: "2.2rem",
-    letterSpacing: "6px",
-    margin: 0,
-    color: "white",
-  },
-  divider: {
-    margin: "32px 0",
-    textAlign: "center",
-    borderBottom: `1px solid ${colors.border}`,
-    lineHeight: "0.1em",
-  },
-  joinRow: { display: "flex", gap: "10px" },
-  joinInput: {
-    flex: 1,
-    backgroundColor: colors.background,
-    border: `1px solid ${colors.border}`,
-    borderRadius: "10px",
-    padding: "12px",
-    color: "white",
-    textAlign: "center",
-    fontSize: "1.1rem",
-  },
-  connectBtn: {
-    padding: "0 20px",
-    borderRadius: "10px",
-    backgroundColor: colors.primary,
-    border: "none",
-    color: "white",
-    cursor: "pointer",
-    fontWeight: 600,
-  },
+export const MobileHeader = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: ${spacing[4]} ${spacing[6]};
+  padding-top: max(${spacing[4]}, env(safe-area-inset-top));
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid ${colors.border.subtle};
+  background-color: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(12px);
+`;
 
-  emptyState: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    opacity: 0.3,
-    textAlign: "center",
-  },
-  heroIcon: { fontSize: "64px", marginBottom: "16px" },
-  mobileOverlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    zIndex: 1500,
-    backdropFilter: "blur(4px)",
-  },
-  modalOverlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(5, 5, 5, 0.85)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 4000,
-    backdropFilter: "blur(12px)",
-  },
-  glassModal: {
-    background: colors.surface,
-    border: `1px solid ${colors.border}`,
-    padding: "32px",
-    borderRadius: "24px",
-    width: "90%",
-    maxWidth: "340px",
-    textAlign: "center",
-  },
+export const HeaderTitle = styled.h2`
+  font-size: ${typography.fontSize.base};
+  font-weight: ${typography.fontWeight.bold};
+  margin: 0;
+  cursor: pointer;
+  color: ${colors.text.primary};
+`;
 
-  iconBtnLarge: {
-    width: "60px",
-    height: "60px",
-    borderRadius: "50%",
-    border: "none",
-    color: "white",
-    fontSize: "24px",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-  },
-  modalButtons: { display: "flex", gap: "12px", marginTop: "24px" },
-  cancelBtn: {
-    flex: 1,
-    padding: "12px",
-    background: "transparent",
-    border: `1px solid ${colors.border}`,
-    color: "white",
-    borderRadius: "10px",
-    cursor: "pointer",
-  },
-  errorToast: {
-    position: "fixed",
-    top: 20,
-    right: 20,
-    backgroundColor: colors.status.error,
-    padding: "12px 24px",
-    borderRadius: "12px",
-    zIndex: 5000,
-    fontWeight: 700,
-  },
-  spinner: {
-    width: "30px",
-    height: "30px",
-    border: "3px solid rgba(255,255,255,0.1)",
-    borderTopColor: colors.primary,
-    borderRadius: "50%",
-    animation: "spin 1s linear infinite",
-    margin: "0 auto 15px",
-  },
-  callCard: {
-    background: colors.surface,
-    border: `1px solid ${colors.border}`,
-    padding: "48px 32px",
-    borderRadius: "32px",
-    width: "90%",
-    maxWidth: "360px",
-    textAlign: "center",
-    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-  },
-  avatarLarge: {
-    width: "100px",
-    height: "100px",
-    borderRadius: "50%",
-    backgroundColor: colors.surfaceHighlight,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "40px",
-    margin: "0 auto",
-    border: `4px solid ${colors.primary}`,
-  },
-  callStatus: {
-    color: colors.text.secondary,
-    fontSize: "0.9rem",
-    marginBottom: "40px",
-    letterSpacing: "0.5px",
-  },
-  actionCircle: {
-    width: "64px",
-    height: "64px",
-    borderRadius: "50%",
-    border: "none",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "24px",
-    cursor: "pointer",
-    transition: "transform 0.2s",
-  },
-  inputWrapper: {
-    padding: "12px 16px",
-    backgroundColor: colors.surface,
-    borderTop: `1px solid ${colors.border}`,
-    position: "relative" as "relative",
-  },
-  plusBtn: {
-    background: "none",
-    border: "none",
-    color: colors.text.secondary,
-    fontSize: "28px",
-    cursor: "pointer",
-    padding: "0 12px",
-    display: "flex",
-    alignItems: "center",
-    transition: "0.3s ease",
-  },
-  attachmentItem: {
-    display: "flex",
-    flexDirection: "column" as "column",
-    alignItems: "center",
-    gap: "8px",
-    cursor: "pointer",
-  },
-  attachmentCircle: {
-    width: "56px",
-    height: "56px",
-    borderRadius: "50%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "22px",
-  },
-  attachmentLabel: {
-    fontSize: "0.75rem",
-    color: colors.text.secondary,
-    fontWeight: 500,
-  },
-  portModal: {
-    position: "absolute",
-    bottom: "90px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "280px",
-    zIndex: 1100,
-  },
-  portModalContent: {
-    backgroundColor: colors.surface,
-    padding: "20px",
-    borderRadius: "18px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-    border: `1px solid ${colors.border}`,
-  },
-  portSendBtn: {
-    flex: 1,
-    padding: "10px",
-    backgroundColor: colors.primary,
-    border: "none",
-    color: "white",
-    borderRadius: "8px",
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-  portCancelBtn: {
-    padding: "10px",
-    background: "transparent",
-    border: `1px solid ${colors.border}`,
-    color: colors.text.secondary,
-    borderRadius: "8px",
-    cursor: "pointer",
-  },
-  attachmentMenu: {
-    position: "absolute",
-    bottom: "80px",
-    left: "16px",
-    right: "16px",
-    maxWidth: "360px",
-    backgroundColor: colors.surface,
-    borderRadius: "24px",
-    padding: "24px",
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    gap: "24px 16px",
-    boxShadow: "0 -10px 40px rgba(0,0,0,0.5)",
-    zIndex: 100,
-    animation: "slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-    border: `1px solid ${colors.border}`,
-  },
-  menuItem: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "8px",
-    cursor: "pointer",
-    transition: "transform 0.1s",
-  },
-  menuIcon: {
-    width: "56px",
-    height: "56px",
-    borderRadius: "20px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "24px",
-    color: "white",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
-  },
-  menuLabel: {
-    fontSize: "0.75rem",
-    color: colors.text.secondary,
-    fontWeight: 500,
-    textAlign: "center",
-  },
-  plusBtnContainer: {
-    width: "40px",
-    height: "40px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: colors.text.secondary,
-    fontSize: "26px",
-    cursor: "pointer",
-    transition: "0.2s ease",
-    userSelect: "none",
-    flexShrink: 0,
-  },
-  inputContainer: {
-    display: "flex",
-    alignItems: "center",
-    backgroundColor: colors.surfaceHighlight,
-    borderRadius: "28px",
-    border: `1px solid ${colors.border}`,
-    padding: "4px 8px",
-    position: "relative",
-    gap: "4px",
-    flexShrink: 0,
-    marginBottom: "env(safe-area-inset-bottom, 0px)",
-  },
-  sendBtn: {
-    width: "40px",
-    height: "40px",
-    borderRadius: "50%",
-    backgroundColor: colors.primary,
-    border: "none",
-    color: "white",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    fontSize: "18px",
-    flexShrink: 0,
-    transition: "all 0.2s ease",
-  },
-  chatWindow: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    padding: "16px",
-    paddingTop: "16px",
-    paddingLeft: "max(16px, env(safe-area-inset-left))",
-    paddingRight: "max(16px, env(safe-area-inset-right))",
-    backgroundColor: colors.background,
-    position: "relative" as "relative",
-    overflow: "hidden",
-  },
-  messageList: {
-    flex: 1,
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-    paddingBottom: "16px",
-    minHeight: 0,
-  },
-  messageWrapper: {
-    display: "flex",
-    marginBottom: "12px",
-    width: "100%",
-  },
-  messageBubble: {
-    padding: "10px 14px",
-    borderRadius: "18px",
-    maxWidth: "75%",
-    fontSize: "0.95rem",
-    lineHeight: "1.4",
-    boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-    position: "relative",
-  },
-  portInput: {
-    width: "100%",
-    padding: "12px",
-    backgroundColor: colors.background,
-    border: `1px solid ${colors.border}`,
-    borderRadius: "10px",
-    color: "white",
-    fontSize: "1rem",
-    outline: "none",
-    appearance: "none",
-  },
-};
+export const MenuButton = styled.button`
+  background: none;
+  border: none;
+  color: ${colors.text.primary};
+  font-size: 24px;
+  margin-right: ${spacing[4]};
+  padding: ${spacing[2]};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: ${radii.md};
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: ${colors.background.tertiary};
+  }
+`;
+
+export const ErrorToast = styled.div`
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: ${colors.status.error};
+  padding: ${spacing[3]} ${spacing[6]};
+  border-radius: ${radii.lg};
+  z-index: 5000;
+  font-weight: ${typography.fontWeight.bold};
+  color: white;
+  box-shadow: ${shadows.lg};
+  animation: slideIn 0.3s ease-out;
+
+  @keyframes slideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+`;

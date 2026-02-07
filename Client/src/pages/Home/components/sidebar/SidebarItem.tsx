@@ -1,7 +1,13 @@
 import React from "react";
-import { styles } from "../../Home.styles";
 import { SessionData } from "../../types";
-import UserAvatar from "../../../../components/UserAvatar";
+import { Avatar } from "../../../../components/ui/Avatar";
+import {
+  ItemContainer,
+  ItemInfo,
+  ItemName,
+  ItemPreview,
+  UnreadBadge,
+} from "./Sidebar.styles";
 
 interface SidebarItemProps {
   data: SessionData;
@@ -53,75 +59,35 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
   };
 
   return (
-    <div
+    <ItemContainer
+      isActive={isActive}
       onClick={() => onSelect(sid)}
       onContextMenu={(e) => {
         e.preventDefault();
         onRename(sid, displayName);
       }}
-      style={{
-        ...styles.sessionItem,
-        background: isActive ? "rgba(99, 102, 241, 0.15)" : "transparent",
-        position: "relative",
-      }}
     >
-      <UserAvatar
-        avatarUrl={avatarUrl}
+      <Avatar
+        src={avatarUrl}
         name={displayName}
-        size={40}
-        style={{
-          marginRight: "12px",
-          border: `2px solid ${isOnline ? "#22c55e" : "#334155"}`,
-        }}
+        size="md"
+        status={isOnline ? "online" : "offline"}
       />
-      <div style={styles.sessionInfo}>
-        <div
-          style={{
-            ...styles.sessionName,
-            display: "flex",
-            justifyContent: "space-between",
-          }}
-        >
+
+      <ItemInfo>
+        <ItemName>
           <span>{displayName}</span>
-        </div>
-        <div
-          style={{
-            fontSize: "0.8rem",
-            color: isActive ? "rgba(255,255,255,0.9)" : "#94a3b8",
-            marginTop: "2px",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        </ItemName>
+        <ItemPreview isActive={isActive}>
           {getPreviewText()}
-        </div>
-      </div>
+        </ItemPreview>
+      </ItemInfo>
 
       {unread > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            right: "12px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            backgroundColor: "#ef4444",
-            color: "white",
-            borderRadius: "50%",
-            minWidth: "20px",
-            height: "20px",
-            fontSize: "0.75rem",
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "0 4px",
-            boxShadow: "0 2px 5px rgba(239, 68, 68, 0.4)",
-          }}
-        >
+        <UnreadBadge>
           {unread > 99 ? "99+" : unread}
-        </div>
+        </UnreadBadge>
       )}
-    </div>
+    </ItemContainer>
   );
 };

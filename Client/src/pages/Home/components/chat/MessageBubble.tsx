@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from "react";
-import { styles } from "../../Home.styles";
 import { ChatMessage } from "../../types";
 import ChatClient from "../../../../services/ChatClient";
 import { StorageService } from "../../../../utils/Storage";
@@ -10,10 +9,31 @@ import {
   Pause,
   FileIcon,
   Loader2,
-  Check,
-  CheckCheck,
   Reply,
+  Globe,
+  Check,
+  CheckCheck
 } from "lucide-react";
+import {
+  BubbleWrapper,
+  Bubble,
+  ReplyButton,
+  ReplyContext,
+  MediaContainer,
+  DownloadOverlay,
+  MediaActionBtn,
+  AudioContainer,
+  AudioControls,
+  PlayPauseBtn,
+  WaveformContainer,
+  WaveformBar,
+  SpeedButton,
+  AudioTimeInfo,
+  FileAttachment,
+  FileInfo,
+  FileName,
+  FileStatus,
+} from "./Chat.styles";
 
 const AudioPlayer = ({
   src,
@@ -58,16 +78,7 @@ const AudioPlayer = ({
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "8px",
-        width: "100%",
-        maxWidth: "240px",
-        overflow: "hidden",
-      }}
-    >
+    <AudioContainer isMe={isMe}>
       {src ? (
         <audio
           ref={audioRef}
@@ -82,109 +93,51 @@ const AudioPlayer = ({
         />
       ) : null}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          width: "100%",
-        }}
-      >
-        <div
-          style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "50%",
-            flexShrink: 0,
-            backgroundColor: isMe ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-        >
+      <AudioControls isMe={isMe}>
+        <PlayPauseBtn isMe={isMe} onClick={isDownloaded ? togglePlay : onDownload}>
           {!isDownloaded ? (
             isDownloading ? (
-              <span style={{ fontSize: "0.6rem", fontWeight: "bold" }}>
+              <span style={{ fontSize: "10px", fontWeight: "bold" }}>
                 {Math.round(progress * 100)}%
               </span>
             ) : (
-              <Download size={20} onClick={onDownload} />
+              <Download size={20} />
             )
           ) : isPlaying ? (
-            <Pause size={20} fill="currentColor" onClick={togglePlay} />
+            <Pause size={20} fill="currentColor" />
           ) : (
-            <Play size={20} fill="currentColor" onClick={togglePlay} />
+            <Play size={20} fill="currentColor" />
           )}
-        </div>
+        </PlayPauseBtn>
 
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            gap: "2px",
-            height: "24px",
-            overflow: "hidden",
-          }}
-        >
+        <WaveformContainer>
           {waveform.map((h, i) => (
-            <div
+            <WaveformBar
               key={i}
-              style={{
-                width: "3px",
-                flexShrink: 0,
-                height: `${h * 100}%`,
-                backgroundColor:
-                  i / waveform.length < currentTime / duration
-                    ? isMe
-                      ? "#a5b4fc"
-                      : "#64748b"
-                    : isMe
-                    ? "rgba(255,255,255,0.4)"
-                    : "rgba(0,0,0,0.1)",
-                borderRadius: "2px",
-              }}
+              height={h}
+              isMe={isMe}
+              active={i / waveform.length < currentTime / duration}
             />
           ))}
-        </div>
+        </WaveformContainer>
 
         {isDownloaded && (
-          <div
-            onClick={handleSpeed}
-            style={{
-              fontSize: "0.7rem",
-              fontWeight: "bold",
-              cursor: "pointer",
-              width: "24px",
-              textAlign: "center",
-              flexShrink: 0,
-            }}
-          >
+          <SpeedButton onClick={handleSpeed}>
             {speed}x
-          </div>
+          </SpeedButton>
         )}
-      </div>
+      </AudioControls>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: "0.7rem",
-          opacity: 0.7,
-          paddingLeft: "4px",
-          paddingRight: "4px",
-        }}
-      >
+      <AudioTimeInfo>
         <span>{isDownloaded ? formatTime(currentTime) : "0:00"}</span>
         <span>
           {isDownloaded
             ? formatTime(duration)
             : isDownloading
-            ? "Downloading..."
-            : "Voice Note"}
+              ? "Downloading..."
+              : "Voice Note"}
         </span>
-      </div>
+      </AudioTimeInfo>
 
       {isDownloaded && !isMe && (
         <div
@@ -194,7 +147,7 @@ const AudioPlayer = ({
           <Save size={14} style={{ opacity: 0.5, cursor: "pointer" }} />
         </div>
       )}
-    </div>
+    </AudioContainer>
   );
 };
 
@@ -288,58 +241,27 @@ export const MessageBubble = ({
     if (msg.type === "image") {
       if (imageSrc || (msg.mediaStatus === "uploading" && msg.tempUrl)) {
         return (
-          <div
-            style={{
-              position: "relative",
-              display: "inline-block",
-              minWidth: "150px",
-              minHeight: "150px",
-            }}
-          >
+          <MediaContainer>
             <img
               src={imageSrc || msg.tempUrl}
               alt="attachment"
-              style={{
-                maxWidth: "100%",
-                maxHeight: "300px",
-                borderRadius: "12px",
-                cursor: "pointer",
-                opacity: msg.mediaStatus === "uploading" ? 0.7 : 1,
-                display: "block",
-              }}
               onClick={() => window.open(imageSrc || msg.tempUrl, "_blank")}
               onError={(e) => {
                 console.error(
-                  `[MessageBubble] Image load failed. ID=${msg.id} MIME=${
-                    msg.mediaMime
-                  } LEN=${(imageSrc || msg.tempUrl)?.length || 0}`,
+                  `[MessageBubble] Image load failed. ID=${msg.id}`
                 );
                 e.currentTarget.style.display = "none";
               }}
+              style={{ cursor: "pointer", opacity: msg.mediaStatus === "uploading" ? 0.7 : 1 }}
             />
-            <button
+            <MediaActionBtn
               onClick={(e) => {
                 e.stopPropagation();
                 handleSave();
               }}
-              style={{
-                position: "absolute",
-                bottom: "8px",
-                right: "8px",
-                backgroundColor: "rgba(0,0,0,0.6)",
-                color: "white",
-                borderRadius: "50%",
-                width: "32px",
-                height: "32px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                border: "1px solid rgba(255,255,255,0.2)",
-              }}
             >
               <Save size={16} />
-            </button>
+            </MediaActionBtn>
             {msg.mediaStatus === "uploading" && (
               <div
                 style={{
@@ -353,26 +275,12 @@ export const MessageBubble = ({
                 <Loader2 className="animate-spin" size={24} color="white" />
               </div>
             )}
-          </div>
+          </MediaContainer>
         );
       }
 
       return (
-        <div
-          onClick={!isDownloaded ? handleDownload : undefined}
-          style={{
-            position: "relative",
-            minWidth: "200px",
-            minHeight: "150px",
-            backgroundColor: "#334155",
-            borderRadius: "12px",
-            overflow: "hidden",
-            cursor: !isDownloaded ? "pointer" : "default",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <MediaContainer onClick={!isDownloaded ? handleDownload : undefined}>
           {thumbnailSrc && (
             <img
               src={thumbnailSrc}
@@ -388,17 +296,9 @@ export const MessageBubble = ({
               }}
             />
           )}
-          <div
-            style={{
-              zIndex: 10,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
+          <DownloadOverlay>
             {isDownloading ? (
-              <div style={{ color: "white", fontWeight: "bold" }}>
+              <div style={{ fontWeight: "bold" }}>
                 {isRequestingDownload
                   ? "0%"
                   : `${Math.round((msg.mediaProgress || 0) * 100)}%`}
@@ -407,70 +307,45 @@ export const MessageBubble = ({
               <Loader2 className="animate-spin" size={24} color="white" />
             ) : (
               <>
-                <Download size={32} color="white" />
-                <span
-                  style={{
-                    color: "white",
-                    fontSize: "0.8rem",
-                    fontWeight: "500",
-                  }}
-                >
+                <Download size={32} />
+                <span style={{ fontSize: "12px", fontWeight: "500" }}>
                   Download
                 </span>
               </>
             )}
-          </div>
-        </div>
+          </DownloadOverlay>
+        </MediaContainer>
       );
     }
 
     if (msg.type === "audio") {
       return (
-        <div
-          style={{
-            backgroundColor:
-              msg.sender === "me" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.2)",
-            padding: "12px 16px",
-            borderRadius: "12px",
-            position: "relative",
-          }}
-        >
-          <AudioPlayer
-            src={imageSrc}
-            onDownload={handleDownload}
-            isDownloaded={isDownloaded}
-            isDownloading={isDownloading}
-            progress={msg.mediaProgress || 0}
-            isMe={isMe}
-            onSave={handleSave}
-          />
-        </div>
+        <AudioPlayer
+          src={imageSrc}
+          onDownload={handleDownload}
+          isDownloaded={isDownloaded}
+          isDownloading={isDownloading}
+          progress={msg.mediaProgress || 0}
+          isMe={isMe}
+          onSave={handleSave}
+        />
       );
     }
 
     if (msg.type === "video") {
       if (isDownloaded && imageSrc) {
         return (
-          <video
-            src={imageSrc}
-            controls
-            style={{ maxWidth: "100%", borderRadius: "12px" }}
-          />
+          <MediaContainer>
+            <video
+              src={imageSrc}
+              controls
+              style={{ maxWidth: "100%", borderRadius: "12px" }}
+            />
+          </MediaContainer>
         );
       }
       return (
-        <div
-          style={{
-            position: "relative",
-            minWidth: "220px",
-            minHeight: "140px",
-            backgroundColor: "black",
-            borderRadius: "12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <MediaContainer>
           {isDownloading ? (
             <div style={{ color: "white" }}>
               {isRequestingDownload
@@ -495,22 +370,13 @@ export const MessageBubble = ({
               <Download size={16} /> <span>Video</span>
             </button>
           )}
-        </div>
+        </MediaContainer>
       );
     }
 
     if (msg.type === "file") {
       return (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            backgroundColor: "rgba(0,0,0,0.2)",
-            padding: "12px",
-            borderRadius: "12px",
-          }}
-        >
+        <FileAttachment>
           <div
             style={{
               padding: "10px",
@@ -520,34 +386,16 @@ export const MessageBubble = ({
           >
             <FileIcon size={24} />
           </div>
-          <div style={{ overflow: "hidden", flex: 1 }}>
-            <div
-              style={{
-                fontWeight: "600",
-                fontSize: "0.9rem",
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
-                overflow: "hidden",
-              }}
-            >
-              {msg.text || "File"}
-            </div>
-            <div
-              style={{ fontSize: "0.75rem", opacity: 0.7, marginTop: "2px" }}
-            >
+          <FileInfo>
+            <FileName>{msg.text || "File"}</FileName>
+            <FileStatus>
               {isDownloaded ? "Downloaded" : "Attachment"}
-            </div>
-          </div>
+            </FileStatus>
+          </FileInfo>
           {isDownloaded ? (
             <button
               onClick={handleSave}
-              style={{
-                border: "none",
-                background: "none",
-                cursor: "pointer",
-                opacity: 0.8,
-                padding: 0,
-              }}
+              style={{ border: "none", background: "none", cursor: "pointer", opacity: 0.8 }}
             >
               <Save size={20} />
             </button>
@@ -555,13 +403,7 @@ export const MessageBubble = ({
             !isDownloading && (
               <button
                 onClick={handleDownload}
-                style={{
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                  opacity: 0.8,
-                  padding: 0,
-                }}
+                style={{ border: "none", background: "none", cursor: "pointer", opacity: 0.8 }}
               >
                 <Download size={20} />
               </button>
@@ -584,10 +426,10 @@ export const MessageBubble = ({
                   height: "100%",
                   backgroundColor: "#4ade80",
                 }}
-              ></div>
+              />
             </div>
           )}
-        </div>
+        </FileAttachment>
       );
     }
 
@@ -620,16 +462,8 @@ export const MessageBubble = ({
   };
 
   return (
-    <div
-      style={{
-        ...styles.messageWrapper,
-        justifyContent: isMe ? "flex-end" : "flex-start",
-        display: "flex",
-        width: "100%",
-        marginBottom: "8px",
-        overflow: "hidden",
-        position: "relative",
-      }}
+    <BubbleWrapper
+      isMe={isMe}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -652,89 +486,29 @@ export const MessageBubble = ({
         <Reply size={20} />
       </div>
 
-      <div
-        className="animate-scale-in"
+      <Bubble
+        isMe={isMe}
         style={{
-          ...styles.messageBubble,
-          backgroundColor: isMe ? "#6366f1" : "#27272a",
-          color: "white",
-          maxWidth: "70%",
-          padding: "12px 16px",
-          borderRadius: isMe ? "20px 20px 4px 20px" : "20px 20px 20px 4px",
-          display: "flex",
-          flexDirection: "column",
-          transformOrigin: isMe ? "bottom right" : "bottom left",
           transform: `translateX(${swipeOffset}px)`,
           transition: isSwiping
             ? "none"
             : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
         }}
       >
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onReply?.(msg);
-            }}
-            className="reply-btn"
-            style={{
-              position: "absolute",
-              right: isMe ? "auto" : "-40px",
-              left: isMe ? "-40px" : "auto",
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "rgba(255,255,255,0.05)",
-              border: "none",
-              borderRadius: "50%",
-              width: "32px",
-              height: "32px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "rgba(255,255,255,0.4)",
-              cursor: "pointer",
-              opacity: 0,
-              transition: "opacity 0.2s, background 0.2s",
-            }}
-          >
-            <Reply size={16} />
-          </button>
+        <ReplyButton
+          isMe={isMe}
+          onClick={(e) => {
+            e.stopPropagation();
+            onReply?.(msg);
+          }}
+        >
+          <Reply size={16} />
+        </ReplyButton>
 
-          <style>
-            {`
-               .animate-scale-in:hover .reply-btn {
-                 opacity: 1 !important;
-               }
-               .reply-btn:hover {
-                 background: rgba(255,255,255,0.1) !important;
-                 color: white !important;
-               }
-             `}
-          </style>
-        </div>
         {msg.replyTo && (
-          <div
-            style={{
-              padding: "8px",
-              backgroundColor: "rgba(0,0,0,0.15)",
-              borderRadius: "8px",
-              borderLeft: "3px solid rgba(255,255,255,0.3)",
-              marginBottom: "4px",
-              fontSize: "0.85rem",
-              opacity: 0.9,
-              display: "flex",
-              gap: "8px",
-              alignItems: "center",
-            }}
-          >
+          <ReplyContext>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontWeight: "bold",
-                  fontSize: "0.75rem",
-                  marginBottom: "2px",
-                }}
-              >
+              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
                 {msg.replyTo.sender}
               </div>
               <div
@@ -742,7 +516,6 @@ export const MessageBubble = ({
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
-                  fontSize: "0.8rem",
                   opacity: 0.8,
                 }}
               >
@@ -766,8 +539,9 @@ export const MessageBubble = ({
                 }}
               />
             )}
-          </div>
+          </ReplyContext>
         )}
+
         {msg.type === "system" ? (
           <div
             style={{
@@ -783,7 +557,7 @@ export const MessageBubble = ({
         ) : msg.type === "live share port" ? (
           <div style={{ padding: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "1.5rem" }}>🌐</span>
+              <Globe size={24} />
               <div>
                 <b style={{ display: "block" }}>Dev Port Shared</b>
                 <code style={{ fontSize: "0.8rem", opacity: 0.8 }}>
@@ -801,40 +575,48 @@ export const MessageBubble = ({
                 padding: "8px",
                 borderRadius: "8px",
                 border: "none",
-                backgroundColor: "#3b82f6",
-                color: "white",
+                backgroundColor: "white",
+                color: "black",
+                fontWeight: "bold",
+                cursor: "pointer",
               }}
             >
-              View App
+              Open Port
             </button>
           </div>
-        ) : msg.type === "text" ? (
-          <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
         ) : (
-          renderMediaContent()
+          renderMediaContent() || (
+            <div style={{ whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+              {msg.text && (
+                // Basic link detection
+                msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) => (
+                  part.match(/https?:\/\//) ? (
+                    <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+                      {part}
+                    </a>
+                  ) : part
+                ))
+              )}
+            </div>
+          )
         )}
 
         <div
           style={{
-            fontSize: "0.6rem",
-            opacity: 0.5,
+            fontSize: "0.65rem",
+            opacity: 0.6,
             textAlign: "right",
-            marginTop: "2px",
+            marginTop: "4px",
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-end",
             gap: "4px",
           }}
         >
-          {(() => {
-            const date = new Date(msg.timestamp);
-            return isNaN(date.getTime())
-              ? "..."
-              : date.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
-          })()}
+          {new Date(msg.timestamp).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
           {isMe && (
             <span>
               {msg.status === 2 ? (
@@ -845,7 +627,7 @@ export const MessageBubble = ({
             </span>
           )}
         </div>
-      </div>
-    </div>
+      </Bubble>
+    </BubbleWrapper>
   );
 };

@@ -75,9 +75,19 @@ const SCHEMA = {
       "CREATE INDEX IF NOT EXISTS idx_shares_msg ON live_shares(message_id);",
     ],
   },
+  vault: {
+    columns: `
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT,
+      metadata TEXT,
+      encrypted_data TEXT,
+      timestamp INTEGER
+    `,
+    indices: [],
+  },
 };
 
-const tableOrder = ["me", "sessions", "messages", "media", "live_shares"];
+const tableOrder = ["me", "sessions", "messages", "media", "live_shares", "vault"];
 
 export const getCurrentDbName = () => currentDbName;
 
@@ -199,8 +209,8 @@ async function syncTableSchema(tableName: string, targetColumnsRaw: string) {
       `CREATE TABLE ${tableName}_new(${targetColumnsStr});`,
       ...(sharedColumns.length > 0
         ? [
-            `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
-          ]
+          `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
+        ]
         : []),
       `DROP TABLE ${tableName};`,
       `ALTER TABLE ${tableName}_new RENAME TO ${tableName};`,
@@ -278,4 +288,23 @@ export const deleteDatabase = async () => {
   } catch (e) {
     console.error(`[sqlite] Failed to delete database ${currentDbName}`, e);
   }
+};
+
+export const getVaultItems = async () => {
+  const rows = await queryDB("SELECT * FROM vault ORDER BY timestamp DESC");
+  return rows.map(row => ({
+    ...row,
+    metadata: JSON.parse(row.metadata)
+  }));
+};
+
+export const addVaultItem = async (type: string, encrypted_data: string, metadata: any) => {
+  await executeDB(
+    "INSERT INTO vault (type, encrypted_data, metadata, timestamp) VALUES (?, ?, ?, ?)",
+    [type, encrypted_data, JSON.stringify(metadata), Date.now()]
+  );
+};
+
+export const deleteVaultItem = async (id: number) => {
+  await executeDB("DELETE FROM vault WHERE id = ?", [id]);
 };

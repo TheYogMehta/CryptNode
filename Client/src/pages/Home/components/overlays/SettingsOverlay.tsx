@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { styles } from "../../Home.styles";
 import {
   AccountService,
   StoredAccount,
@@ -13,8 +12,21 @@ import {
 import { AppLockScreen } from "./AppLockScreen";
 import { Clipboard } from "@capacitor/clipboard";
 import { StorageService } from "../../../../utils/Storage";
-
 import UserAvatar from "../../../../components/UserAvatar";
+import { ModalOverlay } from "./Overlay.styles";
+import {
+  SettingsContainer,
+  SettingsSidebar,
+  SettingsContent,
+  CategoryButton,
+  ProfileSection,
+  AccountItem,
+  DangerZone,
+  DangerButton,
+  CodeBlock,
+} from "./Settings.styles";
+import { colors } from "../../../../theme/design-system";
+import { ArrowLeft } from "lucide-react";
 
 interface SettingsOverlayProps {
   onClose: () => void;
@@ -219,67 +231,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     }
   };
 
-  const overlayStyle: React.CSSProperties = {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.85)",
-    zIndex: 2000,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-  };
-
-  const modalStyle: React.CSSProperties = {
-    width: "800px",
-    height: "600px",
-    maxWidth: "95vw",
-    maxHeight: "90vh",
-    backgroundColor: "#1a1a1a",
-    borderRadius: "12px",
-    display: "flex",
-    overflow: "hidden",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-    border: "1px solid #333",
-  };
-
-  const sidebarStyle: React.CSSProperties = {
-    width: "250px",
-    backgroundColor: "#252525",
-    padding: "20px",
-    borderRight: "1px solid #333",
-    display: "flex",
-    flexDirection: "column",
-  };
-
-  const contentStyle: React.CSSProperties = {
-    flex: 1,
-    padding: "30px",
-    overflowY: "auto",
-    backgroundColor: "#1a1a1a",
-  };
-
-  const categoryBtnStyle = (isActive: boolean): React.CSSProperties => ({
-    padding: "12px 15px",
-    marginBottom: "8px",
-    borderRadius: "8px",
-    backgroundColor: isActive ? "#3b82f6" : "transparent",
-    color: isActive ? "white" : "#aaa",
-    cursor: "pointer",
-    border: "none",
-    textAlign: "left",
-    fontSize: "16px",
-    fontWeight: 500,
-    transition: "all 0.2s",
-  });
-
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
+    <ModalOverlay>
+      <SettingsContainer>
         {/* Left Sidebar */}
-        <div style={sidebarStyle}>
+        <SettingsSidebar>
           <div
             style={{
               marginBottom: "30px",
@@ -293,40 +249,42 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               style={{
                 background: "none",
                 border: "none",
-                color: "#fff",
-                fontSize: "20px",
+                color: colors.text.primary,
                 cursor: "pointer",
+                padding: "4px",
+                display: 'flex',
+                alignItems: 'center'
               }}
             >
-              ←
+              <ArrowLeft size={20} />
             </button>
-            <h2 style={{ margin: 0, fontSize: "20px", color: "white" }}>
+            <h2 style={{ margin: 0, fontSize: "20px", color: colors.text.primary }}>
               Settings
             </h2>
           </div>
 
-          <button
-            style={categoryBtnStyle(activeCategory === "Profile")}
+          <CategoryButton
+            isActive={activeCategory === "Profile"}
             onClick={() => setActiveCategory("Profile")}
           >
             Profile
-          </button>
-          <button
-            style={categoryBtnStyle(activeCategory === "Account")}
+          </CategoryButton>
+          <CategoryButton
+            isActive={activeCategory === "Account"}
             onClick={() => setActiveCategory("Account")}
           >
             Account
-          </button>
-          <button
-            style={categoryBtnStyle(activeCategory === "Security")}
+          </CategoryButton>
+          <CategoryButton
+            isActive={activeCategory === "Security"}
             onClick={() => setActiveCategory("Security")}
           >
             Security
-          </button>
-        </div>
+          </CategoryButton>
+        </SettingsSidebar>
 
         {/* Right Content */}
-        <div style={contentStyle}>
+        <SettingsContent>
           {activeCategory === "Profile" && (
             <div>
               <h3 style={{ marginTop: 0, color: "white" }}>Profile</h3>
@@ -345,7 +303,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       avatarUrl={editAvatar}
                       name={currentUserEmail || "?"}
                       size={80}
-                      style={{ border: "2px solid #3b82f6" }}
+                      style={{ border: `2px solid ${colors.primary.main}` }}
                       onClick={() =>
                         document.getElementById("edit-avatar-input")?.click()
                       }
@@ -378,7 +336,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       <label
                         style={{
                           display: "block",
-                          color: "#aaa",
+                          color: colors.text.secondary,
                           fontSize: "12px",
                           marginBottom: "5px",
                         }}
@@ -393,10 +351,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           width: "100%",
                           padding: "10px",
                           borderRadius: "6px",
-                          background: "#252525",
-                          border: "1px solid #444",
+                          background: colors.background.tertiary,
+                          border: `1px solid ${colors.border.subtle}`,
                           color: "white",
                           fontSize: "16px",
+                          outline: "none",
                         }}
                       />
                     </div>
@@ -408,7 +367,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       style={{
                         padding: "8px 16px",
                         borderRadius: "6px",
-                        background: "#3b82f6",
+                        background: colors.primary.main,
                         color: "white",
                         border: "none",
                         cursor: "pointer",
@@ -423,8 +382,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         padding: "8px 16px",
                         borderRadius: "6px",
                         background: "transparent",
-                        color: "#aaa",
-                        border: "1px solid #444",
+                        color: colors.text.secondary,
+                        border: `1px solid ${colors.border.subtle}`,
                         cursor: "pointer",
                       }}
                     >
@@ -433,14 +392,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                   </div>
                 </div>
               ) : (
-                <div
-                  style={{
-                    marginBottom: "30px",
-                    padding: "20px",
-                    background: "#252525",
-                    borderRadius: "8px",
-                  }}
-                >
+                <ProfileSection>
                   <div
                     style={{
                       display: "flex",
@@ -474,7 +426,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           {accounts.find((a) => a.email === currentUserEmail)
                             ?.displayName || "No Name Set"}
                         </div>
-                        <div style={{ color: "#aaa", fontSize: "14px" }}>
+                        <div style={{ color: colors.text.secondary, fontSize: "14px" }}>
                           {currentUserEmail}
                         </div>
                       </div>
@@ -484,16 +436,16 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       style={{
                         padding: "8px 16px",
                         borderRadius: "6px",
-                        background: "#333",
+                        background: colors.background.tertiary,
                         color: "white",
-                        border: "none",
+                        border: `1px solid ${colors.border.subtle}`,
                         cursor: "pointer",
                       }}
                     >
                       Edit Profile
                     </button>
                   </div>
-                </div>
+                </ProfileSection>
               )}
             </div>
           )}
@@ -502,21 +454,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               <h3 style={{ marginTop: 0, color: "white" }}>Manage Accounts</h3>
               <div style={{ marginBottom: "30px" }}>
                 {accounts.map((acc) => (
-                  <div
+                  <AccountItem
                     key={acc.email}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "15px",
-                      backgroundColor: "#252525",
-                      borderRadius: "8px",
-                      marginBottom: "10px",
-                      border:
-                        acc.email === currentUserEmail
-                          ? "1px solid #3b82f6"
-                          : "1px solid #333",
-                    }}
+                    isActive={acc.email === currentUserEmail}
                   >
                     <div
                       style={{
@@ -529,15 +469,15 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         avatarUrl={acc.avatarUrl}
                         name={acc.email}
                         size={32}
-                        style={{ background: "#444" }}
+                        style={{ background: colors.background.tertiary }}
                       />
                       <span style={{ color: "white" }}>{acc.email}</span>
                       {acc.email === currentUserEmail && (
                         <span
                           style={{
                             fontSize: "12px",
-                            color: "#3b82f6",
-                            background: "rgba(59, 130, 246, 0.1)",
+                            color: colors.primary.main,
+                            background: colors.primary.subtle,
                             padding: "2px 6px",
                             borderRadius: "4px",
                           }}
@@ -552,7 +492,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         style={{
                           padding: "6px 12px",
                           borderRadius: "4px",
-                          background: "#3b82f6",
+                          background: colors.primary.main,
                           color: "white",
                           border: "none",
                           cursor: "pointer",
@@ -561,18 +501,18 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         Switch
                       </button>
                     )}
-                  </div>
+                  </AccountItem>
                 ))}
               </div>
 
               <h3 style={{ color: "white" }}>Danger Zone</h3>
-              <div style={{ display: "flex", gap: "10px" }}>
+              <DangerZone>
                 <button
                   onClick={handleSignOut}
                   style={{
                     padding: "10px 20px",
                     borderRadius: "6px",
-                    background: "#444",
+                    background: colors.background.tertiary,
                     color: "white",
                     border: "none",
                     cursor: "pointer",
@@ -580,20 +520,10 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 >
                   Sign Out
                 </button>
-                <button
-                  onClick={handleDeleteAccount}
-                  style={{
-                    padding: "10px 20px",
-                    borderRadius: "6px",
-                    background: "#ef4444",
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
+                <DangerButton onClick={handleDeleteAccount}>
                   Delete Account
-                </button>
-              </div>
+                </DangerButton>
+              </DangerZone>
             </div>
           )}
 
@@ -605,7 +535,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 style={{
                   marginBottom: "20px",
                   padding: "15px",
-                  backgroundColor: "#252525",
+                  backgroundColor: colors.background.secondary,
                   borderRadius: "8px",
                   display: "flex",
                   justifyContent: "space-between",
@@ -616,7 +546,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                   <div style={{ color: "white", fontWeight: 500 }}>
                     App Lock
                   </div>
-                  <div style={{ color: "#aaa", fontSize: "13px" }}>
+                  <div style={{ color: colors.text.secondary, fontSize: "13px" }}>
                     Secured with PIN
                   </div>
                 </div>
@@ -625,7 +555,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                   style={{
                     padding: "8px 16px",
                     borderRadius: "6px",
-                    background: "#444",
+                    background: colors.background.tertiary,
                     color: "white",
                     border: "none",
                     cursor: "pointer",
@@ -639,7 +569,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 style={{
                   marginBottom: "20px",
                   padding: "15px",
-                  backgroundColor: "#252525",
+                  backgroundColor: colors.background.secondary,
                   borderRadius: "8px",
                 }}
               >
@@ -654,38 +584,26 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       gap: "10px",
                     }}
                   >
-                    <div
-                      style={{
-                        padding: "15px",
-                        background: "#111",
-                        borderRadius: "8px",
-                        border: "1px solid #333",
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "8px",
-                      }}
-                    >
+                    <CodeBlock>
                       {backupCode.split(" ").map((word, i) => (
                         <span
                           key={i}
                           style={{
                             color: "#e5e7eb",
-                            fontFamily: "monospace",
-                            fontSize: "14px",
-                            backgroundColor: "#333",
+                            backgroundColor: colors.background.tertiary,
                             padding: "4px 8px",
                             borderRadius: "4px",
                           }}
                         >
                           <span
-                            style={{ color: "#6b7280", marginRight: "4px" }}
+                            style={{ color: colors.text.secondary, marginRight: "4px" }}
                           >
                             {i + 1}.
                           </span>
                           {word}
                         </span>
                       ))}
-                    </div>
+                    </CodeBlock>
                     <button
                       onClick={async () => {
                         await Clipboard.write({ string: backupCode });
@@ -694,7 +612,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       style={{
                         padding: "10px",
                         borderRadius: "6px",
-                        backgroundColor: "#3b82f6",
+                        backgroundColor: colors.primary.main,
                         color: "white",
                         border: "none",
                         cursor: "pointer",
@@ -705,7 +623,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     </button>
                     <p
                       style={{
-                        color: "#ef4444",
+                        color: colors.status.error,
                         fontSize: "12px",
                         margin: 0,
                       }}
@@ -720,7 +638,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     style={{
                       padding: "8px 16px",
                       borderRadius: "6px",
-                      background: "#444",
+                      background: colors.background.tertiary,
                       color: "white",
                       border: "none",
                       cursor: "pointer",
@@ -732,8 +650,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               </div>
             </div>
           )}
-        </div>
-      </div>
+        </SettingsContent>
+      </SettingsContainer>
       {showPinPrompt && (
         <AppLockScreen
           userEmail={currentUserEmail}
@@ -795,6 +713,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           }}
         />
       )}
-    </div>
+    </ModalOverlay>
   );
 };

@@ -14,10 +14,18 @@ import LoadingScreen from "../LoadingScreen";
 import { AccountService } from "../../services/AccountService";
 import ChatClient from "../../services/ChatClient";
 import { Login } from "../Login";
-import { styles } from "./Home.styles";
 import { RenameModal } from "./components/overlays/RenameModal";
 import { useHistory } from "react-router-dom";
-import SecureChatWindow from "../../pages/SecureChat/SecureChatWindow";
+import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
+import {
+  AppContainer,
+  MainContent,
+  MobileHeader,
+  HeaderTitle,
+  MenuButton,
+  ErrorToast
+} from "./Home.styles";
+import { Menu, Lock } from "lucide-react";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -149,7 +157,7 @@ const Home = () => {
         accounts={storedAccounts}
         onUnlockAccount={handleUnlock}
         onAddAccount={() => setIsLocked(false)}
-        onSuccess={() => {}}
+        onSuccess={() => { }}
       />
     );
   }
@@ -163,13 +171,12 @@ const Home = () => {
 
   return (
     <ErrorBoundary>
-      <div
-        style={styles.appContainer}
+      <AppContainer
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {state.error && <div style={styles.errorToast}>{state.error}</div>}
+        {state.error && <ErrorToast>{state.error}</ErrorToast>}
         {state.notification && (
           <NotificationToast
             type={state.notification.type as "error" | "info" | "success"}
@@ -212,39 +219,21 @@ const Home = () => {
           }}
         />
 
-        <main
-          style={{
-            flex: 1,
-            position: "relative",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
+        <MainContent>
           {isMobile && state.view !== "chat" && (
-            <div style={styles.mainHeader}>
-              <button
-                onClick={() => actions.setIsSidebarOpen(true)}
-                style={styles.menuBtn}
-              >
-                ☰
-              </button>
-              <h2
-                style={styles.headerTitle}
-                onClick={() => actions.setView("welcome")}
-              >
-                Chatapp
-              </h2>
-              <button
-                onClick={() => history.push("/secure-chat")}
-                style={{
-                  ...styles.menuBtn,
-                  marginLeft: "auto",
-                  fontSize: "1.2rem",
-                }}
-              >
-                🔒
-              </button>
-            </div>
+            <MobileHeader>
+              <MenuButton onClick={() => actions.setIsSidebarOpen(true)}>
+                <Menu size={24} />
+              </MenuButton>
+              <div style={{ flex: 1 }}>
+                <HeaderTitle onClick={() => actions.setView("welcome")}>
+                  Chatapp
+                </HeaderTitle>
+              </div>
+              <MenuButton onClick={() => history.push("/secure-chat")}>
+                <Lock size={20} />
+              </MenuButton>
+            </MobileHeader>
           )}
           {state.view === "chat" && state.activeChat === "secure-vault" ? (
             <SecureChatWindow />
@@ -275,7 +264,7 @@ const Home = () => {
           ) : (
             <WelcomeView onAddFriend={() => actions.setView("add")} />
           )}
-        </main>
+        </MainContent>
 
         <CallOverlay
           callState={state.activeCall}
@@ -320,7 +309,7 @@ const Home = () => {
         )}
 
         {isLocked && <AppLockScreen onSuccess={() => setIsLocked(false)} />}
-      </div>
+      </AppContainer>
     </ErrorBoundary>
   );
 };

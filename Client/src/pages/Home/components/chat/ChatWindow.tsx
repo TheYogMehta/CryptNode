@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { styles } from "../../Home.styles";
 import { MessageBubble } from "./MessageBubble";
 import { PortShareModal } from "./PortShareModal";
 import {
@@ -18,7 +17,31 @@ import {
   Video,
 } from "lucide-react";
 import { ChatMessage, SessionData } from "../../types";
-import UserAvatar from "../../../../components/UserAvatar";
+import { Avatar } from "../../../../components/ui/Avatar";
+import {
+  ChatContainer,
+  ChatHeader,
+  BackButton,
+  HeaderInfo,
+  HeaderName,
+  HeaderStatus,
+  HeaderActions,
+  MessageList,
+  InputContainer,
+  InputWrapper,
+  ChatInput,
+  SendButton,
+  AttachmentButton,
+  AttachmentMenu,
+  MenuItem,
+  MenuIcon,
+  MenuLabel,
+  ReplyPreview,
+  ReplyContent,
+  ReplySender,
+  ReplyText,
+} from "./Chat.styles";
+import { IconButton } from "../../../../components/ui/IconButton";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -92,36 +115,36 @@ export const ChatWindow = ({
   const attachments = [
     {
       label: "Document",
-      icon: <FileText size={24} color="white" />,
+      icon: <FileText size={24} />,
       color: "#7f5af0",
       onClick: () => fileInputRef.current?.click(),
     },
     {
       label: "Camera",
-      icon: <Camera size={24} color="white" />,
+      icon: <Camera size={24} />,
       color: "#ff8906",
     },
     {
       label: "Gallery",
-      icon: <ImageIcon size={24} color="white" />,
+      icon: <ImageIcon size={24} />,
       color: "#e53170",
       onClick: () => fileInputRef.current?.click(),
     },
     {
       label: "Audio",
-      icon: <Headphones size={24} color="white" />,
+      icon: <Headphones size={24} />,
       color: "#2cb67d",
       onClick: () => fileInputRef.current?.click(),
     },
     {
       label: "Live Share",
-      icon: <Globe size={24} color="white" />,
+      icon: <Globe size={24} />,
       color: "#3b82f6",
       onClick: () => setShowPortModal(true),
     },
     {
       label: "Location",
-      icon: <MapPin size={24} color="white" />,
+      icon: <MapPin size={24} />,
       color: "#f25f5c",
     },
   ];
@@ -184,167 +207,47 @@ export const ChatWindow = ({
   };
 
   return (
-    <div style={{ ...styles.chatWindow, padding: 0 }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "12px 16px",
-          paddingTop: "max(16px, env(safe-area-inset-top))",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-          backgroundColor: "#161b22",
-          background:
-            "linear-gradient(180deg, rgba(22,27,34,1) 0%, rgba(22,27,34,0.95) 100%)",
-          backdropFilter: undefined,
-          zIndex: 50,
-          flexShrink: 0,
-          minHeight: "calc(64px + env(safe-area-inset-top))",
-          marginBottom: "0",
-        }}
-      >
+    <ChatContainer>
+      <ChatHeader>
         {onBack && (
-          <button
-            onClick={onBack}
-            style={{
-              background: "none",
-              border: "none",
-              marginRight: "8px",
-              padding: "8px",
-              marginLeft: "-8px",
-              cursor: "pointer",
-              color: "white",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: "50%",
-              transition: "background 0.2s",
-            }}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.1)")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.backgroundColor = "transparent")
-            }
-          >
+          <BackButton onClick={onBack}>
             <ArrowLeft size={24} />
-          </button>
+          </BackButton>
         )}
 
-        <UserAvatar
-          avatarUrl={avatarToUse}
+        <Avatar
+          src={avatarToUse}
           name={headerName}
-          size={42}
-          style={{
-            marginRight: "12px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          }}
+          size="md"
+          status={peerOnline ? "online" : "offline"}
         />
-        <div style={{ flex: 1, minWidth: 0, marginRight: "8px" }}>
-          <div
-            style={{
-              fontSize: "1.1rem",
-              fontWeight: 700,
-              color: "white",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              letterSpacing: "0.3px",
-            }}
-          >
-            {headerName}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              marginTop: "2px",
-            }}
-          >
-            <div
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                backgroundColor: peerOnline ? "#22c55e" : "#6b7280",
-                boxShadow: peerOnline ? "0 0 8px #22c55e" : "none",
-              }}
-            />
-            <span
-              style={{
-                fontSize: "0.85rem",
-                color: "rgba(255,255,255,0.7)",
-                fontWeight: 500,
-              }}
-            >
-              {peerOnline ? "Online" : "Offline"}
-            </span>
-          </div>
-        </div>
-        <div style={styles.callButtonsContainer}>
-          <button
+
+        <HeaderInfo>
+          <HeaderName>{headerName}</HeaderName>
+          <HeaderStatus isOnline={peerOnline}>
+            {peerOnline ? "Online" : "Offline"}
+          </HeaderStatus>
+        </HeaderInfo>
+
+        <HeaderActions>
+          <IconButton
+            variant="success"
+            size="md"
             onClick={() => onStartCall("Audio")}
-            style={{
-              width: "44px",
-              height: "44px",
-              borderRadius: "14px",
-              backgroundColor: "rgba(34, 197, 94, 0.15)",
-              border: "1px solid rgba(34, 197, 94, 0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              color: "#22c55e",
-              transition: "all 0.2s",
-            }}
-            onMouseDown={(e) =>
-              (e.currentTarget.style.transform = "scale(0.95)")
-            }
-            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.backgroundColor =
-                "rgba(34, 197, 94, 0.25)")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.backgroundColor =
-                "rgba(34, 197, 94, 0.15)")
-            }
+            title="Voice Call"
           >
-            <Phone size={22} />
-          </button>
-          <button
+            <Phone size={20} />
+          </IconButton>
+          <IconButton
+            variant="primary"
+            size="md"
             onClick={() => onStartCall("Video")}
-            style={{
-              width: "44px",
-              height: "44px",
-              borderRadius: "14px",
-              backgroundColor: "rgba(99, 102, 241, 0.15)",
-              border: "1px solid rgba(99, 102, 241, 0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              color: "#6366f1",
-              transition: "all 0.2s",
-              marginLeft: "12px",
-            }}
-            onMouseDown={(e) =>
-              (e.currentTarget.style.transform = "scale(0.95)")
-            }
-            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.backgroundColor =
-                "rgba(99, 102, 241, 0.25)")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.backgroundColor =
-                "rgba(99, 102, 241, 0.15)")
-            }
+            title="Video Call"
           >
-            <Video size={22} />
-          </button>
-        </div>
-      </div>
+            <Video size={20} />
+          </IconButton>
+        </HeaderActions>
+      </ChatHeader>
 
       <input
         type="file"
@@ -352,171 +255,106 @@ export const ChatWindow = ({
         style={{ display: "none" }}
         onChange={handleFileSelect}
       />
-      <div
-        ref={scrollRef}
-        style={styles.messageList}
-        className="animate-fade-up"
-      >
+
+      <MessageList ref={scrollRef}>
         {messages.map((msg, i) => (
           <MessageBubble key={i} msg={msg} onReply={setReplyingTo} />
         ))}
-      </div>
+      </MessageList>
 
       {replyingTo && (
-        <div
-          style={{
-            margin: "0 16px 8px 16px",
-            padding: "12px",
-            backgroundColor: "rgba(255, 255, 255, 0.05)",
-            borderRadius: "12px",
-            borderLeft: "4px solid #6366f1",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            position: "relative",
-            animation: "slideUp 0.2s ease-out",
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: "#6366f1",
-                fontWeight: "bold",
-                marginBottom: "2px",
-              }}
-            >
-              Replying to {replyingTo.sender === "me" ? "Me" : "Other"}
-            </div>
-            <div
-              style={{
-                fontSize: "0.9rem",
-                color: "rgba(255,255,255,0.7)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {replyingTo.type === "text"
-                ? replyingTo.text
-                : `[${replyingTo.type}] ${replyingTo.text || ""}`}
-            </div>
+        <ReplyPreview>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
+            {replyingTo.thumbnail && (
+              <img
+                src={
+                  replyingTo.thumbnail.startsWith("data:")
+                    ? replyingTo.thumbnail
+                    : `data:image/jpeg;base64,${replyingTo.thumbnail}`
+                }
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "4px",
+                  objectFit: "cover",
+                }}
+              />
+            )}
+            <ReplyContent>
+              <ReplySender>
+                Replying to {replyingTo.sender === "me" ? "Me" : "Other"}
+              </ReplySender>
+              <ReplyText>
+                {replyingTo.type === "text"
+                  ? replyingTo.text
+                  : `[${replyingTo.type}] ${replyingTo.text || ""}`}
+              </ReplyText>
+            </ReplyContent>
           </div>
-          {replyingTo.thumbnail && (
-            <img
-              src={
-                replyingTo.thumbnail.startsWith("data:")
-                  ? replyingTo.thumbnail
-                  : `data:image/jpeg;base64,${replyingTo.thumbnail}`
-              }
-              style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "4px",
-                objectFit: "cover",
-              }}
-            />
-          )}
-          <button
+          <IconButton
+            variant="ghost"
+            size="sm"
             onClick={() => setReplyingTo?.(null)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.5)",
-              cursor: "pointer",
-              padding: "4px",
-            }}
           >
-            <X size={18} />
-          </button>
-        </div>
+            <X size={16} />
+          </IconButton>
+        </ReplyPreview>
       )}
 
       {showMenu && (
-        <div style={styles.attachmentMenu}>
+        <AttachmentMenu>
           {attachments.map((item, i) => (
-            <div
+            <MenuItem
               key={i}
-              style={styles.menuItem}
               onClick={item.onClick}
-              onMouseDown={(e) =>
-                (e.currentTarget.style.transform = "scale(0.95)")
-              }
-              onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.transform = "scale(1)")
-              }
             >
-              <div style={{ ...styles.menuIcon, backgroundColor: item.color }}>
+              <MenuIcon color={item.color}>
                 {item.icon}
-              </div>
-              <span style={styles.menuLabel}>{item.label}</span>
-            </div>
+              </MenuIcon>
+              <MenuLabel>{item.label}</MenuLabel>
+            </MenuItem>
           ))}
-        </div>
+        </AttachmentMenu>
       )}
 
-      <div style={{ ...styles.inputContainer, margin: "0 16px 16px 16px" }}>
-        <div
+      <InputContainer>
+        <AttachmentButton
+          active={showMenu}
           onClick={() => setShowMenu(!showMenu)}
-          style={{
-            ...styles.plusBtnContainer,
-            transform: showMenu ? "rotate(45deg)" : "rotate(0deg)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
         >
           <Plus size={24} />
-        </div>
+        </AttachmentButton>
 
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          value={isRecording ? "Recording..." : input}
-          readOnly={isRecording}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && input.trim()) {
-              e.preventDefault();
-              onSend();
-            }
-          }}
-          placeholder="Message..."
-          style={{
-            ...styles.inputField,
-            color: isRecording ? "#ef4444" : "white",
-          }}
-        />
+        <InputWrapper>
+          <ChatInput
+            ref={textareaRef}
+            rows={1}
+            value={isRecording ? "Recording..." : input}
+            readOnly={isRecording}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && input.trim()) {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+            placeholder={isRecording ? "" : "Message..."}
+          />
+        </InputWrapper>
 
         {input.trim().length > 0 ? (
-          <button
-            onClick={onSend}
-            style={{
-              ...styles.sendBtn,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+          <SendButton onClick={onSend}>
             <Send size={20} />
-          </button>
+          </SendButton>
         ) : (
-          <button
+          <SendButton
+            isRecording={isRecording}
             onClick={handleRecord}
-            style={{
-              ...styles.sendBtn,
-              backgroundColor: isRecording ? "#ef4444" : "#6366f1",
-              animation: isRecording ? "pulse 1.5s infinite" : "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
           >
             <Mic size={20} />
-          </button>
+          </SendButton>
         )}
-      </div>
+      </InputContainer>
 
       <PortShareModal
         isOpen={showPortModal}
@@ -528,6 +366,6 @@ export const ChatWindow = ({
           setShowMenu(false);
         }}
       />
-    </div>
+    </ChatContainer>
   );
 };

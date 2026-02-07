@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { SocialLogin } from "@capgo/capacitor-social-login";
-import { styles } from "./Home/Home.styles";
+import { AppContainer } from "./Home/Home.styles";
 import { Capacitor } from "@capacitor/core";
 import { colors } from "../theme/colors";
 
@@ -53,9 +53,8 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <div
+    <AppContainer
       style={{
-        ...styles.appContainer,
         flexDirection: "column",
         padding: "max(40px, env(safe-area-inset-top)) 20px 20px",
         justifyContent: "center",
@@ -180,6 +179,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           Sign in with Google
         </button>
       </div>
-    </div>
+    </AppContainer>
   );
 };
