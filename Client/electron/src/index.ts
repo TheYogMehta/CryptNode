@@ -167,9 +167,11 @@ ipcMain.handle("GoogleLogin", async () => {
 import { desktopCapturer } from "electron";
 
 ipcMain.handle("get-desktop-sources", async () => {
+  console.log("[Main] get-desktop-sources called");
   const sources = await desktopCapturer.getSources({
     types: ["window", "screen"],
   });
+  console.log(`[Main] Found ${sources.length} sources`);
   return sources.map((source) => ({
     id: source.id,
     name: source.name,
