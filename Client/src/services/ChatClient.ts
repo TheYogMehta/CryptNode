@@ -380,28 +380,67 @@ export class ChatClient extends EventEmitter {
 
       if (mode === "Screen") {
         // Check if screen sharing is supported
-        if (typeof navigator === "undefined" || !navigator.mediaDevices) {
-          throw new Error("Screen sharing is not supported on this device.");
-        }
+        const isElectron =
+          (window as any).electron &&
+          (window as any).electron.getDesktopSources;
 
-        // For Electron, getDisplayMedia might not exist but we can try getUserMedia with chromeMediaSource
-        try {
-          if (navigator.mediaDevices.getDisplayMedia) {
+        if (isElectron) {
+          try {
+            const sources = await (window as any).electron.getDesktopSources();
+            console.log(
+              "[ChatClient] Desktop sources available:",
+              sources.map((s: any) => s.name),
+            );
+
+            const source = sources[0];
+            if (!source) {
+              throw new Error("No screen sources found.");
+            }
+
+            console.log(
+              `[ChatClient] Selecting source: ${source.name} (${source.id})`,
+            );
+
+            // Electron specific constraints
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: false, 
+              video: {
+                mandatory: {
+                  chromeMediaSource: "desktop",
+                  chromeMediaSourceId: source.id,
+                  minWidth: 1280,
+                  maxWidth: 1920,
+                  minHeight: 720,
+                  maxHeight: 1080,
+                },
+              },
+            } as any);
+          } catch (e: any) {
+            console.error("[ChatClient] Electron screen share error:", e);
+            throw new Error(
+              "Failed to capture screen in Electron: " + (e.message || e),
+            );
+          }
+        } else if (
+          navigator.mediaDevices &&
+          navigator.mediaDevices.getDisplayMedia
+        ) {
+          try {
             stream = await navigator.mediaDevices.getDisplayMedia({
               video: true,
               audio: true,
             });
-          } else {
-            // Fallback for Electron or other environments
-            throw new Error(
-              "Screen sharing is not available. Please use a supported browser or update your Electron app.",
-            );
+          } catch (e: any) {
+            if (e.name === "NotAllowedError") {
+              throw new Error("Screen sharing permission denied.");
+            }
+            throw e;
           }
-        } catch (e: any) {
-          if (e.name === "NotAllowedError") {
-            throw new Error("Screen sharing permission denied.");
-          }
-          throw e;
+        } else {
+          // Fallback for environments without getDisplayMedia
+          throw new Error(
+            "Screen sharing is not supported on this device/browser.",
+          );
         }
         mimeType = "video/webm;codecs=vp8,opus";
         bitsPerSecond = 2500000;

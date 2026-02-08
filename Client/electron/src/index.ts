@@ -162,6 +162,22 @@ ipcMain.handle("GoogleLogin", async () => {
 });
 
 // ============================================================================
+// Screen Sharing
+// ============================================================================
+import { desktopCapturer } from "electron";
+
+ipcMain.handle("get-desktop-sources", async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ["window", "screen"],
+  });
+  return sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    thumbnail: source.thumbnail.toDataURL(),
+  }));
+});
+
+// ============================================================================
 // Secure Storage
 // ============================================================================
 let activeUserHash: string | null = null;

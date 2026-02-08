@@ -11,3 +11,7 @@ contextBridge.exposeInMainWorld("SafeStorage", {
     ipcRenderer.invoke("SafeStorage:SetActiveUser", hash),
   googleLogin: () => ipcRenderer.invoke("GoogleLogin"),
 });
+
+contextBridge.exposeInMainWorld("electron", {
+  getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
+});
