@@ -135,8 +135,8 @@ const AudioPlayer = ({
           {isDownloaded
             ? formatTime(duration)
             : isDownloading
-              ? "Downloading..."
-              : "Voice Note"}
+            ? "Downloading..."
+            : "Voice Note"}
         </span>
       </AudioTimeInfo>
 
@@ -159,7 +159,11 @@ export const MessageBubble = ({
 }: {
   msg: ChatMessage;
   onReply?: (msg: ChatMessage | null) => void;
-  onMediaClick?: (url: string, type: "image" | "video", description?: string) => void;
+  onMediaClick?: (
+    url: string,
+    type: "image" | "video",
+    description?: string,
+  ) => void;
 }) => {
   const isMe = msg.sender === "me";
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -167,12 +171,19 @@ export const MessageBubble = ({
   const [isSwiping, setIsSwiping] = useState(false);
   const touchStartX = useRef(0);
   const touchMoveX = useRef(0);
+  const prevMsgId = useRef<string>(msg.id);
 
   const [isDecrypted, setIsDecrypted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isRequestingDownload, setIsRequestingDownload] = useState(false);
 
   useEffect(() => {
+    if (prevMsgId.current !== msg.id) {
+      setImageSrc(null);
+      setIsDecrypted(false);
+      prevMsgId.current = msg.id;
+    }
+
     if (msg.mediaStatus === "downloaded" && msg.mediaFilename && !imageSrc) {
       setIsLoading(true);
       setIsRequestingDownload(false);
@@ -186,7 +197,7 @@ export const MessageBubble = ({
     } else if (msg.mediaStatus === "downloading") {
       setIsRequestingDownload(false);
     }
-  }, [msg.mediaStatus, msg.mediaFilename, msg.mediaMime]);
+  }, [msg.id, msg.mediaStatus, msg.mediaFilename, msg.mediaMime, imageSrc]);
 
   const handleDownload = () => {
     if (isDownloading) return;
@@ -251,7 +262,11 @@ export const MessageBubble = ({
               onClick={(e) => {
                 e.stopPropagation();
                 if (onMediaClick) {
-                  onMediaClick(imageSrc || msg.tempUrl || "", "image", msg.text);
+                  onMediaClick(
+                    imageSrc || msg.tempUrl || "",
+                    "image",
+                    msg.text,
+                  );
                 } else {
                   window.open(imageSrc || msg.tempUrl, "_blank");
                 }
@@ -281,11 +296,24 @@ export const MessageBubble = ({
                   position: "absolute",
                   inset: 0,
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
+                  backgroundColor: "rgba(0,0,0,0.3)",
+                  borderRadius: "12px",
                 }}
               >
                 <Loader2 className="animate-spin" size={24} color="white" />
+                <span
+                  style={{
+                    color: "white",
+                    fontSize: "0.75rem",
+                    marginTop: "4px",
+                    fontWeight: 500,
+                  }}
+                >
+                  Uploading...
+                </span>
               </div>
             )}
           </MediaContainer>
@@ -356,24 +384,30 @@ export const MessageBubble = ({
                 e.stopPropagation();
                 onMediaClick?.(imageSrc || "", "video", msg.text);
               }}
-              style={{ maxWidth: "100%", borderRadius: "12px", cursor: "pointer" }}
+              style={{
+                maxWidth: "100%",
+                borderRadius: "12px",
+                cursor: "pointer",
+              }}
             />
             <div
               style={{
-                position: 'absolute',
+                position: "absolute",
                 inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pointerEvents: 'none'
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
               }}
             >
-              <div style={{
-                background: 'rgba(0,0,0,0.5)',
-                borderRadius: '50%',
-                padding: '12px',
-                backdropFilter: 'blur(4px)'
-              }}>
+              <div
+                style={{
+                  background: "rgba(0,0,0,0.5)",
+                  borderRadius: "50%",
+                  padding: "12px",
+                  backdropFilter: "blur(4px)",
+                }}
+              >
                 <Play size={24} fill="white" color="white" />
               </div>
             </div>
@@ -511,10 +545,10 @@ export const MessageBubble = ({
   const safeDate = new Date(msg.timestamp);
   const timeString = isValidDate(safeDate)
     ? safeDate.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
     : "";
 
   return (
@@ -677,7 +711,7 @@ export const MessageBubble = ({
         >
           {timeString}
           {isMe && (
-            <span style={{ display: 'flex' }}>
+            <span style={{ display: "flex" }}>
               {msg.status === 2 ? (
                 <CheckCheck size={14} strokeWidth={2.5} />
               ) : (

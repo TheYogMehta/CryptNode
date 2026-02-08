@@ -8,7 +8,7 @@ import {
 } from "./SafeStorage";
 import socket from "./SocketManager";
 import { generateThumbnail } from "../utils/imageUtils";
-import { StorageService } from "../utils/Storage";
+import { StorageService, CHUNK_SIZE } from "../utils/Storage";
 import { MessageQueue } from "../utils/MessageQueue";
 import * as bip39 from "bip39";
 import { Buffer } from "buffer";
@@ -16,6 +16,8 @@ import {
   encryptToPackedString,
   decryptFromPackedString,
 } from "../utils/crypto";
+import { CompressionService } from "./CompressionService";
+import { WorkerManager } from "./WorkerManager";
 
 (window as any).Buffer = Buffer;
 
@@ -23,6 +25,8 @@ interface ServerFrame {
   t: string;
   sid: string;
   data: any;
+  c?: boolean;
+  p?: number;
 }
 
 interface ChatSession {
@@ -71,7 +75,13 @@ export class ChatClient extends EventEmitter {
     return ChatClient.instance;
   }
 
-  public send(frame: any) {
+  public send(frame: {
+    t: string;
+    sid?: string;
+    data?: any;
+    c?: boolean;
+    p?: number;
+  }) {
     socket.send(frame);
   }
 
@@ -85,7 +95,12 @@ export class ChatClient extends EventEmitter {
     socket.on("WS_CONNECTED", () => {
       this.emit("status", true);
       if (this.authToken) {
-        this.send({ t: "AUTH", data: { token: this.authToken } });
+        this.send({
+          t: "AUTH",
+          data: { token: this.authToken },
+          c: true,
+          p: 0,
+        });
       }
     });
 
@@ -112,8 +127,15 @@ export class ChatClient extends EventEmitter {
                 replyTo: row.reply_to ? JSON.parse(row.reply_to) : undefined,
               },
             }),
+            1,
           );
-          this.send({ t: "MSG", sid: row.sid, data: { payload } });
+          this.send({
+            t: "MSG",
+            sid: row.sid,
+            data: { payload },
+            c: true,
+            p: 1,
+          });
         }
       }
     } catch (e) {
@@ -126,7 +148,7 @@ export class ChatClient extends EventEmitter {
     if (!socket.isConnected()) {
       await socket.connect("ws://162.248.100.69:9000");
     } else {
-      this.send({ t: "AUTH", data: { token } });
+      this.send({ t: "AUTH", data: { token }, c: true, p: 0 });
     }
   }
 
@@ -136,36 +158,48 @@ export class ChatClient extends EventEmitter {
       throw new Error("Must be logged in to connect");
     }
     const pub = await this.exportPub();
-    this.send({ t: "CONNECT_REQ", data: { targetEmail, publicKey: pub } });
+    this.send({
+      t: "CONNECT_REQ",
+      data: { targetEmail, publicKey: pub },
+      c: true,
+      p: 0,
+    });
   }
 
   public async acceptFriend(sid: string, remotePub: string) {
     const pub = await this.exportPub();
-    this.send({ t: "JOIN_ACCEPT", sid, data: { publicKey: pub } });
+    this.send({
+      t: "JOIN_ACCEPT",
+      sid,
+      data: { publicKey: pub },
+      c: true,
+      p: 0,
+    });
     await this.finalizeSession(sid, remotePub);
   }
 
   public denyFriend(sid: string) {
-    this.send({ t: "JOIN_DENY", sid });
+    this.send({ t: "JOIN_DENY", sid, c: true, p: 0 });
   }
 
   public async sendMessage(sid: string, text: string, replyTo?: any) {
     if (!this.sessions[sid]) throw new Error("Session not found");
 
-    const msgId = crypto.randomUUID();
+    const id = crypto.randomUUID();
     const timestamp = Date.now();
     const payload = await this.encryptForSession(
       sid,
       JSON.stringify({
         t: "MSG",
-        data: { text, id: msgId, timestamp, replyTo },
+        data: { type: "TEXT", text, id, timestamp: Date.now(), replyTo },
       }),
+      1,
     );
-    this.send({ t: "MSG", sid, data: { payload } });
+    this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
     try {
       await executeDB(
         "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
-        [msgId, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
+        [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
     } catch (e) {
       console.error("[Client] Failed to save sent message:", e);
@@ -191,11 +225,16 @@ export class ChatClient extends EventEmitter {
             const payload = await this.encryptForSession(
               sid,
               JSON.stringify({
-                t: "PROFILE_VERSION",
-                data: { name_version, avatar_version },
+                t: "MSG",
+                data: {
+                  type: "PROFILE_VERSION",
+                  name_version,
+                  avatar_version,
+                },
               }),
+              1,
             );
-            this.send({ t: "MSG", sid, data: { payload } });
+            this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
           } catch (e) {
             console.error(
               `[ChatClient] Failed to send profile update to ${sid}`,
@@ -246,7 +285,7 @@ export class ChatClient extends EventEmitter {
 
     const thumbUri =
       typeof fileData === "string" ? fileData : URL.createObjectURL(fileData);
-    const thumbnail = await generateThumbnail(thumbUri, fileInfo.type);
+    const thumb = await generateThumbnail(thumbUri, fileInfo.type);
     if (typeof fileData !== "string") {
       URL.revokeObjectURL(thumbUri);
     }
@@ -268,25 +307,33 @@ export class ChatClient extends EventEmitter {
       fileInfo.name,
       fileInfo.size,
       fileInfo.type,
-      thumbnail,
+      thumb,
       vaultFilename,
     );
 
     const encryptedMetadata = await this.encryptForSession(
       sid,
       JSON.stringify({
-        t: "FILE_INFO",
+        t: "MSG",
         data: {
+          type: "FILE_INFO",
           name: fileInfo.name,
           size: fileInfo.size,
-          type: fileInfo.type,
-          thumbnail,
+          mimeType: fileInfo.type,
           messageId,
+          thumbnail: thumb,
         },
       }),
+      1,
     );
 
-    this.send({ t: "MSG", sid, data: { payload: encryptedMetadata } });
+    this.send({
+      t: "MSG",
+      sid,
+      data: { payload: encryptedMetadata },
+      c: true,
+      p: 1,
+    });
     this.emit("session_updated");
   }
 
@@ -306,17 +353,63 @@ export class ChatClient extends EventEmitter {
       return;
     }
 
+    // Check for existing progress
+    let startChunk = chunkIndex;
+    try {
+      const rows = await queryDB(
+        "SELECT filename, size, status, file_size FROM media WHERE message_id = ?",
+        [messageId],
+      );
+      if (rows.length > 0) {
+        const { filename, size, status, file_size } = rows[0];
+
+        if (
+          filename &&
+          (status === "downloading" ||
+            status === "pending" ||
+            status === "error" ||
+            status === "stopped")
+        ) {
+          const diskSize = await StorageService.getFileSize(filename);
+          if (diskSize > 0) {
+            if (diskSize % CHUNK_SIZE !== 0) {
+              console.warn(
+                `[Client] Disk size ${diskSize} is not multiple of ${CHUNK_SIZE}, restarting download to avoid corruption.`,
+              );
+              startChunk = 0;
+              await StorageService.deleteFile(filename);
+              await StorageService.initMediaEntry(
+                messageId,
+                rows[0].original_name,
+                rows[0].file_size,
+                rows[0].mime_type,
+                rows[0].thumbnail,
+              );
+            } else {
+              startChunk = Math.floor(diskSize / CHUNK_SIZE);
+              console.log(
+                `[Client] Resuming download for ${messageId} from chunk ${startChunk} (disk: ${diskSize})`,
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[Client] Error checking resume status:", e);
+    }
+
     console.log(
-      `[Client] Sending download request for ${messageId} chunk ${chunkIndex} to ${sid}`,
+      `[Client] Sending download request for ${messageId} chunk ${startChunk} to ${sid}`,
     );
     const payload = await this.encryptForSession(
       sid,
       JSON.stringify({
-        t: "FILE_REQ_CHUNK",
-        data: { messageId, chunkIndex },
+        t: "MSG",
+        data: { type: "FILE_REQ_CHUNK", messageId, chunkIndex: startChunk },
       }),
+      1,
     );
-    this.send({ t: "MSG", sid, data: { payload } });
+    this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
   }
 
   public async startCall(
@@ -338,13 +431,12 @@ export class ChatClient extends EventEmitter {
       this.currentCallSid = sid;
       console.log("[ChatClient] startCall: Sending invite to", sid);
 
-      // Do not start streaming yet (privacy/late media)
-      // Just send the invite
       const payload = await this.encryptForSession(
         sid,
-        JSON.stringify({ t: "CALL_START", data: { type: mode } }),
+        JSON.stringify({ t: "MSG", data: { type: "CALL_START", mode } }),
+        0,
       );
-      this.send({ t: "MSG", sid, data: { payload } });
+      this.send({ t: "MSG", sid, data: { payload }, c: true, p: 0 });
 
       this.emit("call_outgoing", { sid, type: mode, remoteSid: sid });
 
@@ -441,7 +533,6 @@ export class ChatClient extends EventEmitter {
         if (this.isScreenEnabled) {
           await this.toggleScreenShare(false);
         }
-
         this.cameraStream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 640 },
@@ -451,15 +542,29 @@ export class ChatClient extends EventEmitter {
           audio: false,
         });
 
+        if (this.combinedStream) {
+          const videoTrack = this.cameraStream.getVideoTracks()[0];
+          if (videoTrack) {
+            this.combinedStream.addTrack(videoTrack);
+          }
+        }
+
         this.isVideoEnabled = true;
-        console.log("[ChatClient] Video enabled");
+        console.log("[ChatClient] Video enabled (track added)");
       } else {
+        if (this.combinedStream) {
+          this.combinedStream.getVideoTracks().forEach((track) => {
+            this.combinedStream!.removeTrack(track);
+            track.stop();
+          });
+        }
+
         if (this.cameraStream) {
           this.cameraStream.getTracks().forEach((t) => t.stop());
           this.cameraStream = null;
         }
         this.isVideoEnabled = false;
-        console.log("[ChatClient] Video disabled");
+        console.log("[ChatClient] Video disabled (track removed)");
       }
 
       await this.rebuildCombinedStream(sid);
@@ -581,8 +686,25 @@ export class ChatClient extends EventEmitter {
 
     this.currentLocalStream = this.combinedStream;
 
-    const mimeType = await this.startMediaRecorder(sid);
-    this.send({ t: "MIME_CHANGE", sid, data: { mimeType } });
+    const hasVideo = this.combinedStream.getVideoTracks().length > 0;
+    const newMimeType = hasVideo
+      ? "video/webm;codecs=vp8,opus"
+      : "audio/webm;codecs=opus";
+
+    console.log(`[ChatClient] Sending MIME_CHANGE: ${newMimeType}`);
+    const mimePayload = await this.encryptForSession(
+      sid,
+      JSON.stringify({
+        t: "MSG",
+        data: { type: "MIME_CHANGE", mimeType: newMimeType },
+      }),
+      0,
+    );
+    this.send({ t: "MSG", sid, data: { payload: mimePayload } });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    await this.startMediaRecorder(sid);
   }
 
   private async startMediaRecorder(sid: string): Promise<string> {
@@ -612,8 +734,14 @@ export class ChatClient extends EventEmitter {
       if (e.data.size > 0) {
         try {
           const buffer = await e.data.arrayBuffer();
-          const encrypted = await this.encryptForSession(sid, buffer);
-          this.send({ t: "STREAM", sid, data: encrypted });
+          const encrypted = await this.encryptForSession(sid, buffer, 0);
+          this.send({
+            t: "MSG",
+            sid,
+            data: { type: "STREAM", payload: encrypted },
+            c: false,
+            p: 0,
+          });
         } catch (err) {
           console.error("Encryption streaming error:", err);
         }
@@ -645,7 +773,8 @@ export class ChatClient extends EventEmitter {
       const mimeType = await this.initializeCallStream(sid);
       const payload = await this.encryptForSession(
         sid,
-        JSON.stringify({ t: "CALL_ACCEPT", data: { mimeType } }),
+        JSON.stringify({ t: "MSG", data: { type: "CALL_ACCEPT", mimeType } }),
+        0,
       );
       this.send({ t: "MSG", sid, data: { payload } });
 
@@ -670,9 +799,10 @@ export class ChatClient extends EventEmitter {
 
     const payload = await this.encryptForSession(
       targetSid,
-      JSON.stringify({ t: "CALL_END" }),
+      JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
+      0,
     );
-    this.send({ t: "MSG", sid: targetSid, data: { payload } });
+    this.send({ t: "MSG", sid: targetSid, data: { payload }, c: true, p: 0 });
     const wasConnected = this.isCallConnected;
     this.cleanupCall();
     const duration = Date.now() - this.callStartTime;
@@ -743,12 +873,13 @@ export class ChatClient extends EventEmitter {
     this.sourceBuffer = null;
     this.audioQueue = [];
     this.isSourceOpen = false;
+    this.isResettingMedia = false;
     this.remoteMimeType = null;
     this.currentLocalStream = null;
     this.emit("local_stream_ready", null);
   }
 
-  public toggleMic() {
+  public async toggleMic() {
     if (this.mediaRecorder && this.mediaRecorder.stream) {
       let isMuted = false;
       this.mediaRecorder.stream.getAudioTracks().forEach((track) => {
@@ -757,10 +888,20 @@ export class ChatClient extends EventEmitter {
       });
 
       if (this.currentCallSid) {
+        const micPayload = await this.encryptForSession(
+          this.currentCallSid,
+          JSON.stringify({
+            t: "MSG",
+            data: { type: "MIC_STATUS", muted: isMuted },
+          }),
+          0,
+        );
         this.send({
-          t: "MIC_STATUS",
+          t: "MSG",
           sid: this.currentCallSid,
-          data: { muted: isMuted },
+          data: { payload: micPayload },
+          c: true,
+          p: 0,
         });
       }
       return isMuted;
@@ -910,6 +1051,13 @@ export class ChatClient extends EventEmitter {
     console.log(
       "[ChatClient] MediaSource reset complete, ready for new stream",
     );
+
+    if (this.audioQueue.length > 0) {
+      console.log(
+        `[ChatClient] Processing ${this.audioQueue.length} held chunks after reset`,
+      );
+      this.processQueue();
+    }
   }
 
   private processQueue() {
@@ -919,6 +1067,10 @@ export class ChatClient extends EventEmitter {
       this.audioQueue.length === 0
     )
       return;
+
+    if (this.isResettingMedia) {
+      return;
+    }
 
     if (this.mediaSource && this.mediaSource.readyState !== "open") {
       console.warn(
@@ -940,64 +1092,18 @@ export class ChatClient extends EventEmitter {
     }
   }
 
-  private async handleStream(frame: ServerFrame) {
-    const { sid, data } = frame;
-    try {
-      if (!this.isCalling && !this.isCallConnected) {
-        return;
-      }
-
-      // Wait while MediaSource is being reset (during mode switch)
-      if (this.isResettingMedia) {
-        console.log(
-          "[ChatClient] handleStream: waiting for media reset to complete",
-        );
-        await new Promise<void>((resolve) => {
-          const check = setInterval(() => {
-            if (!this.isResettingMedia) {
-              clearInterval(check);
-              resolve();
-            }
-          }, 50);
-        });
-      }
-
-      if (!this.remoteVideo) {
-        console.log(
-          "[ChatClient] handleStream: remoteVideo not ready, setting up",
-        );
-        await this.setupMediaPlayback();
-      }
-
-      const decryptedBuffer = await this.decryptFromSession(sid, data);
-
-      if (!this.isCalling && !this.isCallConnected) {
-        return;
-      }
-
-      if (decryptedBuffer) {
-        this.audioQueue.push(decryptedBuffer);
-        if (
-          this.isSourceOpen &&
-          this.sourceBuffer &&
-          !this.sourceBuffer.updating
-        ) {
-          this.processQueue();
-        }
-      }
-    } catch (e) {
-      console.error("Stream handling error", e);
-    }
-  }
-
-  private async handleMsg(sid: string, payload: string) {
+  private async handleMsg(sid: string, payload: string, priority: number = 1) {
     if (!this.sessions[sid]) {
       console.warn(`[Client] Received MSG for unknown session ${sid}`);
       return;
     }
 
     try {
-      const decryptedBuffer = await this.decryptFromSession(sid, payload);
+      const decryptedBuffer = await this.decryptFromSession(
+        sid,
+        payload,
+        priority,
+      );
       if (!decryptedBuffer) {
         console.error(`[Client] Decryption failed for ${sid}`);
         return;
@@ -1005,13 +1111,20 @@ export class ChatClient extends EventEmitter {
       const json = JSON.parse(new TextDecoder().decode(decryptedBuffer));
       const { t, data } = json;
 
+      // All messages should now have t: "MSG"
       if (t !== "MSG") {
-        console.log(`[ChatClient] Decrypted Signal: ${t}`, data);
-      } else {
-        console.log("[ChatClient] Decrypted MSG:", json);
+        console.warn(`[ChatClient] Unexpected message type: ${t}`);
+        return;
       }
 
-      switch (t) {
+      if (!data || !data.type) {
+        console.warn(`[ChatClient] MSG missing data.type`);
+        return;
+      }
+
+      console.log(`[ChatClient] Received ${data.type}:`, data);
+
+      switch (data.type) {
         case "MIME_CHANGE":
           console.log(`[ChatClient] Received MIME_CHANGE: ${data.mimeType}`);
           this.remoteMimeType = data.mimeType;
@@ -1026,7 +1139,7 @@ export class ChatClient extends EventEmitter {
         case "MIC_STATUS":
           this.emit("peer_mic_status", { sid, muted: data.muted });
           break;
-        case "MSG":
+        case "TEXT":
           try {
             await executeDB(
               "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, 'text', ?, 2, ?)",
@@ -1051,10 +1164,15 @@ export class ChatClient extends EventEmitter {
             timestamp: data.timestamp,
           });
           break;
+        case "STREAM":
+          console.warn(
+            "[ChatClient] Legacy STREAM case hit in handleMsg - should not happen",
+          );
+          break;
         case "FILE_INFO":
-          const isImage = data.type.startsWith("image/");
-          const isVideo = data.type.startsWith("video/");
-          const isAudio = data.type.startsWith("audio/");
+          const isImage = data.mimeType.startsWith("image/");
+          const isVideo = data.mimeType.startsWith("video/");
+          const isAudio = data.mimeType.startsWith("audio/");
           const msgType = isImage
             ? "image"
             : isVideo
@@ -1071,13 +1189,13 @@ export class ChatClient extends EventEmitter {
             data.messageId,
           );
           console.log(
-            `[ChatClient] Received FILE_INFO: name=${data.name}, mime=${data.type}, size=${data.size}`,
+            `[ChatClient] Received FILE_INFO: name=${data.name}, mime=${data.mimeType}, size=${data.size}`,
           );
           await StorageService.initMediaEntry(
             localId,
             data.name,
             data.size,
-            data.type,
+            data.mimeType,
             data.thumbnail,
             null,
           );
@@ -1107,7 +1225,8 @@ export class ChatClient extends EventEmitter {
             );
             const busyPayload = await this.encryptForSession(
               sid,
-              JSON.stringify({ t: "CALL_BUSY" }),
+              JSON.stringify({ t: "MSG", data: { type: "CALL_BUSY" } }),
+              0,
             );
             this.send({ t: "MSG", sid, data: { payload: busyPayload } });
             return;
@@ -1119,7 +1238,7 @@ export class ChatClient extends EventEmitter {
 
           this.emit("call_incoming", {
             sid,
-            type: data?.type || "Audio",
+            mode: data?.mode || "Audio",
             remoteSid: sid,
           });
           break;
@@ -1145,7 +1264,15 @@ export class ChatClient extends EventEmitter {
           } else if (this.pendingCallMode === "Screen") {
             await this.toggleScreenShare(true);
           } else {
-            this.send({ t: "MIME_CHANGE", sid, data: { mimeType: myMime } });
+            const mimePayload = await this.encryptForSession(
+              sid,
+              JSON.stringify({
+                t: "MSG",
+                data: { type: "MIME_CHANGE", mimeType: myMime },
+              }),
+              0,
+            );
+            this.send({ t: "MSG", sid, data: { payload: mimePayload } });
           }
 
           this.setupMediaPlayback();
@@ -1160,12 +1287,13 @@ export class ChatClient extends EventEmitter {
 
         case "CALL_END":
           console.log("[ChatClient] Received CALL_END");
+          const wasCallConnected = this.isCallConnected;
           this.cleanupCall();
-          const duration = Date.now() - this.callStartTime;
+          const callDuration = Date.now() - this.callStartTime;
           this.emit("call_ended", {
             sid,
-            duration,
-            connected: this.isCallConnected,
+            duration: callDuration,
+            connected: wasCallConnected,
           });
           break;
 
@@ -1187,7 +1315,8 @@ export class ChatClient extends EventEmitter {
                 );
                 const reqPayload = await this.encryptForSession(
                   sid,
-                  JSON.stringify({ t: "GET_PROFILE" }),
+                  JSON.stringify({ t: "MSG", data: { type: "GET_PROFILE" } }),
+                  1,
                 );
                 this.send({ t: "MSG", sid, data: { payload: reqPayload } });
               }
@@ -1229,14 +1358,16 @@ export class ChatClient extends EventEmitter {
               const respPayload = await this.encryptForSession(
                 sid,
                 JSON.stringify({
-                  t: "PROFILE_DATA",
+                  t: "MSG",
                   data: {
+                    type: "PROFILE_DATA",
                     name: me.public_name,
                     avatar: avatarBase64,
                     name_version: me.name_version,
                     avatar_version: me.avatar_version,
                   },
                 }),
+                1,
               );
               this.send({ t: "MSG", sid, data: { payload: respPayload } });
             }
@@ -1305,10 +1436,8 @@ export class ChatClient extends EventEmitter {
     }
 
     const { filename, file_size } = rows[0];
-    const CHUNK_SIZE = 256000;
     const totalChunks = Math.ceil(file_size / CHUNK_SIZE);
 
-    // Stream all chunks rapidly
     for (
       let chunkIndex = startChunkIndex;
       chunkIndex < totalChunks;
@@ -1330,18 +1459,19 @@ export class ChatClient extends EventEmitter {
         const payload = await this.encryptForSession(
           sid,
           JSON.stringify({
-            t: "FILE_CHUNK",
+            t: "MSG",
             data: {
+              type: "FILE_CHUNK",
               messageId,
               chunkIndex,
               payload: base64Chunk,
               isLast,
             },
           }),
+          2,
         );
-        this.send({ t: "MSG", sid, data: { payload } });
+        this.send({ t: "MSG", sid, data: { payload }, c: false, p: 2 });
 
-        // Small delay to prevent buffer overflow (5ms between chunks)
         if (!isLast) {
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
@@ -1364,34 +1494,49 @@ export class ChatClient extends EventEmitter {
 
   private async handleFileChunk(sid: string, data: any) {
     const { messageId, payload, chunkIndex, isLast } = data;
-    const rows = await queryDB(
-      "SELECT filename, file_size FROM media WHERE message_id = ?",
-      [messageId],
-    );
-    if (!rows.length) return;
-    const { filename, file_size } = rows[0];
-    await StorageService.appendChunk(filename, payload);
-
-    const currentSize = Math.min((chunkIndex + 1) * 256000, file_size);
-    const progress = currentSize / file_size;
-
-    await executeDB(
-      "UPDATE media SET download_progress = ?, size = ? WHERE message_id = ?",
-      [progress, currentSize, messageId],
-    );
-    console.log(
-      `[Client] Received chunk ${chunkIndex} for ${messageId}, progress: ${progress}`,
-    );
-
-    if (isLast) {
-      await executeDB(
-        "UPDATE media SET status = 'downloaded' WHERE message_id = ?",
+    try {
+      const rows = await queryDB(
+        "SELECT filename, file_size FROM media WHERE message_id = ?",
         [messageId],
       );
-      this.emit("file_downloaded", { messageId });
-    } else {
-      // Sender-push mode: sender streams all chunks, no need to request next
-      this.emit("download_progress", { messageId, progress });
+      if (!rows.length) return;
+      const { filename, file_size } = rows[0];
+      await StorageService.appendChunk(filename, payload);
+
+      const currentSize = Math.min((chunkIndex + 1) * CHUNK_SIZE, file_size);
+      const progress = currentSize / file_size;
+
+      await executeDB(
+        "UPDATE media SET download_progress = ?, size = ? WHERE message_id = ?",
+        [progress, currentSize, messageId],
+      );
+      console.log(
+        `[Client] Received chunk ${chunkIndex} for ${messageId}, progress: ${progress}`,
+      );
+
+      if (isLast) {
+        await executeDB(
+          "UPDATE media SET status = 'downloaded' WHERE message_id = ?",
+          [messageId],
+        );
+        this.emit("file_downloaded", { messageId });
+      } else {
+        this.emit("download_progress", { messageId, progress });
+      }
+    } catch (e) {
+      console.error(
+        `[Client] Error handling chunk ${chunkIndex} for ${messageId}:`,
+        e,
+      );
+      await executeDB(
+        "UPDATE media SET status = 'error' WHERE message_id = ?",
+        [messageId],
+      );
+      this.emit("notification", {
+        type: "error",
+        message: "Download failed. Please try again.",
+      });
+      // Optionally notify sender to stop?
     }
   }
 
@@ -1423,26 +1568,24 @@ export class ChatClient extends EventEmitter {
   private async encryptForSession(
     sid: string,
     data: string | Uint8Array | ArrayBuffer,
+    priority: number,
   ): Promise<string> {
-    const session = this.sessions[sid];
-    // Normalize data to string or Uint8Array as expected by the helper
-    let payload: string | Uint8Array;
-    if (data instanceof ArrayBuffer) {
-      payload = new Uint8Array(data);
-    } else {
-      payload = data;
-    }
-
-    return encryptToPackedString(payload, session.cryptoKey);
+    const buffer =
+      data instanceof Uint8Array ? (data.buffer as ArrayBuffer) : data;
+    return WorkerManager.getInstance().encrypt(sid, buffer, priority);
   }
 
   private async decryptFromSession(
     sid: string,
     payload: string,
+    priority: number,
   ): Promise<ArrayBuffer | null> {
-    const session = this.sessions[sid];
-    const decrypted = await decryptFromPackedString(payload, session.cryptoKey);
-    return decrypted ? (decrypted.buffer as ArrayBuffer) : null;
+    try {
+      return await WorkerManager.getInstance().decrypt(sid, payload, priority);
+    } catch (e) {
+      console.warn("[ChatClient] Worker decryption failed:", e);
+      return null;
+    }
   }
 
   public async logout() {
@@ -1489,6 +1632,39 @@ export class ChatClient extends EventEmitter {
 
     this.emit("auth_success", email);
     this.emit("session_updated");
+  }
+
+  private async handleStream(sid: string, payload: string) {
+    try {
+      if (this.isResettingMedia) {
+        await new Promise<void>((resolve) => {
+          const check = setInterval(() => {
+            if (!this.isResettingMedia) {
+              clearInterval(check);
+              resolve();
+            }
+          }, 50);
+        });
+      }
+
+      if (!this.remoteVideo) {
+        await this.setupMediaPlayback();
+      }
+
+      const streamData = await this.decryptFromSession(sid, payload, 0);
+      if (streamData) {
+        this.audioQueue.push(streamData);
+        if (
+          this.isSourceOpen &&
+          this.sourceBuffer &&
+          !this.sourceBuffer.updating
+        ) {
+          this.processQueue();
+        }
+      }
+    } catch (e) {
+      console.error("Error handling STREAM payload", e);
+    }
   }
 
   private async handleFrame(frame: ServerFrame) {
@@ -1565,15 +1741,17 @@ export class ChatClient extends EventEmitter {
         this.emit("joined_success", sid);
         break;
       case "MSG":
-        this.messageQueue.enqueue(async () => {
-          await this.handleMsg(sid, data.payload);
-        });
+        if (data.type === "STREAM") {
+          this.messageQueue.enqueue(async () => {
+            await this.handleStream(sid, data.payload);
+          }, 0);
+        } else {
+          this.messageQueue.enqueue(async () => {
+            await this.handleMsg(sid, data.payload);
+          }, frame.p ?? 1);
+        }
         break;
-      case "STREAM":
-        this.messageQueue.enqueue(async () => {
-          await this.handleStream(frame);
-        });
-        break;
+
       case "PEER_ONLINE":
         if (this.sessions[sid]) {
           this.sessions[sid].online = true;
@@ -1586,11 +1764,6 @@ export class ChatClient extends EventEmitter {
           this.sessions[sid].online = false;
           this.emit("session_updated");
         }
-        break;
-      case "MIME_CHANGE":
-        console.log(`[ChatClient] Peer changed MIME to ${data.mimeType}`);
-        this.remoteMimeType = data.mimeType;
-        await this.resetMediaPlayback();
         break;
       case "DELIVERED":
         await executeDB(
@@ -1610,11 +1783,13 @@ export class ChatClient extends EventEmitter {
     const sharedKey = await this.deriveSharedKey(remotePubB64);
     this.sessions[sid] = { cryptoKey: sharedKey, online: true, peerEmail };
     const jwk = await crypto.subtle.exportKey("jwk", sharedKey);
+    await WorkerManager.getInstance().initSession(sid, jwk);
     await executeDB(
       "INSERT OR REPLACE INTO sessions (sid, keyJWK, peer_email) VALUES (?, ?, ?)",
       [sid, JSON.stringify(jwk), peerEmail || null],
     );
-    this.sendProfileTo(sid);
+    // Wait for profile send to complete before continuing
+    await this.sendProfileTo(sid);
     this.emit("session_updated");
   }
 
@@ -1633,9 +1808,14 @@ export class ChatClient extends EventEmitter {
       const payload = await this.encryptForSession(
         sid,
         JSON.stringify({
-          t: "PROFILE_VERSION",
-          data: { name_version, avatar_version },
+          t: "MSG",
+          data: {
+            type: "PROFILE_VERSION",
+            name_version,
+            avatar_version,
+          },
         }),
+        1,
       );
       this.send({ t: "MSG", sid, data: { payload } });
     } catch (e) {
@@ -1707,6 +1887,8 @@ export class ChatClient extends EventEmitter {
         ),
         online: false,
       };
+      const jwk = JSON.parse(row.keyJWK);
+      await WorkerManager.getInstance().initSession(row.sid, jwk);
     }
   }
 

@@ -1,9 +1,9 @@
 export const generateSalt = () => {
-  return window.crypto.getRandomValues(new Uint8Array(16));
+  return crypto.getRandomValues(new Uint8Array(16));
 };
 
 export const generateIV = () => {
-  return window.crypto.getRandomValues(new Uint8Array(12));
+  return crypto.getRandomValues(new Uint8Array(12));
 };
 
 export const deriveKey = async (
@@ -11,7 +11,7 @@ export const deriveKey = async (
   salt: Uint8Array,
 ): Promise<CryptoKey> => {
   const enc = new TextEncoder();
-  const passwordKey = await window.crypto.subtle.importKey(
+  const passwordKey = await crypto.subtle.importKey(
     "raw",
     enc.encode(password),
     { name: "PBKDF2" },
@@ -19,7 +19,7 @@ export const deriveKey = async (
     ["deriveKey"],
   );
 
-  return window.crypto.subtle.deriveKey(
+  return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: salt as any,
@@ -41,7 +41,7 @@ export const encryptData = async (
   const encodedData =
     typeof data === "string" ? new TextEncoder().encode(data) : data;
 
-  const encrypted = await window.crypto.subtle.encrypt(
+  const encrypted = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv: iv as any,
@@ -61,7 +61,7 @@ export const decryptData = async (
   iv: Uint8Array,
   key: CryptoKey,
 ): Promise<Uint8Array> => {
-  const decrypted = await window.crypto.subtle.decrypt(
+  const decrypted = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv: iv as any,
@@ -87,7 +87,7 @@ export const generateRandomPassword = (length: number = 16): string => {
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
   let retVal = "";
   const values = new Uint32Array(length);
-  window.crypto.getRandomValues(values);
+  crypto.getRandomValues(values);
   for (let i = 0; i < length; i++) {
     retVal += charset[values[i] % charset.length];
   }

@@ -10,6 +10,7 @@ import { AppLockScreen } from "./AppLockScreen";
 import { Clipboard } from "@capacitor/clipboard";
 import * as bip39 from "bip39";
 import { Buffer } from "buffer";
+import { ChatClient } from "../../../../services/ChatClient";
 
 (window as any).Buffer = Buffer;
 
@@ -162,7 +163,6 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
       );
 
       // Broadcast the update
-      const { ChatClient } = await import("../../../../services/ChatClient");
       ChatClient.getInstance().broadcastProfileUpdate();
 
       onComplete();

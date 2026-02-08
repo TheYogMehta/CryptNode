@@ -81,7 +81,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   }, [client]);
 
   useEffect(() => {
-    if (callState?.status !== "connected") return;
+    if (callState?.status !== "connected") {
+      setDuration(0);
+      return;
+    }
     const interval = setInterval(() => setDuration((d) => d + 1), 1000);
     return () => clearInterval(interval);
   }, [callState?.status]);

@@ -4,7 +4,7 @@ import { executeDB } from "../services/sqliteService";
 
 const VAULT_DIR = "chatapp_vault";
 const PROFILE_DIR = "chatapp_profiles";
-const CHUNK_SIZE = 256000; // 256KB for faster transfers
+export const CHUNK_SIZE = 256000;
 const writeLocks = new Map<string, boolean>();
 
 export const StorageService = {
@@ -265,49 +265,12 @@ export const StorageService = {
       const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
       const directory = isLocal ? undefined : Directory.Data;
 
-      // Optimization: For native platforms (Android/iOS), use the native file URL
-      if (Capacitor.getPlatform() === 'android' || Capacitor.getPlatform() === 'ios') {
-        try {
-          let uriResult;
-          // Check for profile images in special dir
-          if (fileName.endsWith(".jpg") && !isLocal) {
-            try {
-              uriResult = await Filesystem.getUri({
-                path: `${PROFILE_DIR}/${fileName}`,
-                directory: Directory.Data,
-              });
-            } catch {
-              // Fallback to vault
-              uriResult = await Filesystem.getUri({
-                path,
-                directory: Directory.Data
-              });
-            }
-          } else if (!isLocal) {
-            // Only attempt getUri if we have a valid directory (not local path)
-            uriResult = await Filesystem.getUri({
-              path,
-              directory: Directory.Data
-            });
-          }
-
-          if (uriResult && uriResult.uri) {
-            return Capacitor.convertFileSrc(uriResult.uri);
-          }
-        } catch (e) {
-          console.warn("[Storage] getUri failed, falling back to read", e);
-        }
-      }
-
-      // Fallback for Web/Electron or if getUri fails
       let base64Data = "";
 
       if (isLocal) {
         const file = await Filesystem.readFile({ path, directory });
-
-        if (typeof file.data === "string") {
-          base64Data = file.data;
-        } else if (file.data instanceof Blob) {
+        base64Data = typeof file.data === "string" ? file.data : "";
+        if (file.data instanceof Blob) {
           base64Data = await new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -318,38 +281,13 @@ export const StorageService = {
           });
         }
       } else {
-        try {
-          // Check if it's a profile image
-          if (fileName.endsWith(".jpg")) {
-            try {
-              const file = await Filesystem.readFile({
-                path: `${PROFILE_DIR}/${fileName}`,
-                directory: Directory.Data,
-              });
-              if (file.data) {
-                base64Data = typeof file.data === "string" ? file.data : "";
-              }
-            } catch (e) {
-              // ignore
-            }
-          }
-
-          if (!base64Data) {
-            const file = await Filesystem.readFile({
-              path,
-              directory,
-            });
-            base64Data = typeof file.data === "string" ? file.data : "";
-          }
-        } catch (e) {
-          console.warn(`[Storage] Binary read failed for ${fileName}, trying UTF8 fallback`, e);
-          const file = await Filesystem.readFile({
-            path,
-            directory,
-            encoding: Encoding.UTF8,
-          });
-          base64Data = typeof file.data === "string" ? file.data : "";
-        }
+        // Vault files are written with UTF8 encoding, so read them the same way
+        const file = await Filesystem.readFile({
+          path,
+          directory,
+          encoding: Encoding.UTF8,
+        });
+        base64Data = typeof file.data === "string" ? file.data : "";
       }
 
       const ext = fileName.split(".").pop()?.toLowerCase();
@@ -379,8 +317,21 @@ export const StorageService = {
 
       return `data:${mime};base64,${base64Data}`;
     } catch (e) {
-      console.error("Failed to get file src:", e);
+      console.error("Failed to get file src (base64):", e);
       return "";
+    }
+  },
+
+  getFileSize: async (fileName: string): Promise<number> => {
+    try {
+      const isLocal = StorageService.isLocalSystemPath(fileName);
+      const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
+      const directory = isLocal ? undefined : Directory.Data;
+
+      const stats = await Filesystem.stat({ path, directory });
+      return stats.size;
+    } catch (e) {
+      return 0;
     }
   },
 

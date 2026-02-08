@@ -21,6 +21,8 @@ import (
 type Frame struct {
 	T    string          `json:"t"`
 	SID  string          `json:"sid,omitempty"`
+	C    bool            `json:"c,omitempty"`
+	P    int             `json:"p,omitempty"`
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
@@ -408,23 +410,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					client.id,
 					frame.SID,
 				)
+		
 		case "MSG":
-			// MSG Rate Limiting
-			client.mu.Lock()
-			now := time.Now()
-			// Reset window if > 1 second has passed
-			if now.Sub(client.msgWindow) > time.Second {
-				client.msgWindow = now
-				client.msgCount = 0
-			}
-			client.msgCount++
-			if client.msgCount > 50 {
-				client.mu.Unlock()
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Max 5 msgs/sec"}`)})
-				continue
-			}
-			client.mu.Unlock()
-
 			delivered := false
 			s.mu.Lock()
 
@@ -459,31 +446,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[Server] Relayed MSG in %s to %d recipients (Delivered: %v)", frame.SID, recipientCount, delivered)
 			sess.mu.Unlock()
 
-			if delivered {
-				s.send(client, Frame{T: "DELIVERED", SID: frame.SID})
-			} else {
-				s.send(client, Frame{T: "DELIVERED_FAILED", SID: frame.SID})
-			}
-		case "STREAM":
-			s.mu.Lock()
-			sess, ok := s.sessions[frame.SID]
-			s.mu.Unlock()
-
-			if !ok {
-				continue
-			}
-
-			sess.mu.Lock()
-			if _, exists := sess.clients[client.id]; exists {
-				for _, c := range sess.clients {
-					if c.id != client.id {
-						s.send(c, frame)
-					}
+			if frame.C {
+				if delivered {
+					s.send(client, Frame{T: "DELIVERED", SID: frame.SID})
+				} else {
+					s.send(client, Frame{T: "DELIVERED_FAILED", SID: frame.SID})
 				}
 			}
-			sess.mu.Unlock()
-		}
 	}
+}
 }
 
 func main() {

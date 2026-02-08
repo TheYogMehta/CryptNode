@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useChatLogic } from "./hooks/useChatLogic";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { ChatWindow } from "./components/chat/ChatWindow";
@@ -92,14 +92,14 @@ const Home = () => {
     }
   };
 
-  const handleUnlock = async (email: string) => {
+  const handleUnlock = useCallback(async (email: string) => {
     try {
       await ChatClient.switchAccount(email);
       setIsLocked(false);
     } catch (e) {
       console.error("Unlock failed", e);
     }
-  };
+  }, []);
 
   useEffect(() => {
     console.log("[Home] Render state:", {
@@ -113,16 +113,16 @@ const Home = () => {
 
   const minSwipeDistance = 50;
 
-  const onTouchStart = (e: React.TouchEvent) => {
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
     setTouchEnd(null);
     setTouchStart(e.targetTouches[0].clientX);
-  };
+  }, []);
 
-  const onTouchMove = (e: React.TouchEvent) => {
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
     setTouchEnd(e.targetTouches[0].clientX);
-  };
+  }, []);
 
-  const onTouchEnd = () => {
+  const onTouchEnd = useCallback(() => {
     if (!touchStart || !touchEnd) return;
     const distance = touchStart - touchEnd;
     const isLeftSwipe = distance > minSwipeDistance;
@@ -138,7 +138,46 @@ const Home = () => {
     if (isLeftSwipe && isMobile && state.isSidebarOpen) {
       actions.setIsSidebarOpen(false);
     }
-  };
+  }, [touchStart, touchEnd, isMobile, state.isSidebarOpen, actions]);
+
+  const onSelectChat = useCallback(
+    (sid: string) => {
+      actions.setActiveChat(sid);
+      actions.setView("chat");
+      actions.setIsSidebarOpen(false);
+    },
+    [actions],
+  );
+
+  const onAddPeer = useCallback(() => {
+    actions.setView("add");
+    actions.setActiveChat(null);
+    actions.setIsSidebarOpen(false);
+  }, [actions]);
+
+  const onCloseSidebar = useCallback(() => {
+    actions.setIsSidebarOpen(false);
+  }, [actions]);
+
+  const onLogoClick = useCallback(() => {
+    actions.setView("welcome");
+    actions.setActiveChat(null);
+  }, [actions]);
+
+  const onOpenSettings = useCallback(() => {
+    setShowSettings(true);
+    actions.setIsSidebarOpen(false);
+  }, [actions]);
+
+  const onRename = useCallback((sid: string, currentName: string) => {
+    setRenameTarget({ sid, name: currentName });
+  }, []);
+
+  const onOpenVault = useCallback(() => {
+    actions.setActiveChat("secure-vault");
+    actions.setView("chat");
+    actions.setIsSidebarOpen(false);
+  }, [actions]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -190,33 +229,13 @@ const Home = () => {
           activeChat={state.activeChat}
           isOpen={state.isSidebarOpen}
           isMobile={isMobile}
-          onSelect={(sid: string) => {
-            actions.setActiveChat(sid);
-            actions.setView("chat");
-            actions.setIsSidebarOpen(false);
-          }}
-          onAddPeer={() => {
-            actions.setView("add");
-            actions.setActiveChat(null);
-            actions.setIsSidebarOpen(false);
-          }}
-          onClose={() => actions.setIsSidebarOpen(false)}
-          onLogoClick={() => {
-            actions.setView("welcome");
-            actions.setActiveChat(null);
-          }}
-          onSettings={() => {
-            setShowSettings(true);
-            actions.setIsSidebarOpen(false);
-          }}
-          onRename={(sid, currentName) =>
-            setRenameTarget({ sid, name: currentName })
-          }
-          onOpenVault={() => {
-            actions.setActiveChat("secure-vault");
-            actions.setView("chat");
-            actions.setIsSidebarOpen(false);
-          }}
+          onSelect={onSelectChat}
+          onAddPeer={onAddPeer}
+          onClose={onCloseSidebar}
+          onLogoClick={onLogoClick}
+          onSettings={onOpenSettings}
+          onRename={onRename}
+          onOpenVault={onOpenVault}
         />
 
         <MainContent>
@@ -240,8 +259,6 @@ const Home = () => {
           ) : state.view === "chat" && state.activeChat ? (
             <ChatWindow
               messages={state.messages}
-              input={state.input}
-              setInput={actions.setInput}
               onSend={actions.handleSend}
               activeChat={state.activeChat}
               session={state.sessions.find((s) => s.sid === state.activeChat)}

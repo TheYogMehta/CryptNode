@@ -21,7 +21,6 @@ import { join } from "path";
 import { createServer } from "http";
 import handler from "serve-handler";
 
-
 // Define components for a watcher to detect when the webapp is changed so we can reload in Dev mode.
 const reloadWatcher = {
   debouncer: null,
@@ -29,7 +28,7 @@ const reloadWatcher = {
   watcher: null,
 };
 export function setupReloadWatcher(
-  electronCapacitorApp: ElectronCapacitorApp
+  electronCapacitorApp: ElectronCapacitorApp,
 ): void {
   reloadWatcher.watcher = chokidar
     .watch(join(app.getAppPath(), "app"), {
@@ -74,7 +73,7 @@ export class ElectronCapacitorApp {
   constructor(
     capacitorFileConfig: CapacitorElectronConfig,
     trayMenuTemplate?: (MenuItemConstructorOptions | MenuItem)[],
-    appMenuBarMenuTemplate?: (MenuItemConstructorOptions | MenuItem)[]
+    appMenuBarMenuTemplate?: (MenuItemConstructorOptions | MenuItem)[],
   ) {
     this.CapacitorFileConfig = capacitorFileConfig;
 
@@ -103,15 +102,13 @@ export class ElectronCapacitorApp {
     const server = createServer((request, response) => {
       return handler(request, response, {
         public: join(app.getAppPath(), "app"),
-        rewrites: [
-          { source: "**", destination: "/index.html" }
-        ]
+        rewrites: [{ source: "**", destination: "/index.html" }],
       });
     });
-    
+
     server.listen(5173, () => {
-      console.log('Running at http://localhost:5173');
-      thisRef.MainWindow.loadURL('http://localhost:5173');
+      console.log("Running at http://localhost:5173");
+      thisRef.MainWindow.loadURL("http://localhost:5173");
     });
   }
 
@@ -129,8 +126,8 @@ export class ElectronCapacitorApp {
       join(
         app.getAppPath(),
         "assets",
-        process.platform === "win32" ? "appIcon.ico" : "appIcon.png"
-      )
+        process.platform === "win32" ? "appIcon.ico" : "appIcon.png",
+      ),
     );
     this.mainWindowState = windowStateKeeper({
       defaultWidth: 1000,
@@ -157,7 +154,7 @@ export class ElectronCapacitorApp {
 
     if (this.CapacitorFileConfig.backgroundColor) {
       this.MainWindow.setBackgroundColor(
-        this.CapacitorFileConfig.electron.backgroundColor
+        this.CapacitorFileConfig.electron.backgroundColor,
       );
     }
 
@@ -196,13 +193,13 @@ export class ElectronCapacitorApp {
       });
       this.TrayIcon.setToolTip(app.getName());
       this.TrayIcon.setContextMenu(
-        Menu.buildFromTemplate(this.TrayMenuTemplate)
+        Menu.buildFromTemplate(this.TrayMenuTemplate),
       );
     }
 
     // Setup the main manu bar at the top of our window.
     Menu.setApplicationMenu(
-      Menu.buildFromTemplate(this.AppMenuBarMenuTemplate)
+      Menu.buildFromTemplate(this.AppMenuBarMenuTemplate),
     );
 
     // If the splashscreen is enabled, show it first while the main window loads then switch it out for the main window, or just load the main window from the start.
@@ -212,7 +209,7 @@ export class ElectronCapacitorApp {
           app.getAppPath(),
           "assets",
           this.CapacitorFileConfig.electron?.splashScreenImageName ??
-            "splash.png"
+            "splash.png",
         ),
         windowWidth: 400,
         windowHeight: 400,
@@ -224,14 +221,20 @@ export class ElectronCapacitorApp {
 
     // Security
     this.MainWindow.webContents.setWindowOpenHandler((details) => {
-      if (!details.url.includes(this.customScheme) && !details.url.includes('localhost')) {
+      if (
+        !details.url.includes(this.customScheme) &&
+        !details.url.includes("localhost")
+      ) {
         return { action: "deny" };
       } else {
         return { action: "allow" };
       }
     });
     this.MainWindow.webContents.on("will-navigate", (event, _newURL) => {
-      if (!this.MainWindow.webContents.getURL().includes(this.customScheme) && !this.MainWindow.webContents.getURL().includes('localhost')) {
+      if (
+        !this.MainWindow.webContents.getURL().includes(this.customScheme) &&
+        !this.MainWindow.webContents.getURL().includes("localhost")
+      ) {
         event.preventDefault();
       }
     });
@@ -253,7 +256,7 @@ export class ElectronCapacitorApp {
         }
         CapElectronEventEmitter.emit(
           "CAPELECTRON_DeeplinkListenerInitialized",
-          ""
+          "",
         );
       }, 400);
     });
@@ -269,7 +272,8 @@ export function setupContentSecurityPolicy(customScheme: string): void {
       img-src * data: blob:;
       style-src * 'unsafe-inline';
       font-src *;
-      script-src * 'unsafe-inline' 'unsafe-eval';
+      script-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
+      worker-src * data: blob: 'unsafe-inline' 'unsafe-eval';
       frame-src *;
     `;
 

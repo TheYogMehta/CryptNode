@@ -47,9 +47,7 @@ import { IconButton } from "../../../../components/ui/IconButton";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
-  input: string;
-  setInput: (val: string) => void;
-  onSend: () => void;
+  onSend: (text: string) => void;
   activeChat: string | null;
   session?: SessionData;
   onFileSelect: (file: File) => void;
@@ -64,8 +62,6 @@ interface ChatWindowProps {
 
 export const ChatWindow = ({
   messages,
-  input,
-  setInput,
   onSend,
   activeChat,
   session,
@@ -80,6 +76,8 @@ export const ChatWindow = ({
 }: ChatWindowProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [input, setInput] = useState("");
 
   const [showMenu, setShowMenu] = useState(false);
   const [showPortModal, setShowPortModal] = useState(false);
@@ -280,7 +278,11 @@ export const ChatWindow = ({
     }
   };
 
-  const handleMediaClick = (url: string, type: "image" | "video", description?: string) => {
+  const handleMediaClick = (
+    url: string,
+    type: "image" | "video",
+    description?: string,
+  ) => {
     setSelectedMedia({ url, type, description });
     setMediaModalOpen(true);
   };
@@ -422,7 +424,8 @@ export const ChatWindow = ({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && input.trim()) {
                 e.preventDefault();
-                onSend();
+                onSend(input);
+                setInput("");
               }
             }}
             placeholder={isRecording ? "" : "Message..."}
@@ -430,7 +433,12 @@ export const ChatWindow = ({
         </InputWrapper>
 
         {input.trim().length > 0 ? (
-          <SendButton onClick={onSend}>
+          <SendButton
+            onClick={() => {
+              onSend(input);
+              setInput("");
+            }}
+          >
             <Send size={20} />
           </SendButton>
         ) : (

@@ -7,7 +7,8 @@
 
     <base href="/" />
 
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#020617" />
     <meta
       name="viewport"
       content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
@@ -22,10 +23,13 @@
     <!-- add to homescreen for ios -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Ionic App" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss: http: https: data: blob: filesystem:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://*.gstatic.com https://*.googleapis.com; frame-src 'self' https://*.google.com; connect-src 'self' ws: wss: http: https: https://*.google.com https://*.googleapis.com; img-src 'self' data: blob: https://*.google.com https://*.gstatic.com;"
+      content="default-src 'self' 'unsafe-inline' 'unsafe-eval' ws: wss: http: https: data: blob: filesystem:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://*.gstatic.com https://*.googleapis.com; worker-src 'self' blob: data:; frame-src 'self' https://*.google.com; connect-src 'self' ws: wss: http: https: https://*.google.com https://*.googleapis.com; img-src 'self' data: blob: https://*.google.com https://*.gstatic.com;"
     />
   </head>
   <body>

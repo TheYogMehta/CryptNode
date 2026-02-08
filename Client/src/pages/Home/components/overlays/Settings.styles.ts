@@ -26,6 +26,7 @@ export const SettingsContainer = styled.div`
     max-height: 100%;
     border-radius: 0;
     border: none;
+    padding-top: max(${spacing[5]}, env(safe-area-inset-top));
   }
 `;
 

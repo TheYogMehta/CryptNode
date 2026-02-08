@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import debounce from "lodash.debounce";
 import ChatClient from "../../../services/ChatClient";
 import { queryDB, executeDB } from "../../../services/sqliteService";
 import { SessionData, ChatMessage, InboundReq } from "../types";
@@ -8,7 +9,6 @@ export const useChatLogic = () => {
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [input, setInput] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [targetEmail, setTargetEmail] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
@@ -47,11 +47,11 @@ export const useChatLogic = () => {
     }
   }, [activeChat]);
 
-  const loadSessions = async () => {
-    // Prevent DB access before auth (key not set)
-    if (!ChatClient.userEmail) return;
+  const loadSessions = useCallback(
+    debounce(async () => {
+      if (!ChatClient.userEmail) return;
 
-    const rows = await queryDB(`
+      const rows = await queryDB(`
       SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email,
              (SELECT text FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsg,
              (SELECT type FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsgType,
@@ -61,21 +61,23 @@ export const useChatLogic = () => {
       ORDER BY lastTs DESC
     `);
 
-    const formatted: SessionData[] = rows.map((r: any) => ({
-      sid: r.sid,
-      alias_name: r.alias_name,
-      alias_avatar: r.alias_avatar,
-      peer_name: r.peer_name,
-      peer_avatar: r.peer_avatar,
-      peerEmail: r.peer_email,
-      lastMsg: r.lastMsg || "",
-      lastMsgType: r.lastMsgType || "text",
-      lastTs: r.lastTs || 0,
-      unread: r.unread || 0,
-      online: ChatClient.sessions[r.sid]?.online || false,
-    }));
-    setSessions(formatted);
-  };
+      const formatted: SessionData[] = rows.map((r: any) => ({
+        sid: r.sid,
+        alias_name: r.alias_name,
+        alias_avatar: r.alias_avatar,
+        peer_name: r.peer_name,
+        peer_avatar: r.peer_avatar,
+        peerEmail: r.peer_email,
+        lastMsg: r.lastMsg || "",
+        lastMsgType: r.lastMsgType || "text",
+        lastTs: r.lastTs || 0,
+        unread: r.unread || 0,
+        online: ChatClient.sessions[r.sid]?.online || false,
+      }));
+      setSessions(formatted);
+    }, 500),
+    [],
+  );
 
   const loadHistory = async (sid: string, reset: boolean = false) => {
     const limit = 50;
@@ -284,12 +286,11 @@ export const useChatLogic = () => {
     };
   }, []);
 
-  const handleSend = async () => {
-    if (!input.trim() || !activeChat) return;
-    const currentInput = input;
+  const handleSend = async (text: string) => {
+    if (!text.trim() || !activeChat) return;
+    const currentInput = text;
     const currentReplyTo = replyingTo;
 
-    setInput("");
     setReplyingTo(null);
 
     const replyContext =
@@ -340,6 +341,7 @@ export const useChatLogic = () => {
       timestamp: Date.now(),
       mediaTotalSize: file.size,
       tempUrl: URL.createObjectURL(file),
+      mediaStatus: "uploading",
       status: 1,
     };
 
@@ -396,7 +398,6 @@ export const useChatLogic = () => {
       activeCall,
       messages,
       sessions,
-      input,
       isJoining,
       targetEmail,
       isWaiting,
@@ -415,7 +416,6 @@ export const useChatLogic = () => {
       login: (token: string) => ChatClient.login(token),
       setView,
       setActiveChat,
-      setInput,
       setReplyingTo,
       setTargetEmail,
       setIsSidebarOpen,
