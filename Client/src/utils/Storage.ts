@@ -346,7 +346,7 @@ export const StorageService = {
               const res = reader.result as string;
               resolve(res.includes(",") ? res.split(",")[1] : res);
             };
-            reader.readAsDataURL(file.data);
+            reader.readAsDataURL(file.data as Blob);
           });
         }
 
@@ -385,7 +385,10 @@ export const StorageService = {
             return `data:${mime};base64,${file.data}`;
           }
         } catch (e) {
-          console.warn(`[Storage] Binary read failed for ${fileName}, trying UTF8 fallback`, e);
+          console.warn(
+            `[Storage] Binary read failed for ${fileName}, trying UTF8 fallback`,
+            e,
+          );
           // Fallback to UTF8
           const file = await Filesystem.readFile({
             path,

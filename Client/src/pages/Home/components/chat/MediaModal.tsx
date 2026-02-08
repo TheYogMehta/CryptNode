@@ -1,7 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { X, ZoomIn, ZoomOut, Download, Play, Pause, Volume2, VolumeX } from "lucide-react";
-import { colors, radii, spacing, glassEffect } from "../../../theme/design-system";
+import {
+  X,
+  ZoomIn,
+  ZoomOut,
+  Download,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import {
+  colors,
+  radii,
+  spacing,
+  glassEffect,
+} from "../../../../theme/design-system";
 
 const fadeIn = keyframes`
   from { opacity: 0; }
@@ -29,7 +43,7 @@ const Header = styled.div`
   justify-content: space-between;
   align-items: center;
   padding: ${spacing[4]};
-  background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
   z-index: 10;
 `;
 
@@ -52,7 +66,7 @@ const CloseButton = styled.button`
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  
+
   &:hover {
     background: rgba(255, 255, 255, 0.2);
   }
@@ -75,13 +89,13 @@ const ImageContainer = styled.div<{ transform: string }>`
   display: flex;
   align-items: center;
   justify-content: center;
-  
+
   img {
     max-width: 100vw;
     max-height: 100vh;
     object-fit: contain;
     user-select: none;
-    pointer-events: none; 
+    pointer-events: none;
     /* Prevent default drag behavior to allow custom pan */
   }
 `;
@@ -92,7 +106,7 @@ const VideoContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  
+
   video {
     max-width: 100%;
     max-height: 100%;
@@ -122,7 +136,7 @@ const ControlButton = styled.button`
   justify-content: center;
   cursor: pointer;
   opacity: 0.8;
-  
+
   &:hover {
     opacity: 1;
     transform: scale(1.1);
@@ -130,127 +144,132 @@ const ControlButton = styled.button`
 `;
 
 interface MediaModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    media: {
-        type: "image" | "video";
-        url: string;
-        description?: string;
-        mimeType?: string;
-    } | null;
+  isOpen: boolean;
+  onClose: () => void;
+  media: {
+    type: "image" | "video";
+    url: string;
+    description?: string;
+    mimeType?: string;
+  } | null;
 }
 
-export const MediaModal: React.FC<MediaModalProps> = ({ isOpen, onClose, media }) => {
-    const [scale, setScale] = useState(1);
-    const [position, setPosition] = useState({ x: 0, y: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+export const MediaModal: React.FC<MediaModalProps> = ({
+  isOpen,
+  onClose,
+  media,
+}) => {
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-    const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-    useEffect(() => {
-        if (!isOpen) {
-            setScale(1);
-            setPosition({ x: 0, y: 0 });
-        }
-    }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) {
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
+    }
+  }, [isOpen]);
 
-    if (!isOpen || !media) return null;
+  if (!isOpen || !media) return null;
 
-    const handleZoomIn = () => setScale((s) => Math.min(s + 0.5, 4));
-    const handleZoomOut = () => setScale((s) => Math.max(s - 0.5, 1));
+  const handleZoomIn = () => setScale((s) => Math.min(s + 0.5, 4));
+  const handleZoomOut = () => setScale((s) => Math.max(s - 0.5, 1));
 
-    const handleWheel = (e: React.WheelEvent) => {
-        if (e.ctrlKey) {
-            e.preventDefault();
-            const delta = e.deltaY * -0.01;
-            setScale((s) => Math.min(Math.max(s + delta, 1), 4));
-        }
-    };
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const delta = e.deltaY * -0.01;
+      setScale((s) => Math.min(Math.max(s + delta, 1), 4));
+    }
+  };
 
-    const handleMouseDown = (e: React.MouseEvent) => {
-        if (scale > 1) {
-            setIsDragging(true);
-            setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-        }
-    };
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+    }
+  };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (isDragging && scale > 1) {
-            setPosition({
-                x: e.clientX - dragStart.x,
-                y: e.clientY - dragStart.y,
-            });
-        }
-    };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && scale > 1) {
+      setPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    }
+  };
 
-    const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => setIsDragging(false);
 
-    return (
-        <Overlay onClick={onClose}>
-            <Header onClick={(e) => e.stopPropagation()}>
-                <Title>{media.description || "Media Viewer"}</Title>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    {media.type === 'image' && (
-                        <CloseButton onClick={() => {
-                            const a = document.createElement('a');
-                            a.href = media.url;
-                            a.download = media.description || 'download';
-                            a.click();
-                        }}>
-                            <Download size={20} />
-                        </CloseButton>
-                    )}
-                    <CloseButton onClick={onClose}>
-                        <X size={24} />
-                    </CloseButton>
-                </div>
-            </Header>
-
-            <ContentArea
-                onClick={onClose}
-                onWheel={handleWheel}
+  return (
+    <Overlay onClick={onClose}>
+      <Header onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+        <Title>{media.description || "Media Viewer"}</Title>
+        <div style={{ display: "flex", gap: "10px" }}>
+          {media.type === "image" && (
+            <CloseButton
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = media.url;
+                a.download = media.description || "download";
+                a.click();
+              }}
             >
-                <div onClick={(e) => e.stopPropagation()}>
-                    {media.type === "image" ? (
-                        <ImageContainer
-                            transform={`translate(${position.x}px, ${position.y}px) scale(${scale})`}
-                            onMouseDown={handleMouseDown}
-                            onMouseMove={handleMouseMove}
-                            onMouseUp={handleMouseUp}
-                            onMouseLeave={handleMouseUp}
-                        >
-                            <img src={media.url} alt={media.description} draggable={false} />
-                        </ImageContainer>
-                    ) : (
-                        <VideoContainer>
-                            {/* Using standard controls for better stability across platforms, can customize later */}
-                            <video
-                                ref={videoRef}
-                                src={media.url}
-                                controls
-                                autoPlay
-                                playsInline
-                                style={{ maxHeight: '80vh', maxWidth: '100%' }}
-                            />
-                        </VideoContainer>
-                    )}
-                </div>
-            </ContentArea>
+              <Download size={20} />
+            </CloseButton>
+          )}
+          <CloseButton onClick={onClose}>
+            <X size={24} />
+          </CloseButton>
+        </div>
+      </Header>
 
-            {media.type === "image" && (
-                <Controls onClick={(e) => e.stopPropagation()}>
-                    <ControlButton onClick={handleZoomOut}>
-                        <ZoomOut size={24} />
-                    </ControlButton>
-                    <span style={{ color: "white", minWidth: "40px", textAlign: "center" }}>
-                        {Math.round(scale * 100)}%
-                    </span>
-                    <ControlButton onClick={handleZoomIn}>
-                        <ZoomIn size={24} />
-                    </ControlButton>
-                </Controls>
-            )}
-        </Overlay>
-    );
+      <ContentArea onClick={onClose} onWheel={handleWheel}>
+        <div onClick={(e) => e.stopPropagation()}>
+          {media.type === "image" ? (
+            <ImageContainer
+              transform={`translate(${position.x}px, ${position.y}px) scale(${scale})`}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
+              <img src={media.url} alt={media.description} draggable={false} />
+            </ImageContainer>
+          ) : (
+            <VideoContainer>
+              {/* Using standard controls for better stability across platforms, can customize later */}
+              <video
+                ref={videoRef}
+                src={media.url}
+                controls
+                autoPlay
+                playsInline
+                style={{ maxHeight: "80vh", maxWidth: "100%" }}
+              />
+            </VideoContainer>
+          )}
+        </div>
+      </ContentArea>
+
+      {media.type === "image" && (
+        <Controls onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+          <ControlButton onClick={handleZoomOut}>
+            <ZoomOut size={24} />
+          </ControlButton>
+          <span
+            style={{ color: "white", minWidth: "40px", textAlign: "center" }}
+          >
+            {Math.round(scale * 100)}%
+          </span>
+          <ControlButton onClick={handleZoomIn}>
+            <ZoomIn size={24} />
+          </ControlButton>
+        </Controls>
+      )}
+    </Overlay>
+  );
 };
