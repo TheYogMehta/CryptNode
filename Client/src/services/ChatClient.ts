@@ -817,6 +817,7 @@ export class ChatClient extends EventEmitter {
             type: "text",
             id: data.id,
             replyTo: data.replyTo,
+            timestamp: data.timestamp,
           });
           break;
         case "FILE_INFO":
