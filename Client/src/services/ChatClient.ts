@@ -356,7 +356,10 @@ export class ChatClient extends EventEmitter {
         this.mediaRecorder.stream.getTracks().forEach((t) => t.stop());
         this.mediaRecorder.stop();
       }
-      await this.startStreaming(sid, mode);
+
+      const newMime = await this.startStreaming(sid, mode);
+
+      this.send({ t: "MIME_CHANGE", sid, data: { mimeType: newMime } });
     } catch (err: any) {
       console.error("Failed to switch stream:", err);
       this.emit("notification", {
@@ -376,16 +379,30 @@ export class ChatClient extends EventEmitter {
       let bitsPerSecond = 48000;
 
       if (mode === "Screen") {
-        if (
-          !navigator.mediaDevices ||
-          !navigator.mediaDevices.getDisplayMedia
-        ) {
+        // Check if screen sharing is supported
+        if (typeof navigator === "undefined" || !navigator.mediaDevices) {
           throw new Error("Screen sharing is not supported on this device.");
         }
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        });
+
+        // For Electron, getDisplayMedia might not exist but we can try getUserMedia with chromeMediaSource
+        try {
+          if (navigator.mediaDevices.getDisplayMedia) {
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true,
+            });
+          } else {
+            // Fallback for Electron or other environments
+            throw new Error(
+              "Screen sharing is not available. Please use a supported browser or update your Electron app.",
+            );
+          }
+        } catch (e: any) {
+          if (e.name === "NotAllowedError") {
+            throw new Error("Screen sharing permission denied.");
+          }
+          throw e;
+        }
         mimeType = "video/webm;codecs=vp8,opus";
         bitsPerSecond = 2500000;
       } else if (mode === "Video") {
@@ -542,53 +559,104 @@ export class ChatClient extends EventEmitter {
     this.emit("local_stream_ready", null);
   }
 
-  private setupMediaPlayback() {
+  private async setupMediaPlayback(): Promise<void> {
     if (this.remoteVideo) return;
 
-    this.remoteVideo = document.createElement("video");
-    this.remoteVideo.autoplay = true;
-    this.remoteVideo.playsInline = true;
+    return new Promise((resolve) => {
+      this.remoteVideo = document.createElement("video");
+      this.remoteVideo!.autoplay = true;
+      this.remoteVideo!.playsInline = true;
 
-    const ms = new MediaSource();
-    this.mediaSource = ms;
-    this.remoteVideo.src = URL.createObjectURL(ms);
+      const ms = new MediaSource();
+      this.mediaSource = ms;
+      this.remoteVideo!.src = URL.createObjectURL(ms);
 
-    ms.addEventListener("sourceopen", () => {
-      if (this.mediaSource !== ms || ms.sourceBuffers.length > 0) return;
-      if (!this.isCalling && !this.isCallConnected) {
-        console.warn("[ChatClient] MediaSource open but call ended, ignoring");
-        return;
-      }
-
-      try {
-        let mime = this.remoteMimeType || "video/webm;codecs=vp8,opus";
-        if (!MediaSource.isTypeSupported(mime)) {
+      ms.addEventListener("sourceopen", () => {
+        if (this.mediaSource !== ms || ms.sourceBuffers.length > 0) {
+          resolve();
+          return;
+        }
+        if (!this.isCalling && !this.isCallConnected) {
           console.warn(
-            `[ChatClient] Prefered mime ${mime} not supported, trying fallbacks`,
+            "[ChatClient] MediaSource open but call ended, ignoring",
           );
-          mime = "video/webm;codecs=vp8,opus";
-          if (!MediaSource.isTypeSupported(mime)) {
-            mime = "video/webm;codecs=vp8";
-            if (!MediaSource.isTypeSupported(mime)) {
-              mime = "audio/webm;codecs=opus";
-            }
-          }
+          resolve();
+          return;
         }
 
-        console.log(`[ChatClient] Creating SourceBuffer with ${mime}`);
-        this.sourceBuffer = ms.addSourceBuffer(mime);
-        this.isSourceOpen = true;
+        try {
+          let mime = this.remoteMimeType || "video/webm;codecs=vp8,opus";
+          if (!MediaSource.isTypeSupported(mime)) {
+            console.warn(
+              `[ChatClient] Prefered mime ${mime} not supported, trying fallbacks`,
+            );
+            mime = "video/webm;codecs=vp8,opus";
+            if (!MediaSource.isTypeSupported(mime)) {
+              mime = "video/webm;codecs=vp8";
+              if (!MediaSource.isTypeSupported(mime)) {
+                mime = "audio/webm;codecs=opus";
+              }
+            }
+          }
 
-        this.sourceBuffer.mode = "sequence";
-        this.sourceBuffer.addEventListener("updateend", () => {
-          this.processQueue();
-        });
-      } catch (e) {
-        console.error("Error adding SourceBuffer:", e);
-      }
+          console.log(`[ChatClient] Creating SourceBuffer with ${mime}`);
+          this.sourceBuffer = ms.addSourceBuffer(mime);
+          this.isSourceOpen = true;
+
+          this.sourceBuffer.mode = "sequence";
+          this.sourceBuffer.addEventListener("updateend", () => {
+            this.processQueue();
+          });
+
+          this.emit("remote_stream_ready", this.remoteVideo);
+          resolve();
+        } catch (e) {
+          console.error("Error adding SourceBuffer:", e);
+          resolve();
+        }
+      });
     });
+  }
 
-    this.emit("remote_stream_ready", this.remoteVideo);
+  private async resetMediaPlayback() {
+    console.log("[ChatClient] Resetting MediaSource for new MIME type");
+
+    // Clear queue
+    this.audioQueue = [];
+    this.isSourceOpen = false;
+
+    // Clean up old SourceBuffer
+    if (this.sourceBuffer) {
+      try {
+        if (this.mediaSource && this.mediaSource.readyState === "open") {
+          this.mediaSource.removeSourceBuffer(this.sourceBuffer);
+        }
+      } catch (e) {
+        console.warn("Error removing SourceBuffer:", e);
+      }
+      this.sourceBuffer = null;
+    }
+
+    // Clean up old MediaSource
+    if (this.mediaSource) {
+      try {
+        if (this.mediaSource.readyState === "open") {
+          this.mediaSource.endOfStream();
+        }
+      } catch (e) {
+        console.warn("Error ending MediaSource:", e);
+      }
+      this.mediaSource = null;
+    }
+
+    // Force recreation
+    if (this.remoteVideo) {
+      this.remoteVideo.src = "";
+      this.remoteVideo = null;
+    }
+
+    // Immediately recreate and wait for it to be ready
+    await this.setupMediaPlayback();
   }
 
   private processQueue() {
@@ -626,7 +694,7 @@ export class ChatClient extends EventEmitter {
         return;
       }
       if (!this.remoteVideo) {
-        this.setupMediaPlayback();
+        await this.setupMediaPlayback();
       }
 
       const decryptedBuffer = await this.decryptFromSession(sid, data);
@@ -1178,6 +1246,11 @@ export class ChatClient extends EventEmitter {
           this.sessions[sid].online = false;
           this.emit("session_updated");
         }
+        break;
+      case "MIME_CHANGE":
+        console.log(`[ChatClient] Peer changed MIME to ${data.mimeType}`);
+        this.remoteMimeType = data.mimeType;
+        await this.resetMediaPlayback();
         break;
       case "DELIVERED":
         await executeDB(

@@ -52,6 +52,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
 
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -79,6 +80,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       callState.remoteVideo.style.borderRadius = "12px";
     }
   }, [callState?.remoteVideo, isMinimized]);
+
+  useEffect(() => {
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream, isVideoEnabled]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -150,27 +157,15 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           <ControlsRow>
             {isIncoming ? (
               <>
-                <IconButton
-                  variant="success"
-                  size="xl"
-                  onClick={onAccept}
-                >
+                <IconButton variant="success" size="xl" onClick={onAccept}>
                   <Phone size={32} />
                 </IconButton>
-                <IconButton
-                  variant="danger"
-                  size="xl"
-                  onClick={onReject}
-                >
+                <IconButton variant="danger" size="xl" onClick={onReject}>
                   <PhoneOff size={32} />
                 </IconButton>
               </>
             ) : (
-              <IconButton
-                variant="danger"
-                size="xl"
-                onClick={onHangup}
-              >
+              <IconButton variant="danger" size="xl" onClick={onHangup}>
                 <PhoneOff size={32} />
               </IconButton>
             )}
@@ -193,8 +188,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         onTouchEnd={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        <div style={{ flex: 1, position: "relative", backgroundColor: "black" }}>
-          <div ref={videoContainerRef} style={{ width: "100%", height: "100%" }} />
+        <div
+          style={{ flex: 1, position: "relative", backgroundColor: "black" }}
+        >
+          <div
+            ref={videoContainerRef}
+            style={{ width: "100%", height: "100%" }}
+          />
           <MaximizeButton
             onClick={(e) => {
               e.stopPropagation();
@@ -207,19 +207,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       </MinimizedContainer>
     );
   }
-
-  // Local Video Effect
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream, isVideoEnabled]);
-
-  // We need to import ChatClient to access the stream if it's not passed in callState.
-  // Assuming callState might not have it.
-
-  // I should add the import at the top of the file first.
 
   return (
     <OverlayContainer>
@@ -240,32 +227,61 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
           {/* Local Video PiP */}
           {isVideoEnabled && (
-            <div style={{
-              position: 'absolute',
-              top: '80px',
-              right: '20px',
-              width: '120px',
-              height: '160px',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-              border: '2px solid rgba(255,255,255,0.1)',
-              zIndex: 10
-            }}>
+            <div
+              style={{
+                position: "absolute",
+                top: "80px",
+                right: "20px",
+                width: "120px",
+                height: "160px",
+                borderRadius: "12px",
+                overflow: "hidden",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                border: "2px solid rgba(255,255,255,0.1)",
+                zIndex: 10,
+              }}
+            >
               <video
                 ref={localVideoRef}
                 autoPlay
                 playsInline
                 muted
-                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transform: "scaleX(-1)",
+                }}
               />
             </div>
           )}
 
           {!callState.remoteVideo && (
-            <AvatarContainer style={{ width: 150, height: 150 }}>
-              {callState.remoteSid?.[0]?.toUpperCase()}
-            </AvatarContainer>
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                textAlign: "center",
+                color: "white",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "16px",
+              }}
+            >
+              <AvatarContainer style={{ width: 150, height: 150 }}>
+                {callState.remoteSid?.[0]?.toUpperCase()}
+              </AvatarContainer>
+              <CallerName style={{ fontSize: 24, marginBottom: 0 }}>
+                {callState.peerName ||
+                  `Peer ${callState.remoteSid?.slice(0, 6)}`}
+              </CallerName>
+              <CallStatus style={{ color: "#94a3b8" }}>
+                {formatTime(duration)} • Voice Call
+              </CallStatus>
+            </div>
           )}
         </MainVideoArea>
 
@@ -296,19 +312,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               {isVideoEnabled ? <Video size={28} /> : <VideoOff size={28} />}
             </IconButton>
 
-            <IconButton
-              variant="glass"
-              size="xl"
-              onClick={shareScreen}
-            >
+            <IconButton variant="glass" size="xl" onClick={shareScreen}>
               <Monitor size={28} />
             </IconButton>
 
-            <IconButton
-              variant="danger"
-              size="xl"
-              onClick={onHangup}
-            >
+            <IconButton variant="danger" size="xl" onClick={onHangup}>
               <PhoneOff size={28} />
             </IconButton>
           </ControlsRow>
