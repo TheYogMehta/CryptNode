@@ -17,7 +17,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
-import { LinkPreview } from "../../../../../components/LinkPreview";
+import { LinkPreview } from "../../../../components/LinkPreview";
 import { UnsafeLinkModal } from "./UnsafeLinkModal";
 import { queryDB } from "../../../../services/sqliteService";
 import { Reaction } from "../../types";

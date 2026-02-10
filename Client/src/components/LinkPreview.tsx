@@ -81,12 +81,16 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
         setLoading(true);
         setError(false);
 
-        // Simple client-side check for direct image links
-        if (/\.(gif|jpe?g|png|webp|bmp|tiff)$/i.test(new URL(url).pathname)) {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.toLowerCase();
+        const pathname = urlObj.pathname;
+
+        // 1. Direct Image Check
+        if (/\.(gif|jpe?g|png|webp|bmp|tiff)$/i.test(pathname)) {
           if (mounted) {
             setImageSrc(url);
             setMetadata({
-              title: url.split("/").pop(),
+              title: pathname.split("/").pop(),
               description: "",
               image: url,
               url: url,
@@ -97,6 +101,79 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
           return;
         }
 
+        // 2. Special Providers (Giphy, Tenor, Imgur)
+        if (hostname.includes("giphy.com")) {
+          // https://giphy.com/gifs/funny-cat-CjmvTCZf2U3p09Cn0h
+          // https://giphy.com/gifs/id
+          const match = pathname.match(/\/gifs\/(?:.*-)?([a-zA-Z0-9]+)$/);
+          if (match && match[1]) {
+            const gifUrl = `https://media.giphy.com/media/${match[1]}/giphy.gif`;
+            if (mounted) {
+              setImageSrc(gifUrl);
+              setMetadata({
+                title: "Giphy GIF",
+                description: "View on Giphy",
+                image: gifUrl,
+                url: url,
+                type: "image",
+              });
+              setLoading(false);
+            }
+            return;
+          }
+        }
+
+        if (hostname.includes("tenor.com")) {
+          // Try oEmbed for Tenor (usually allows CORS)
+          try {
+            const oembedUrl = `https://tenor.com/oembed?url=${encodeURIComponent(
+              url,
+            )}&format=json`;
+            const res = await fetch(oembedUrl, { mode: "cors" });
+            const data = await res.json();
+            if (data && mounted) {
+              // Tenor oEmbed returns a thumbnail_url or url that is an image
+              const img = data.url || data.thumbnail_url;
+              if (img) {
+                setImageSrc(img);
+                setMetadata({
+                  title: data.title || "Tenor GIF",
+                  description: "View on Tenor",
+                  image: img,
+                  url: url,
+                  type: "image",
+                });
+                setLoading(false);
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn("Tenor oEmbed failed", e);
+          }
+        }
+
+        if (hostname.includes("imgur.com")) {
+          // https://imgur.com/gallery/ID or https://imgur.com/ID
+          const match = pathname.match(/\/(?:gallery\/)?([a-zA-Z0-9]+)$/);
+          if (match && match[1]) {
+            // Assume .png for safety, imgur handles redirects mostly
+            const imgUrl = `https://i.imgur.com/${match[1]}.png`;
+            if (mounted) {
+              setImageSrc(imgUrl);
+              setMetadata({
+                title: "Imgur Image",
+                description: "View on Imgur",
+                image: imgUrl,
+                url: url,
+                type: "image",
+              });
+              setLoading(false);
+            }
+            return;
+          }
+        }
+
+        // 3. Generic Fetch (Metadata / OG Tags)
         try {
           // Attempt client-side fetch (will only work for CORS-enabled sites)
           const res = await fetch(url, { mode: "cors" });
