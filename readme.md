@@ -7,7 +7,7 @@ A privacy-first, end-to-end encrypted messaging platform with file sharing and v
 - **End-to-End Encryption**: AES-GCM-256 for messages, ECDH P-256 for key exchange
 - **Cross-Platform**: Android, and Desktop (Electron)
 - **File Sharing**: Encrypted chunked file transfer
-- **Voice Calls**: Real-time encrypted audio streaming
+- **Voice & Video Calls**: Real-time encrypted audio/video calls (WebRTC)
 - **Secure Vault**: Local encrypted storage for passwords and sensitive files
 - **Multi-Account**: Switch between multiple Google accounts
 - **Zero Server Storage**: Messages never stored on the server
@@ -95,7 +95,7 @@ See the [Deployment Guide](docs/DEPLOYMENT.md) for detailed platform-specific in
 
 ## 🔐 Security Overview
 
-- **Encryption**: ECDH P-256 + AES-GCM-256
+- **Encryption**: ECDH P-256 + AES-GCM-256 (Messages), DTLS-SRTP (Calls)
 - **Authentication**: Google OAuth 2.0
 - **Session Tokens**: HMAC-signed with SHA-256
 - **Zero Knowledge**: Server cannot decrypt messages
@@ -144,15 +144,11 @@ For issues, questions, or feature requests, please open an issue on the reposito
 
 - [ ] App Vault Tagging System & One Time Otp With google authenticator
 - [ ] Search in Vault & Chats
-- [ ] Video Player
-- [ ] Video Call
 - [ ] Dev Share
-- [ ] Live Share
 - [ ] Add Users With QR Code
 - [ ] Add Users With Bluetooth
 - [ ] Add Users With NFC
 - [ ] Backup & Restore
-- [ ] Load External Media (Images) via server
 
 ## 📖 Additional Resources
 

@@ -17,7 +17,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
-import Microlink from "@microlink/react";
+import { LinkPreview } from "../../../../../components/LinkPreview";
 import { UnsafeLinkModal } from "./UnsafeLinkModal";
 import { queryDB } from "../../../../services/sqliteService";
 import { Reaction } from "../../types";
@@ -819,18 +819,7 @@ export const MessageBubble = ({
                       />
                     </MediaContainer>
                   ) : (
-                    <Microlink
-                      url={firstUrl}
-                      style={{
-                        fontFamily: "inherit",
-                        backgroundColor: "rgba(0,0,0,0.2)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: "8px",
-                        color: "white",
-                      }}
-                      theme="dark"
-                      media={["video", "audio", "image", "logo"]}
-                    />
+                    <LinkPreview url={firstUrl} />
                   )}
                 </div>
               )}

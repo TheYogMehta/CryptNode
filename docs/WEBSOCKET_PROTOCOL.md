@@ -46,7 +46,9 @@ interface Frame {
 | `JOIN_DENIED`      | Server → Client | Notify connection was rejected | N/A           | Yes          |
 | `REATTACH`         | Client → Server | Reconnect to existing session  | Yes           | Yes          |
 | `MSG`              | Bidirectional   | Encrypted message/command      | Yes           | Yes          |
-| `STREAM`           | Bidirectional   | Encrypted audio stream chunk   | Yes           | Yes          |
+| `RTC_OFFER`        | Bidirectional   | WebRTC SDP Offer               | Yes           | Yes          |
+| `RTC_ANSWER`       | Bidirectional   | WebRTC SDP Answer              | Yes           | Yes          |
+| `RTC_ICE`          | Bidirectional   | WebRTC ICE Candidate           | Yes           | Yes          |
 | `PEER_ONLINE`      | Server → Client | Notify peer came online        | N/A           | Yes          |
 | `PEER_OFFLINE`     | Server → Client | Notify peer went offline       | N/A           | Yes          |
 | `DELIVERED`        | Server → Client | Confirm message delivery       | N/A           | Yes          |
@@ -430,33 +432,65 @@ The payload, when decrypted, contains a JSON object with its own type:
 - Keep message in pending state
 - Retry when `PEER_ONLINE` received
 
-### 5. Audio Streaming Frame
+### 5. WebRTC Signaling Frames
 
-#### `STREAM` (Bidirectional)
+#### `RTC_OFFER` (Bidirectional)
 
-**Purpose**: Send encrypted audio chunk during voice call.
+**Purpose**: Send WebRTC Session Description Protocol (SDP) offer.
 
 **Frame**:
 
 ```json
 {
-  "t": "STREAM",
+  "t": "RTC_OFFER",
   "sid": "1704067200000_a3f7d2e1",
-  "data": "encrypted-audio-chunk-base64"
+  "data": {
+    "payload": "encrypted_sdp_offer_json"
+  }
+}
+```
+
+#### `RTC_ANSWER` (Bidirectional)
+
+**Purpose**: Send WebRTC SDP answer.
+
+**Frame**:
+
+```json
+{
+  "t": "RTC_ANSWER",
+  "sid": "1704067200000_a3f7d2e1",
+  "data": {
+    "payload": "encrypted_sdp_answer_json"
+  }
+}
+```
+
+#### `RTC_ICE` (Bidirectional)
+
+**Purpose**: Send WebRTC ICE candidate.
+
+**Frame**:
+
+```json
+{
+  "t": "RTC_ICE",
+  "sid": "1704067200000_a3f7d2e1",
+  "data": {
+    "payload": "encrypted_ice_candidate_json"
+  }
 }
 ```
 
 **Server Logic**:
 
-- Simply relay to all other clients in session
-- No validation or processing
+- Relay payload to the peer in the session.
+- No inspection of the encrypted payload.
 
 **Client Logic**:
 
-- Decrypt chunk with session AES key
-- Append to SourceBuffer for playback
-
-**Frequency**: ~20 chunks/second (50ms intervals)
+- Decrypt payload.
+- Pass SDP/Candidate to `RTCPeerConnection`.
 
 ### 6. Error & Control Frames
 
@@ -502,6 +536,36 @@ The payload, when decrypted, contains a JSON object with its own type:
 **Frequency**: Every 10 seconds
 
 **Client Action**: None (WebSocket layer handles it)
+
+#### `GET_TURN_CREDS` (Client → Server)
+
+**Purpose**: Request ephemeral TURN credentials for media relay (Voice Calls).
+
+**Request**:
+
+```json
+{
+  "t": "GET_TURN_CREDS"
+}
+```
+
+#### `TURN_CREDS` (Server → Client)
+
+**Purpose**: Return TURN credentials.
+
+**Response**:
+
+```json
+{
+  "t": "TURN_CREDS",
+  "data": {
+    "urls": ["turn:turn.example.com:3478?transport=udp"],
+    "username": "1704999999:user",
+    "credential": "base64_password",
+    "ttl": 600
+  }
+}
+```
 
 ## Connection Lifecycle
 

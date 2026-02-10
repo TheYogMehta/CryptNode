@@ -640,8 +640,22 @@ export class ChatClient extends EventEmitter {
 
     const creds = await this.waitForTurnCredentials();
 
+    const iceServers: RTCIceServer[] = [
+      {
+        urls: "stun:stun.l.google.com:19302",
+      },
+    ];
+
+    if (creds && creds.urls) {
+      iceServers.push({
+        urls: creds.urls,
+        username: creds.username,
+        credential: creds.credential,
+      });
+    }
+
     this.peerConnection = new RTCPeerConnection({
-      iceServers: creds.iceServers,
+      iceServers: iceServers,
       iceTransportPolicy: "all",
     });
 
@@ -2076,75 +2090,6 @@ export class ChatClient extends EventEmitter {
       this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
-  }
-
-  public async fetchMetadata(url: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.off("metadata_response", handler);
-        reject(new Error("Metadata fetch timed out"));
-      }, 10000);
-
-      const handler = (data: any) => {
-        if (data.url === url) {
-          clearTimeout(timeout);
-          this.off("metadata_response", handler);
-          resolve(data);
-        }
-      };
-
-      this.on("metadata_response", handler);
-      this.send({
-        t: "FETCH_METADATA",
-        data: { url },
-        c: true,
-        p: 1,
-      });
-    });
-  }
-
-  public async fetchImage(url: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.off("image_response", handler);
-        reject(new Error("Image fetch timed out"));
-      }, 15000);
-
-      const handler = (data: any) => {
-        if (data.url === url) {
-          clearTimeout(timeout);
-          this.off("image_response", handler);
-
-          try {
-            const byteCharacters = atob(data.data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: data.mimeType });
-            const objectUrl = URL.createObjectURL(blob);
-            resolve(objectUrl);
-          } catch (e) {
-            reject(new Error("Failed to process image data"));
-          }
-        }
-      };
-
-      this.on("image_response", handler);
-      this.send({
-        t: "FETCH_IMAGE",
-        data: { url },
-        c: true,
-        p: 1,
-      });
-      this.send({
-        t: "FETCH_IMAGE",
-        data: { url },
-        c: true,
-        p: 1,
-      });
-    });
   }
 
   public async checkLinkSafety(

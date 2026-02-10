@@ -9,12 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -600,122 +598,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				Data: json.RawMessage(respBytes),
 			})
 
-		case "FETCH_METADATA":
-			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
-				continue
-			}
-			
-			var req struct {
-				URL string `json:"url"`
-			}
-			if err := json.Unmarshal(frame.Data, &req); err != nil {
-				continue
-			}
 
-			go func() {
-				httpClient := &http.Client{Timeout: 5 * time.Second}
-				r, _ := http.NewRequest("GET", req.URL, nil)
-				r.Header.Set("User-Agent", "ChatAppbot/1.0")
-				
-				resp, err := httpClient.Do(r)
-				if err != nil {
-					s.send(client, Frame{T: "METADATA", Data: json.RawMessage(`{}`)})
-					return 
-				}
-				defer resp.Body.Close()
 
-				contentType := resp.Header.Get("Content-Type")
-				meta := UrlMetadata{Url: req.URL}
 
-				if strings.HasPrefix(contentType, "image/") {
-					meta.Type = "image"
-					meta.Image = req.URL
-					meta.Title = req.URL 
-				} else {
-					bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-					bodyStr := string(bodyBytes)
-					
-					reTitle := regexp.MustCompile(`<meta\s+(?:property|name)=["']og:title["']\s+content=["'](.*?)["']`)
-					reDesc := regexp.MustCompile(`<meta\s+(?:property|name)=["']og:description["']\s+content=["'](.*?)["']`)
-					reImage := regexp.MustCompile(`<meta\s+(?:property|name)=["']og:image["']\s+content=["'](.*?)["']`)
-					reHtmlTitle := regexp.MustCompile(`<title>(.*?)</title>`)
-
-					if match := reTitle.FindStringSubmatch(bodyStr); len(match) > 1 {
-						meta.Title = htmlUnescape(match[1])
-					} else if match := reHtmlTitle.FindStringSubmatch(bodyStr); len(match) > 1 {
-						meta.Title = htmlUnescape(match[1])
-					}
-					if match := reDesc.FindStringSubmatch(bodyStr); len(match) > 1 {
-						meta.Description = htmlUnescape(match[1])
-					}
-					if match := reImage.FindStringSubmatch(bodyStr); len(match) > 1 {
-						meta.Image = match[1]
-					}
-				}
-
-				respBytes, _ := json.Marshal(meta)
-				s.send(client, Frame{
-					T: "METADATA",
-					Data: respBytes,
-				})
-			}()
-
-		case "FETCH_IMAGE":
-			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
-				continue
-			}
-
-			var req struct {
-				URL string `json:"url"`
-			}
-			if err := json.Unmarshal(frame.Data, &req); err != nil {
-				continue
-			}
-
-			go func() {
-				httpClient := &http.Client{Timeout: 10 * time.Second}
-				r, _ := http.NewRequest("GET", req.URL, nil)
-				r.Header.Set("User-Agent", "ChatAppbot/1.0")
-
-				resp, err := httpClient.Do(r)
-				if err != nil {
-					return
-				}
-				defer resp.Body.Close()
-
-				data, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return
-				}
-
-				// Convert to base64
-				b64 := base64.StdEncoding.EncodeToString(data)
-				
-				respData := struct {
-					URL      string `json:"url"`
-					Data     string `json:"data"`
-					MimeType string `json:"mimeType"`
-				}{
-					URL:      req.URL,
-					Data:     b64,
-					MimeType: resp.Header.Get("Content-Type"),
-				}
-
-				b, _ := json.Marshal(respData)
-
-				s.send(client, Frame{
-					T:    "IMAGE_DATA",
-					Data: b,
-				})
-			}()
 
 
 
@@ -753,13 +638,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 
 
-type UrlMetadata struct {
-    Title       string `json:"title"`
-    Description string `json:"description"`
-    Image       string `json:"image"`
-    Url         string `json:"url"`
-    Type        string `json:"type"`
-}
+
 
 
 

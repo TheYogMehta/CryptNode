@@ -196,7 +196,7 @@ VALUES ('vault_abc123', 'vacation.jpg', 2048576, 'image/jpeg', 'uuid-5678', 'pen
 
 ### Voice Calls Purpose
 
-Enable real-time, end-to-end encrypted voice communication between peers.
+Enable real-time, end-to-end encrypted voice and video communication between peers using WebRTC.
 
 ### Voice Calls User Flow
 
@@ -207,41 +207,45 @@ Enable real-time, end-to-end encrypted voice communication between peers.
 5. Either user hangs up
 6. Call duration logged
 
-### Voice Calls Backend Flow
+### Voice & Video Calls Backend Flow
 
-![Voice Calls Backend Flow](./images/voice-calls-backend-flow.svg)
+1. **Signaling**: Peers exchange SDP offers/answers and ICE candidates via the WebSocket server (encrypted).
+2. **P2P Connection**: Browsers establish a direct P2P connection (or relay via TURN if NAT traversal fails).
+3. **Media Stream**: Audio and Video flow directly between peers (DTLS-SRTP encrypted).
 
-### Voice Calls API Interactions
+### Voice & Video Calls API Interactions
 
-**CALL_START**:
+**RTC_OFFER / RTC_ANSWER**:
 
 ```json
 {
-  "t": "MSG",
+  "t": "RTC_OFFER", // or RTC_ANSWER
   "sid": "session_id",
   "data": {
-    "payload": "encrypted({t:'CALL_START', data:{type:'Audio'}})"
+    "payload": "encrypted_sdp_json"
   }
 }
 ```
 
-**STREAM**:
+**RTC_ICE**:
 
 ```json
 {
-  "t": "STREAM",
+  "t": "RTC_ICE",
   "sid": "session_id",
-  "data": "encrypted_audio_chunk_base64"
+  "data": {
+    "payload": "encrypted_candidate_json"
+  }
 }
 ```
 
-### Voice Calls Data Models
+### Voice & Video Calls Data Models
 
-**No persistent storage**: Calls are real-time only. Only call duration logged in messages:
+**Call Logs**:
 
 ```sql
 INSERT INTO messages (id, sid, sender, text, type, timestamp)
-VALUES ('uuid-call', 'session_id', 'me', '{"duration": 120}', 'call', timestamp);
+VALUES ('uuid-call', 'session_id', 'me', '{"duration": 120, "mode": "video"}', 'call', timestamp);
 ```
 
 ### Voice Calls Error Handling
@@ -481,3 +485,5 @@ async function switchAccount(email: string) {
   ]
 }
 ```
+
+---

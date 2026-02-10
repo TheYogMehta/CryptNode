@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { ExternalLink, Loader2, AlertTriangle } from "lucide-react";
-import { ChatClient } from "../services/ChatClient";
-import { isTrustedUrl } from "../utils/trustedDomains";
 
 const PreviewContainer = styled.a`
   display: flex;
@@ -83,119 +81,75 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
         setLoading(true);
         setError(false);
 
-        if (isTrustedUrl(url)) {
-          if (/\.(gif|jpe?g|png|webp|bmp|tiff)$/i.test(new URL(url).pathname)) {
+        // Simple client-side check for direct image links
+        if (/\.(gif|jpe?g|png|webp|bmp|tiff)$/i.test(new URL(url).pathname)) {
+          if (mounted) {
+            setImageSrc(url);
+            setMetadata({
+              title: url.split("/").pop(),
+              description: "",
+              image: url,
+              url: url,
+              type: "image",
+            });
+            setLoading(false);
+          }
+          return;
+        }
+
+        try {
+          // Attempt client-side fetch (will only work for CORS-enabled sites)
+          const res = await fetch(url, { mode: "cors" });
+          const contentType = res.headers.get("content-type") || "";
+
+          if (contentType.startsWith("image/")) {
             if (mounted) {
               setImageSrc(url);
               setMetadata({
-                title: url.split("/").pop(),
-                description: "",
-                image: url,
-                url: url,
                 type: "image",
-              });
-              setLoading(false);
-            }
-            return;
-          }
-
-          try {
-            const res = await fetch(url, { mode: "cors" });
-            const contentType = res.headers.get("content-type") || "";
-
-            if (contentType.startsWith("image/")) {
-              if (mounted) {
-                setImageSrc(url);
-                setMetadata({
-                  type: "image",
-                  url,
-                  title: url.split("/").pop(),
-                  image: url,
-                });
-              }
-            } else {
-              const text = await res.text();
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(text, "text/html");
-
-              const getMeta = (name: string) =>
-                doc
-                  .querySelector(`meta[property="${name}"]`)
-                  ?.getAttribute("content") ||
-                doc
-                  .querySelector(`meta[name="${name}"]`)
-                  ?.getAttribute("content");
-
-              const title = getMeta("og:title") || doc.title || "";
-              const description =
-                getMeta("og:description") || getMeta("description") || "";
-              const image = getMeta("og:image");
-
-              if (mounted) {
-                setMetadata({ title, description, image, url, type: "link" });
-                if (image) setImageSrc(image);
-              }
-            }
-            if (mounted) setLoading(false);
-            return;
-          } catch (e) {
-            console.warn(
-              "Client fetch failed (likely CORS), using basic display",
-              e,
-            );
-            if (mounted) {
-              setMetadata({
-                title: new URL(url).hostname,
-                description: "",
                 url,
-                type: "link",
+                title: url.split("/").pop(),
+                image: url,
               });
-              setLoading(false);
-            }
-            return;
-          }
-        }
-
-        const data = await ChatClient.getInstance().fetchMetadata(url);
-
-        if (mounted) {
-          setMetadata(data);
-
-          if (data.image) {
-            if (isTrustedUrl(data.image) || data.image.startsWith("data:")) {
-              setImageSrc(data.image);
-            } else {
-              try {
-                const img = await ChatClient.getInstance().fetchImage(
-                  data.image,
-                );
-                if (mounted) setImageSrc(img);
-              } catch (e) {
-                console.error("Failed to fetch image", e);
-              }
             }
           } else {
-            if (data.type === "image") {
-              if (isTrustedUrl(url)) {
-                setImageSrc(url);
-              } else {
-                try {
-                  const img = await ChatClient.getInstance().fetchImage(url);
-                  if (mounted) setImageSrc(img);
-                } catch (e) {
-                  console.error("Failed to fetch image", e);
-                }
-              }
+            const text = await res.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, "text/html");
+
+            const getMeta = (name: string) =>
+              doc
+                .querySelector(`meta[property="${name}"]`)
+                ?.getAttribute("content") ||
+              doc
+                .querySelector(`meta[name="${name}"]`)
+                ?.getAttribute("content");
+
+            const title = getMeta("og:title") || doc.title || "";
+            const description =
+              getMeta("og:description") || getMeta("description") || "";
+            const image = getMeta("og:image");
+
+            if (mounted) {
+              setMetadata({ title, description, image, url, type: "link" });
+              if (image) setImageSrc(image);
             }
           }
-
-          if (
-            !data.title &&
-            !data.description &&
-            !data.image &&
-            data.type !== "image"
-          ) {
-            setError(true);
+          if (mounted) setLoading(false);
+        } catch (e) {
+          console.warn(
+            "Client fetch failed (likely CORS), using basic display",
+            e,
+          );
+          if (mounted) {
+            // Fallback for CORS restricted sites
+            setMetadata({
+              title: new URL(url).hostname,
+              description: "Preview unavailable (CORS restricted)",
+              url,
+              type: "link",
+            });
+            setLoading(false);
           }
         }
       } catch (err) {

@@ -98,10 +98,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     const handleRemoteStream = (stream: MediaStream | null) => {
       if (remoteVideoRef.current) {
         if (stream) {
-          remoteVideoRef.current.srcObject = stream;
-          remoteVideoRef.current.play().catch((err) => {
-            console.error("Error playing remote video:", err);
-          });
+          if (remoteVideoRef.current.srcObject !== stream) {
+            remoteVideoRef.current.srcObject = stream;
+            remoteVideoRef.current.play().catch((err) => {
+              console.error("Error playing remote video:", err);
+            });
+          }
         } else {
           remoteVideoRef.current.srcObject = null;
         }

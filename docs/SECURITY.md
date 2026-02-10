@@ -94,8 +94,7 @@ Uint8Array [
 
 ### Audio/Video Calls
 
-- **NOT WebRTC**: The app does not use WebRTC PeerConnections to avoid complex signaling/STUN/TURN setups.
-- **Custom Streaming**:
-  - Audio/Video is captured via `MediaRecorder` chunks (WebM/Opus).
-  - Each chunk is encrypted (`AES-GCM`) and sent as a binary WebSocket frame.
-  - Latency: Slightly higher than WebRTC but fully E2E encrypted over the existing socket.
+- **WebRTC**: The app uses standard WebRTC for peer-to-peer audio and video calls.
+- **Signaling Encryption**: All signaling messages (SDP offers/answers, ICE candidates) are end-to-end encrypted using the existing WebSocket secure channel (`AES-GCM`).
+- **Media Encryption**: Media streams are encrypted using standard WebRTC security protocols (**DTLS-SRTP**).
+- **Peer Connection**: Direct P2P connection is established when possible. A TURN server is available for NAT traversal if direct connection fails.
