@@ -228,14 +228,19 @@ export const useChatLogic = () => {
     });
 
     loadSessions();
-    client.on("call_started", () =>
+    client.on("call_started", ({ sid }) =>
       setActiveCall((prev: any) =>
-        prev ? { ...prev, status: "connected" } : null,
+        prev && prev.sid === sid ? { ...prev, status: "connected" } : prev,
       ),
     );
     client.on("ice_status", (status) =>
       setActiveCall((prev: any) =>
         prev ? { ...prev, iceStatus: status } : null,
+      ),
+    );
+    client.on("peer_mic_status", ({ sid, muted }) =>
+      setActiveCall((prev: any) =>
+        prev && prev.sid === sid ? { ...prev, peerMicMuted: muted } : prev,
       ),
     );
     client.on("call_mode_changed", ({ sid, mode }) => {
@@ -296,7 +301,11 @@ export const useChatLogic = () => {
 
     client.on("message_updated", ({ sid, id, text, type }) => {
       if (sid === activeChatRef.current) {
-        setMessages((prev) => prev.map(m => m.id === id ? { ...m, text, type: type || m.type } : m));
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === id ? { ...m, text, type: type || m.type } : m,
+          ),
+        );
       }
       loadSessions();
     });
@@ -310,7 +319,7 @@ export const useChatLogic = () => {
       client.off("session_updated", onSessionUpdate);
       client.off("message", onMsg);
       client.off("file_downloaded", onFileDownloaded);
-      client.off("auth_success", () => { });
+      client.off("auth_success", () => {});
       client.off("remote_stream_ready", onRemoteStream);
     };
   }, []);
@@ -325,16 +334,16 @@ export const useChatLogic = () => {
     const replyContext =
       currentReplyTo && currentReplyTo.id
         ? {
-          id: currentReplyTo.id,
-          text: currentReplyTo.text,
-          sender:
-            currentReplyTo.sender === "me"
-              ? "Me"
-              : currentReplyTo.sender || "Other",
-          type: currentReplyTo.type,
-          mediaFilename: currentReplyTo.mediaFilename,
-          thumbnail: currentReplyTo.thumbnail,
-        }
+            id: currentReplyTo.id,
+            text: currentReplyTo.text,
+            sender:
+              currentReplyTo.sender === "me"
+                ? "Me"
+                : currentReplyTo.sender || "Other",
+            type: currentReplyTo.type,
+            mediaFilename: currentReplyTo.mediaFilename,
+            thumbnail: currentReplyTo.thumbnail,
+          }
         : undefined;
 
     const isGif =
@@ -376,8 +385,8 @@ export const useChatLogic = () => {
       type: file.type.startsWith("image")
         ? "image"
         : file.type.startsWith("video")
-          ? "video"
-          : "file",
+        ? "video"
+        : "file",
       timestamp: Date.now(),
       mediaTotalSize: file.size,
       tempUrl: URL.createObjectURL(file),

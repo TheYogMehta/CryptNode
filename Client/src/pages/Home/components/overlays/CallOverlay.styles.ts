@@ -107,8 +107,8 @@ export const MinimizedContainer = styled.div<{
   position: fixed;
   left: ${(props) => props.position.x}px;
   top: ${(props) => props.position.y}px;
-  width: 240px;
-  height: 180px;
+  width: 260px;
+  height: 220px;
   background-color: ${colors.background.secondary};
   border-radius: ${radii.lg};
   box-shadow: ${shadows.lg};

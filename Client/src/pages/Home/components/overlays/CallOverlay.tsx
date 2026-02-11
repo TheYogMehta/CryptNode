@@ -32,13 +32,11 @@ import {
 } from "./CallOverlay.styles";
 
 interface CallOverlayProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   callState: any;
   localStream: MediaStream | null;
   onAccept: () => void;
   onReject: () => void;
   onHangup: () => void;
-  onSwitchStream?: (mode: "Audio" | "Video" | "Screen") => void;
 }
 
 export const CallOverlay: React.FC<CallOverlayProps> = ({
@@ -47,7 +45,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   onAccept,
   onReject,
   onHangup,
-  onSwitchStream,
 }) => {
   const [duration, setDuration] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -192,9 +189,27 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     await client.toggleScreenShare();
   };
 
+  const displayName =
+    callState?.peerName ||
+    (callState?.remoteSid
+      ? `Peer ${callState.remoteSid.slice(0, 6)}`
+      : "Unknown");
+
+  const activeMode =
+    isScreenEnabled || callState?.type === "Screen"
+      ? "Screen Share"
+      : isVideoEnabled || callState?.type === "Video"
+      ? "Video Call"
+      : "Voice Call";
+
+  const shouldShowRemoteVideo =
+    callState?.type === "Video" ||
+    callState?.type === "Screen" ||
+    isVideoEnabled ||
+    isScreenEnabled;
+
   if (!callState || callState.status === "idle") return null;
 
-  // Incoming / Outgoing Call Interface
   if (callState.status === "ringing" || callState.status === "outgoing") {
     const isIncoming = callState.status === "ringing";
     return (
@@ -216,13 +231,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             )}
           </AvatarContainer>
           <CallerInfo>
-            <CallerName>
-              {callState.remoteSid
-                ? `Peer ${callState.remoteSid.slice(0, 6)}`
-                : "Unknown"}
-            </CallerName>
+            <CallerName>{displayName}</CallerName>
             <CallStatus>
-              {isIncoming ? "Incoming Call..." : "Calling..."}
+              {isIncoming ? "Incoming Call..." : "Ringing..."}
             </CallStatus>
           </CallerInfo>
 
@@ -261,18 +272,56 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         onMouseLeave={handleMouseUp}
       >
         <div
-          style={{ flex: 1, position: "relative", backgroundColor: "black" }}
+          style={{
+            flex: 1,
+            position: "relative",
+            backgroundColor: "black",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "white",
+          }}
         >
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
+          {shouldShowRemoteVideo ? (
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <AvatarContainer
+                style={{ width: 56, height: 56, marginBottom: 0 }}
+              >
+                {resolvedPeerAvatar ? (
+                  <img
+                    src={resolvedPeerAvatar}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  displayName?.[0]?.toUpperCase() || <User size={24} />
+                )}
+              </AvatarContainer>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{displayName}</div>
+              <div style={{ fontSize: 12, color: "#94a3b8" }}>{activeMode}</div>
+            </div>
+          )}
           <MaximizeButton
             onClick={(e) => {
               e.stopPropagation();
@@ -281,6 +330,57 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           >
             <Maximize2 size={16} />
           </MaximizeButton>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: 8,
+            justifyContent: "center",
+            background: "rgba(15, 23, 42, 0.92)",
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <IconButton
+            variant={isMuted ? "primary" : "glass"}
+            isActive={isMuted}
+            size="sm"
+            onClick={toggleMic}
+          >
+            {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+          </IconButton>
+
+          {(isVideoEnabled || callState.type === "Video") && (
+            <IconButton
+              variant={isVideoEnabled ? "primary" : "glass"}
+              isActive={isVideoEnabled}
+              size="sm"
+              onClick={toggleVideo}
+            >
+              {isVideoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
+            </IconButton>
+          )}
+
+          {(isScreenEnabled || callState.type === "Screen") && (
+            <IconButton
+              variant={isScreenEnabled ? "primary" : "glass"}
+              isActive={isScreenEnabled}
+              size="sm"
+              onClick={toggleScreen}
+            >
+              {isScreenEnabled ? (
+                <MonitorOff size={16} />
+              ) : (
+                <Monitor size={16} />
+              )}
+            </IconButton>
+          )}
+
+          <IconButton variant="danger" size="sm" onClick={onHangup}>
+            <PhoneOff size={16} />
+          </IconButton>
         </div>
       </MinimizedContainer>
     );
@@ -302,11 +402,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              display:
-                callState.remoteVideo &&
-                (callState.type === "Video" || callState.type === "Screen")
-                  ? "block"
-                  : "none",
+              display: shouldShowRemoteVideo ? "block" : "none",
             }}
           />
 
@@ -341,7 +437,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             </div>
           )}
 
-          {(!callState.remoteVideo || callState.type === "Audio") && (
+          {activeMode === "Voice Call" && (
             <div
               style={{
                 position: "absolute",
@@ -372,8 +468,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 )}
               </AvatarContainer>
               <CallerName style={{ fontSize: 24, marginBottom: 0 }}>
-                {callState.peerName ||
-                  `Peer ${callState.remoteSid?.slice(0, 6)}`}
+                {displayName}
               </CallerName>
               <CallStatus
                 style={{
@@ -383,7 +478,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   gap: "8px",
                 }}
               >
-                {formatDuration(duration)} • Voice Call
+                {formatDuration(duration)} • {activeMode}
                 {callState.peerMicMuted && <MicOff size={16} color="red" />}
               </CallStatus>
             </div>
@@ -401,11 +496,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               gap: "10px",
             }}
           >
-            {callState.peerName || `Peer ${callState.remoteSid?.slice(0, 6)}`}
+            {displayName}
             {callState.peerMicMuted && <MicOff size={16} color="red" />}
           </CallerName>
           <CallStatus style={{ color: "#94a3b8" }}>
-            {formatDuration(duration)} • Connected
+            {formatDuration(duration)} • {activeMode}
           </CallStatus>
 
           <ControlsRow>

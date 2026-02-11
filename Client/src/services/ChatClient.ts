@@ -19,19 +19,6 @@ import {
 import { CompressionService } from "./CompressionService";
 import { WorkerManager } from "./WorkerManager";
 
-// --- Fix for missing crypto.randomUUID in some environments if needed, though usually available ---
-if (!crypto.randomUUID) {
-  // @ts-ignore
-  crypto.randomUUID = () => {
-    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c: any) =>
-      (
-        c ^
-        (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
-      ).toString(16),
-    );
-  };
-}
-
 (window as any).Buffer = Buffer;
 
 interface ServerFrame {
@@ -76,12 +63,11 @@ export class ChatClient extends EventEmitter {
   private audioContext: AudioContext | null = null;
   private pendingCallMode: "Audio" | "Video" | "Screen" | null = null;
   private messageQueue: MessageQueue;
-
+  private hasEmittedCallConnected: boolean = false;
   private _pendingOffer: {
     sid: string;
     offer: RTCSessionDescriptionInit;
   } | null = null;
-
   private iceCandidateQueue: Array<{
     sid: string;
     candidate: RTCIceCandidateInit;
@@ -175,8 +161,8 @@ export class ChatClient extends EventEmitter {
                   row.type === "text"
                     ? "TEXT"
                     : row.type
-                      ? row.type.toUpperCase()
-                      : "TEXT",
+                    ? row.type.toUpperCase()
+                    : "TEXT",
                 text: row.text,
                 id: row.id,
                 timestamp: row.timestamp,
@@ -248,33 +234,26 @@ export class ChatClient extends EventEmitter {
 
     const id = crypto.randomUUID();
     const timestamp = Date.now();
-    const payload = await this.encryptForSession(
-      sid,
-      JSON.stringify({
-        t: "MSG",
-        data: {
-          type: type === "text" ? "TEXT" : type.toUpperCase(),
-          text,
-          id,
-          timestamp: Date.now(),
-          replyTo,
-        },
-      }),
-      1,
-    );
-    this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
     try {
       await executeDB(
-        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, ?, ?, 1, ?)",
-        [
-          id,
-          sid,
-          text,
-          type,
-          timestamp,
-          replyTo ? JSON.stringify(replyTo) : null,
-        ],
+        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
+        [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
+      const payload = await this.encryptForSession(
+        sid,
+        JSON.stringify({
+          t: "MSG",
+          data: {
+            type: type === "text" ? "TEXT" : type.toUpperCase(),
+            text,
+            id,
+            timestamp: Date.now(),
+            replyTo,
+          },
+        }),
+        1,
+      );
+      this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
     } catch (e) {
       console.error("[Client] Failed to save sent message:", e);
     }
@@ -493,10 +472,10 @@ export class ChatClient extends EventEmitter {
     const msgType = isImage
       ? "image"
       : isVideo
-        ? "video"
-        : isAudio
-          ? "audio"
-          : "file";
+      ? "video"
+      : isAudio
+      ? "audio"
+      : "file";
     const messageId = await this.insertMessageRecord(sid, "", msgType, "me");
 
     await StorageService.initMediaEntry(
@@ -620,7 +599,7 @@ export class ChatClient extends EventEmitter {
     }
     if (this.isCalling) return;
 
-    this.callStartTime = Date.now();
+    this.callStartTime = 0;
     this.pendingCallMode = mode;
 
     try {
@@ -741,6 +720,26 @@ export class ChatClient extends EventEmitter {
     return this.turnPromise;
   }
 
+  private async getTurnCredentialsWithFallback(timeoutMs = 1500): Promise<any> {
+    try {
+      return await Promise.race([
+        this.waitForTurnCredentials(),
+        new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      ]);
+    } catch (e) {
+      console.warn("[ChatClient] Proceeding without TURN credentials", e);
+      return null;
+    }
+  }
+
+  private emitCallConnected(sid: string) {
+    if (this.hasEmittedCallConnected) return;
+    this.hasEmittedCallConnected = true;
+    this.isCallConnected = true;
+    this.callStartTime = Date.now();
+    this.emit("call_started", { sid, status: "connected", remoteSid: sid });
+  }
+
   private async createPeerConnection(sid: string): Promise<void> {
     if (this.peerConnection) {
       console.warn(
@@ -751,7 +750,7 @@ export class ChatClient extends EventEmitter {
 
     console.log("[ChatClient] Creating RTCPeerConnection");
 
-    const creds = await this.waitForTurnCredentials();
+    const creds = await this.getTurnCredentialsWithFallback();
 
     const iceServers: RTCIceServer[] = [
       {
@@ -770,6 +769,7 @@ export class ChatClient extends EventEmitter {
     this.peerConnection = new RTCPeerConnection({
       iceServers: iceServers,
       iceTransportPolicy: "all",
+      iceCandidatePoolSize: 10,
     });
 
     this.peerConnection.onicecandidate = (event) => {
@@ -784,6 +784,9 @@ export class ChatClient extends EventEmitter {
 
     this.peerConnection.oniceconnectionstatechange = () => {
       console.log("ICE:", this.peerConnection?.iceConnectionState);
+      if (this.peerConnection?.iceConnectionState === "connected") {
+        this.emitCallConnected(sid);
+      }
     };
 
     this.peerConnection.ontrack = (event) => {
@@ -803,6 +806,9 @@ export class ChatClient extends EventEmitter {
         "[ChatClient] PC connection state:",
         this.peerConnection?.connectionState,
       );
+      if (this.peerConnection?.connectionState === "connected") {
+        this.emitCallConnected(sid);
+      }
     };
   }
 
@@ -836,6 +842,9 @@ export class ChatClient extends EventEmitter {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+          sampleSize: { ideal: 16 },
         },
       });
 
@@ -862,11 +871,11 @@ export class ChatClient extends EventEmitter {
     if (this.remoteAudioEl) {
       this.remoteAudioEl.muted = false;
       this.remoteAudioEl.volume = 1.0;
-      this.remoteAudioEl.play().catch(() => { });
+      this.remoteAudioEl.play().catch(() => {});
     }
 
     if (this.audioContext?.state === "suspended") {
-      this.audioContext.resume().catch(() => { });
+      this.audioContext.resume().catch(() => {});
     }
   }
 
@@ -1009,26 +1018,45 @@ export class ChatClient extends EventEmitter {
           const source = sources[0];
           if (!source) throw new Error("No screen sources found.");
 
-          this.screenStream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-              mandatory: {
-                chromeMediaSource: "desktop",
-                chromeMediaSourceId: source.id,
-                minWidth: 1280,
-                maxWidth: 1920,
-                minHeight: 720,
-                maxHeight: 1080,
+          if (navigator.mediaDevices?.getDisplayMedia) {
+            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+              video: {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 20, max: 30 },
               },
-            },
-          } as any);
+              audio: false,
+            });
+          }
+
+          if (!this.screenStream) {
+            this.screenStream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                mandatory: {
+                  chromeMediaSource: "desktop",
+                  chromeMediaSourceId: source.id,
+                  minWidth: 1280,
+                  maxWidth: 1920,
+                  minHeight: 720,
+                  maxHeight: 1080,
+                },
+              },
+            } as any);
+          }
         } else if (navigator.mediaDevices?.getDisplayMedia) {
           this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-            audio: true,
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 20, max: 30 },
+            },
+            audio: false,
           });
         } else {
-          throw new Error("Screen sharing not supported on this device.");
+          throw new Error(
+            "Screen sharing not supported on this device. On Android WebView, a native MediaProjection bridge is required.",
+          );
         }
 
         const screenTrack = this.screenStream.getVideoTracks()[0];
@@ -1134,10 +1162,11 @@ export class ChatClient extends EventEmitter {
       JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
       0,
     );
+
     this.send({ t: "MSG", sid: targetSid, data: { payload }, c: true, p: 0 });
     const wasConnected = this.isCallConnected;
     this.cleanupCall();
-    const duration = Date.now() - this.callStartTime;
+    const duration = this.callStartTime ? Date.now() - this.callStartTime : 0;
     this.emit("call_ended", {
       sid: targetSid,
       duration,
@@ -1151,6 +1180,7 @@ export class ChatClient extends EventEmitter {
     this.currentCallSid = null;
     this.pendingCallMode = null;
     this.isCallConnected = false;
+    this.hasEmittedCallConnected = false;
 
     if (this.peerConnection) {
       this.peerConnection.close();
@@ -1243,8 +1273,12 @@ export class ChatClient extends EventEmitter {
       answer,
     });
 
-    this.isCallConnected = true;
-    this.emit("call_started", { sid, status: "connected", remoteSid: sid });
+    if (
+      this.peerConnection?.connectionState === "connected" ||
+      this.peerConnection?.iceConnectionState === "connected"
+    ) {
+      this.emitCallConnected(sid);
+    }
   }
 
   private async handleRTCAnswer(
@@ -1265,8 +1299,12 @@ export class ChatClient extends EventEmitter {
       await this.flushPendingIce();
       console.log("[ChatClient] Set remote description from answer");
 
-      this.isCallConnected = true;
-      this.emit("call_started", { sid, status: "connected", remoteSid: sid });
+      if (
+        this.peerConnection?.connectionState === "connected" ||
+        this.peerConnection?.iceConnectionState === "connected"
+      ) {
+        this.emitCallConnected(sid);
+      }
     } catch (err) {
       console.error("[ChatClient] Error handling RTC answer:", err);
     }
@@ -1321,7 +1359,6 @@ export class ChatClient extends EventEmitter {
       const json = JSON.parse(new TextDecoder().decode(decryptedBuffer));
       const { t, data } = json;
 
-      // All messages should now have t: "MSG"
       if (t !== "MSG") {
         console.warn(`[ChatClient] Unexpected message type: ${t}`);
         return;
@@ -1370,7 +1407,6 @@ export class ChatClient extends EventEmitter {
             timestamp: data.timestamp,
           });
           break;
-
         case "EDIT":
           try {
             await executeDB("UPDATE messages SET text = ? WHERE id = ?", [
@@ -1386,7 +1422,6 @@ export class ChatClient extends EventEmitter {
             console.error("[Client] Failed to process EDIT message:", e);
           }
           break;
-
         case "DELETE":
           try {
             await executeDB(
@@ -1415,10 +1450,10 @@ export class ChatClient extends EventEmitter {
           const msgType = isImage
             ? "image"
             : isVideo
-              ? "video"
-              : isAudio
-                ? "audio"
-                : "file";
+            ? "video"
+            : isAudio
+            ? "audio"
+            : "file";
 
           const localId = await this.insertMessageRecord(
             sid,
@@ -1449,13 +1484,11 @@ export class ChatClient extends EventEmitter {
           });
           break;
         case "FILE_REQ_CHUNK":
-          // Start streaming all chunks from the requested index
           this.streamAllChunks(sid, data.messageId, data.chunkIndex);
           break;
         case "FILE_CHUNK":
           await this.handleFileChunk(sid, data);
           break;
-
         case "CALL_START":
           if (this.isCalling) {
             console.log(
@@ -1480,29 +1513,24 @@ export class ChatClient extends EventEmitter {
             remoteSid: sid,
           });
           break;
-
         case "RTC_OFFER":
           console.log("[ChatClient] Received RTC_OFFER");
           if (data?.offer) {
             await this.handleRTCOffer(sid, data.offer);
           }
           break;
-
         case "RTC_ANSWER":
           console.log("[ChatClient] Received RTC_ANSWER");
           if (data?.answer) {
             await this.handleRTCAnswer(sid, data.answer);
           }
           break;
-        // Mark call as connected
-
         case "ICE_CANDIDATE":
           console.log("[ChatClient] Received ICE_CANDIDATE");
           if (data?.candidate) {
             await this.handleICECandidate(sid, data.candidate);
           }
           break;
-
         case "CALL_BUSY":
           console.log("[ChatClient] Remote user is busy");
           this.emit("notification", {
@@ -1512,25 +1540,24 @@ export class ChatClient extends EventEmitter {
           this.cleanupCall();
           this.emit("call_ended", { sid, duration: 0, connected: false });
           break;
-
         case "CALL_ACCEPT":
           console.log(
             "[ChatClient] Received CALL_ACCEPT - call is being answered",
           );
           break;
-
         case "CALL_END":
           console.log("[ChatClient] Received CALL_END");
           const wasCallConnected = this.isCallConnected;
           this.cleanupCall();
-          const callDuration = Date.now() - this.callStartTime;
+          const callDuration = this.callStartTime
+            ? Date.now() - this.callStartTime
+            : 0;
           this.emit("call_ended", {
             sid,
             duration: callDuration,
             connected: wasCallConnected,
           });
           break;
-
         case "METADATA":
           try {
             const meta = data;
@@ -1539,18 +1566,13 @@ export class ChatClient extends EventEmitter {
             console.error("Error handling METADATA", e);
           }
           break;
-
         case "IMAGE_DATA":
           try {
             this.emit("image_response", data);
           } catch (e) {
-            console.error(
-              "Error h// data is already the metadata objectandling IMAGE_DATA",
-              e,
-            );
+            console.error("Error handling IMAGE_DATA", e);
           }
           break;
-
         case "PROFILE_VERSION":
           try {
             const { name_version, avatar_version } = data;
@@ -1579,7 +1601,6 @@ export class ChatClient extends EventEmitter {
             console.error("Error handling PROFILE_VERSION", e);
           }
           break;
-
         case "GET_PROFILE":
           try {
             const meRows = await queryDB(
@@ -1629,7 +1650,6 @@ export class ChatClient extends EventEmitter {
             console.error("Error handling GET_PROFILE", e);
           }
           break;
-
         case "PROFILE_DATA":
           try {
             const { name, avatar, name_version, avatar_version } = data;
@@ -1661,7 +1681,6 @@ export class ChatClient extends EventEmitter {
             console.error("Error handling PROFILE_DATA", e);
           }
           break;
-
         case "REACTION":
           try {
             const { messageId, emoji, action, timestamp } = data;
@@ -1694,10 +1713,6 @@ export class ChatClient extends EventEmitter {
     }
   }
 
-  /**
-   * Stream all remaining chunks starting from chunkIndex.
-   * This is sender-push mode for faster file transfers.
-   */
   private async streamAllChunks(
     sid: string,
     messageId: string,
@@ -1758,7 +1773,8 @@ export class ChatClient extends EventEmitter {
         }
 
         console.log(
-          `[Client] Streamed chunk ${chunkIndex + 1
+          `[Client] Streamed chunk ${
+            chunkIndex + 1
           }/${totalChunks} for ${messageId}`,
         );
       } catch (e) {
@@ -1987,7 +2003,6 @@ export class ChatClient extends EventEmitter {
         await this.finalizeSession(sid, data.publicKey);
         this.emit("joined_success", sid);
         break;
-
       case "TURN_CREDS":
         console.log("[ChatClient] Received TURN credentials");
         if (this.onTurnCreds) {
@@ -1996,7 +2011,6 @@ export class ChatClient extends EventEmitter {
           this.turnCreds = data;
         }
         break;
-
       case "RTC_OFFER":
         this.messageQueue.enqueue(
           "HANDLE_MSG",
@@ -2004,7 +2018,6 @@ export class ChatClient extends EventEmitter {
           0,
         );
         break;
-
       case "RTC_ANSWER":
         this.messageQueue.enqueue(
           "HANDLE_MSG",
@@ -2012,7 +2025,6 @@ export class ChatClient extends EventEmitter {
           0,
         );
         break;
-
       case "RTC_ICE":
         this.messageQueue.enqueue(
           "HANDLE_MSG",
@@ -2020,7 +2032,6 @@ export class ChatClient extends EventEmitter {
           0,
         );
         break;
-
       case "MSG":
         this.messageQueue.enqueue(
           "HANDLE_MSG",
@@ -2028,7 +2039,6 @@ export class ChatClient extends EventEmitter {
           frame.p ?? 1,
         );
         break;
-
       case "PEER_ONLINE":
         if (this.sessions[sid]) {
           this.sessions[sid].online = true;
@@ -2048,6 +2058,14 @@ export class ChatClient extends EventEmitter {
           [sid],
         );
         this.emit("message_status", { sid });
+        break;
+      case "DELIVERED_FAILED":
+        this.emit("message_status", { sid });
+        this.emit("notification", {
+          type: "warning",
+          message:
+            "Message not delivered yet. It will be retried when the peer is online.",
+        });
         break;
     }
   }
@@ -2235,7 +2253,7 @@ export class ChatClient extends EventEmitter {
       this.ringtoneInterval = null;
     }
     if (this.audioContext) {
-      this.audioContext.close().catch(() => { });
+      this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
   }
