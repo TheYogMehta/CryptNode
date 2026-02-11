@@ -328,13 +328,15 @@ export const ReplyText = styled.div`
 `;
 
 // Message Bubble Styles
-export const BubbleWrapper = styled.div<{ isMe: boolean }>`
+export const BubbleWrapper = styled.div<{ isMe: boolean; hasReactions?: boolean }>`
   display: flex;
   justify-content: ${(props) => (props.isMe ? "flex-end" : "flex-start")};
   width: 100%;
   position: relative;
   padding-left: ${(props) => (props.isMe ? spacing[12] : "0")};
   padding-right: ${(props) => (props.isMe ? "0" : spacing[12])};
+  margin-bottom: ${(props) => (props.hasReactions ? "22px" : "0")}; // Add space for reaction bubble
+  transition: margin-bottom 0.2s;
 `;
 
 export const Bubble = styled.div<{ isMe: boolean }>`
@@ -584,4 +586,171 @@ export const AudioTimeInfo = styled.div`
   font-size: ${typography.fontSize.xs};
   opacity: 0.7;
   padding: 0 ${spacing[1]};
+`;
+// WhatsApp-style Context Menu
+export const ContextMenuContainer = styled.div<{ x: number; y: number }>`
+  position: fixed;
+  top: ${(props) => props.y}px;
+  left: ${(props) => props.x}px;
+  background-color: #232d36; // WhatsApp dark mode menu bg
+  border-radius: 16px;
+  padding: 8px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  min-width: 220px; // Slightly wider
+  animation: ${scaleIn} 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  transform-origin: top left;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+`;
+
+export const ContextMenuItem = styled.div<{ variant?: "danger" }>`
+  padding: 10px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: ${(props) =>
+    props.variant === "danger" ? "#ef4444" : "#e9edef"};
+  font-size: 14.5px;
+  transition: background-color 0.2s;
+  letter-spacing: 0.3px;
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+`;
+
+export const ReactionBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background-color: #232d36;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  position: absolute;
+  top: -55px; // Float above the menu
+  left: 0;
+  z-index: 1001;
+  animation: ${scaleIn} 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap; // Prevent wrapping
+  max-width: 90vw;     // Prevent overflow on very small screens
+  overflow-x: auto;    // Scroll if screen is tiny
+  scrollbar-width: none; // Hide scrollbar
+  &::-webkit-scrollbar { display: none; }
+`;
+
+export const ReactionButton = styled.button`
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px;
+  transition: transform 0.2s;
+  line-height: 1;
+
+  &:hover {
+    transform: scale(1.35);
+  }
+  
+  &:active {
+    transform: scale(0.9);
+  }
+`;
+
+export const MoreReactionsButton = styled.button`
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #aebac1;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255,255,255,0.2);
+    color: white;
+  }
+`;
+
+export const ReactionBubble = styled.div<{ isMe: boolean }>`
+  position: absolute;
+  bottom: -16px; // Push further down to avoid overlap
+  ${(props) => (props.isMe ? "right: 10px;" : "left: 10px;")}
+  background-color: #1f2c34; // Darker bubble color
+  border: 1px solid #111b21; // Match chat bg buffer
+  padding: 4px 6px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  font-size: 11px;
+  color: #aebac1;
+  z-index: 10; // Ensure it floats above
+  cursor: pointer;
+  white-space: nowrap;
+`;
+
+export const EditInputContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${spacing[2]};
+  width: 100%;
+`;
+
+export const EditInput = styled.input`
+  width: 100%;
+  padding: ${spacing[2]};
+  border-radius: ${radii.md};
+  border: 1px solid ${colors.border.subtle};
+  background-color: ${colors.background.tertiary};
+  color: ${colors.text.primary};
+  font-size: ${typography.fontSize.base};
+  outline: none;
+
+  &:focus {
+    border-color: ${colors.primary.DEFAULT};
+  }
+`;
+
+export const EditActionButtons = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: ${spacing[2]};
+`;
+
+export const EditButton = styled.button<{ variant?: "primary" | "secondary" }>`
+  padding: ${spacing[1]} ${spacing[3]};
+  border-radius: ${radii.md};
+  border: none;
+  cursor: pointer;
+  font-size: ${typography.fontSize.xs};
+  font-weight: 500;
+  transition: all 0.2s;
+
+  ${(props) =>
+    props.variant === "primary"
+      ? css`
+          background-color: ${colors.primary.DEFAULT};
+          color: white;
+          &:hover {
+            background-color: ${colors.primary.hover};
+          }
+        `
+      : css`
+          background-color: transparent;
+          color: ${colors.text.secondary};
+          &:hover {
+            background-color: ${colors.background.tertiary};
+            color: ${colors.text.primary};
+          }
+        `}
 `;

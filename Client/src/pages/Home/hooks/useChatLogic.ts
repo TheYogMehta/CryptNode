@@ -294,6 +294,13 @@ export const useChatLogic = () => {
       }
     });
 
+    client.on("message_updated", ({ sid, id, text, type }) => {
+      if (sid === activeChatRef.current) {
+        setMessages((prev) => prev.map(m => m.id === id ? { ...m, text, type: type || m.type } : m));
+      }
+      loadSessions();
+    });
+
     client.on("notification", (notif) => {
       setNotification(notif);
       setTimeout(() => setNotification(null), 3000);

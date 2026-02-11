@@ -15,6 +15,10 @@ import {
   Globe,
   Check,
   CheckCheck,
+  Copy,
+  Edit2,
+  Trash2,
+  X,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { LinkPreview } from "../../../../components/LinkPreview";
@@ -44,6 +48,16 @@ import {
   FileInfo,
   FileName,
   FileStatus,
+  ContextMenuContainer,
+  ContextMenuItem,
+  ReactionBar,
+  ReactionButton,
+  MoreReactionsButton,
+  ReactionBubble,
+  EditInputContainer,
+  EditInput,
+  EditActionButtons,
+  EditButton,
 } from "./Chat.styles";
 
 const AudioPlayer = ({
@@ -195,6 +209,80 @@ export const MessageBubble = ({
     type: "unsafe" | "unknown";
     isLoading?: boolean;
   } | null>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+  }>({ visible: false, x: 0, y: 0 });
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(msg.text || "");
+  const pressTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = () =>
+      setContextMenu({ visible: false, x: 0, y: 0 });
+    window.addEventListener("click", handleClickOutside);
+    return () => window.removeEventListener("click", handleClickOutside);
+  }, []);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
+  };
+
+
+
+  const handleCopy = async () => {
+    const text = msg.text || "";
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn("Clipboard API failed, trying fallback", err);
+      // Fallback for non-secure contexts or permission issues
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed"; // Avoid scrolling
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand("copy");
+      } catch (e) {
+        console.error("Fallback copy failed", e);
+        alert("Failed to copy text");
+      }
+      document.body.removeChild(textArea);
+    }
+    setContextMenu({ visible: false, x: 0, y: 0 });
+  };
+
+  const handleEdit = () => {
+    setIsEditing(true);
+    setEditText(msg.text || "");
+    setContextMenu({ visible: false, x: 0, y: 0 });
+  };
+
+  const handleSaveEdit = () => {
+    if (msg.sid && msg.id && editText && editText.trim() !== "") {
+      ChatClient.editMessage(msg.sid, msg.id, editText);
+      setIsEditing(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditText(msg.text || "");
+  };
+
+  const handleDelete = () => {
+    if (msg.sid && msg.id) {
+      ChatClient.deleteMessage(msg.sid, msg.id);
+      setContextMenu({ visible: false, x: 0, y: 0 });
+    }
+  };
 
   useEffect(() => {
     loadReactions();
@@ -634,21 +722,55 @@ export const MessageBubble = ({
     return null;
   };
 
+  const isEditable =
+    isMe && Date.now() - msg.timestamp < 15 * 60 * 1000 && msg.type !== "deleted"; // 15 mins
+  const isDeletable =
+    isMe && Date.now() - msg.timestamp < 24 * 60 * 60 * 1000 && msg.type !== "deleted"; // 24 hours
+
+  // ...
+
   const onTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
+    // Capture coordinates synchronously!
+    const touch = e.touches[0];
+    const clientX = touch.clientX;
+    const clientY = touch.clientY;
+
+    touchStartX.current = clientX;
+    // Store Y for potential vertical scroll detection if needed, but not used for swipe
+
     setIsSwiping(true);
+
+    // Context Menu Long Press Logic
+    pressTimer.current = setTimeout(() => {
+      setContextMenu({
+        visible: true,
+        x: clientX,
+        y: clientY,
+      });
+      if (window.navigator && window.navigator.vibrate) {
+        window.navigator.vibrate(50);
+      }
+    }, 500);
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
-    if (!isSwiping) return;
     touchMoveX.current = e.touches[0].clientX;
     const diff = touchMoveX.current - touchStartX.current;
+
+    // If moving, cancel long press (increased threshold to 30px)
+    if (Math.abs(diff) > 30) {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+    }
+
+    if (!isSwiping) return;
     if (diff > 0) {
       setSwipeOffset(Math.min(diff, 60));
     }
   };
 
   const onTouchEnd = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+
     if (swipeOffset >= 50 && onReply) {
       onReply(msg);
       if (window.navigator && window.navigator.vibrate) {
@@ -680,6 +802,8 @@ export const MessageBubble = ({
   return (
     <BubbleWrapper
       isMe={isMe}
+      hasReactions={Object.keys(groupedReactions).length > 0}
+      onContextMenu={handleContextMenu}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -801,157 +925,113 @@ export const MessageBubble = ({
             </button>
           </div>
         ) : (
-          renderMediaContent() || (
-            <div style={{ whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
-              {msg.text &&
-                msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                  part.match(/https?:\/\//) ? (
-                    <a
-                      key={i}
-                      href={part}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => handleLinkClick(e, part)}
-                      style={{ color: "#60a5fa", cursor: "pointer" }}
-                    >
-                      {part}
-                    </a>
-                  ) : (
-                    part
-                  ),
+          <>
+            {isEditing ? (
+              <EditInputContainer onClick={(e) => e.stopPropagation()}>
+                <EditInput
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSaveEdit();
+                    } else if (e.key === "Escape") {
+                      handleCancelEdit();
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <EditActionButtons>
+                  <EditButton variant="secondary" onClick={(e) => { e.stopPropagation(); handleCancelEdit(); }}>
+                    <X size={14} /> Cancel
+                  </EditButton>
+                  <EditButton variant="primary" onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}>
+                    <Check size={14} /> Save
+                  </EditButton>
+                </EditActionButtons>
+              </EditInputContainer>
+            ) : (
+              <>
+                {renderMediaContent() || (
+                  <div
+                    style={{ whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
+                  >
+                    {msg.text &&
+                      msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                        part.match(/https?:\/\//) ? (
+                          <a
+                            key={i}
+                            href={part}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => handleLinkClick(e, part)}
+                            style={{ color: "#60a5fa", cursor: "pointer" }}
+                          >
+                            {part}
+                          </a>
+                        ) : (
+                          part
+                        ),
+                      )}
+                    {/* Link Previews */}
+                    {firstUrl && !msg.mediaFilename && (
+                      <div style={{ marginTop: "8px", maxWidth: "400px" }}>
+                        {isTrustedUrl(firstUrl) &&
+                          /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
+                            new URL(firstUrl).pathname,
+                          ) ? (
+                          <MediaContainer>
+                            <img
+                              src={firstUrl}
+                              alt="preview"
+                              style={{
+                                width: "100%",
+                                height: "auto",
+                                maxHeight: "300px",
+                                borderRadius: "8px",
+                                cursor: "zoom-in",
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                onMediaClick?.(firstUrl, "image", msg.text);
+                              }}
+                            />
+                          </MediaContainer>
+                        ) : (
+                          <LinkPreview url={firstUrl} />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
-              {firstUrl && !msg.mediaFilename && (
-                <div style={{ marginTop: "8px", maxWidth: "400px" }}>
-                  {isTrustedUrl(firstUrl) &&
-                    /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
-                      new URL(firstUrl).pathname,
-                    ) ? (
-                    <MediaContainer>
-                      <img
-                        src={firstUrl}
-                        alt="preview"
-                        style={{
-                          width: "100%",
-                          height: "auto",
-                          maxHeight: "300px",
-                          borderRadius: "8px",
-                          cursor: "zoom-in",
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          onMediaClick?.(firstUrl, "image", msg.text);
-                        }}
-                      />
-                    </MediaContainer>
-                  ) : (
-                    <LinkPreview url={firstUrl} />
-                  )}
-                </div>
-              )}
-            </div>
-          )
+              </>
+            )}
+          </>
         )}
 
-        {/* Reactions UI */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "4px",
-            marginTop: "4px",
-          }}
-        >
-          {Object.entries(groupedReactions).map(([emoji, count]) => (
-            <div
-              key={emoji as string}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleReaction(emoji as string);
-              }}
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                borderRadius: "12px",
-                padding: "2px 6px",
-                fontSize: "0.75rem",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "2px",
-              }}
-            >
-              <span>{emoji as string}</span>
-              <span style={{ opacity: 0.7 }}>{count as number}</span>
-            </div>
-          ))}
-
-          <div
-            className="reaction-add-btn"
+        {/* WhatsApp-style Reaction Floating Badge */}
+        {Object.keys(groupedReactions).length > 0 && (
+          <ReactionBubble
+            isMe={isMe}
             onClick={(e) => {
               e.stopPropagation();
-              setShowPicker(!showPicker);
-            }}
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              borderRadius: "50%",
-              width: "24px",
-              height: "24px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              opacity: 0,
-              transition: "opacity 0.2s",
-              position: "relative",
+              // Optionally confirm removal or just show who reacted
             }}
           >
-            <Smile size={14} />
-          </div>
-          <style>{`
-                .reaction-add-btn { opacity: 0; }
-                div:hover > .reaction-add-btn { opacity: 1; }
-                .reaction-add-btn:hover { background: rgba(255,255,255,0.2) !important; opacity: 1 !important; }
-            `}</style>
-        </div>
-
-        {showPicker && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <EmojiPicker
-              onEmojiClick={handleReaction}
-              onClose={() => setShowPicker(false)}
-            />
-          </div>
-        )}
-
-        {unsafeLink && (
-          <UnsafeLinkModal
-            url={unsafeLink.url}
-            type={unsafeLink.type}
-            isLoading={unsafeLink.isLoading}
-            onConfirm={() => {
-              window.open(unsafeLink.url, "_blank", "noopener,noreferrer");
-              setUnsafeLink(null);
-            }}
-            onTrust={
-              unsafeLink.type === "unknown"
-                ? () => {
-                  try {
-                    const hostname = new URL(unsafeLink.url).hostname;
-                    addTrustedDomain(hostname);
-                    window.open(
-                      unsafeLink.url,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                    setUnsafeLink(null);
-                  } catch (e) {
-                    console.error("Invalid URL", e);
-                  }
-                }
-                : undefined
-            }
-            onCancel={() => setUnsafeLink(null)}
-          />
+            {Object.entries(groupedReactions)
+              .sort((a: any, b: any) => b[1] - a[1]) // Sort by count desc
+              .slice(0, 3) // Show top 3
+              .map(([emoji, count]) => (
+                <span key={emoji as string} style={{ lineHeight: 1 }}>{emoji as string}</span>
+              ))}
+            {(Object.values(groupedReactions) as number[]).reduce((a, b) => a + b, 0) > 1 && (
+              <span style={{ marginLeft: 2 }}>
+                {(Object.values(groupedReactions) as number[]).reduce((a, b) => a + b, 0)}
+              </span>
+            )}
+          </ReactionBubble>
         )}
 
         <div
@@ -978,6 +1058,104 @@ export const MessageBubble = ({
           )}
         </div>
       </Bubble>
+
+      {contextMenu.visible && (
+        <React.Fragment>
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              bottom: 0,
+              right: 0,
+              zIndex: 999,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setContextMenu({ visible: false, x: 0, y: 0 });
+            }}
+          />
+          <ContextMenuContainer
+            x={Math.min(contextMenu.x, window.innerWidth - 360)} // Shift left to fit wider ReactionBar (~300px)
+            y={Math.max(70, Math.min(contextMenu.y, window.innerHeight - 300))} // Ensure at least 70px from top for ReactionBar
+          >
+            <ReactionBar>
+              {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
+                <ReactionButton
+                  key={emoji}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReaction({ emoji });
+                    setContextMenu({ visible: false, x: 0, y: 0 });
+                  }}
+                >
+                  {emoji}
+                </ReactionButton>
+              ))}
+              <MoreReactionsButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowPicker(true);
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                }}
+              >
+                <Plus size={16} />
+              </MoreReactionsButton>
+            </ReactionBar>
+
+            <ContextMenuItem onClick={(e) => { e.stopPropagation(); if (onReply) { onReply(msg); setContextMenu({ visible: false, x: 0, y: 0 }); } }}>
+              <Reply size={18} /> Reply
+            </ContextMenuItem>
+
+            <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleCopy(); }}>
+              <Copy size={18} /> Copy
+            </ContextMenuItem>
+
+            {isEditable && (
+              <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(); }}>
+                <Edit2 size={18} /> Edit
+              </ContextMenuItem>
+            )}
+
+            {isDeletable && (
+              <ContextMenuItem variant="danger" onClick={(e) => { e.stopPropagation(); handleDelete(); }}>
+                <Trash2 size={18} /> Delete
+              </ContextMenuItem>
+            )}
+          </ContextMenuContainer>
+        </React.Fragment>
+      )}
+
+      {showPicker && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.5)",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPicker(false);
+          }}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <EmojiPicker
+              onEmojiClick={(emoji: any) => {
+                handleReaction(emoji);
+                setShowPicker(false);
+              }}
+              onClose={() => setShowPicker(false)}
+            />
+          </div>
+        </div>
+      )}
     </BubbleWrapper>
   );
 };

@@ -280,6 +280,82 @@ export class ChatClient extends EventEmitter {
     }
   }
 
+  public async editMessage(sid: string, messageId: string, newText: string) {
+    if (!this.sessions[sid]) throw new Error("Session not found");
+
+    const payload = await this.encryptForSession(
+      sid,
+      JSON.stringify({
+        t: "MSG",
+        data: {
+          type: "EDIT",
+          id: messageId,
+          text: newText,
+          timestamp: Date.now(),
+        },
+      }),
+      1,
+    );
+
+    this.send({
+      t: "MSG",
+      sid,
+      data: { payload },
+      c: true,
+      p: 1,
+    });
+
+    try {
+      await executeDB("UPDATE messages SET text = ? WHERE id = ?", [
+        newText,
+        messageId,
+      ]);
+      this.emit("message_updated", { sid, id: messageId, text: newText });
+    } catch (e) {
+      console.error("[Client] Failed to update local message:", e);
+    }
+  }
+
+  public async deleteMessage(sid: string, messageId: string) {
+    if (!this.sessions[sid]) throw new Error("Session not found");
+
+    const payload = await this.encryptForSession(
+      sid,
+      JSON.stringify({
+        t: "MSG",
+        data: {
+          type: "DELETE",
+          id: messageId,
+          timestamp: Date.now(),
+        },
+      }),
+      1,
+    );
+
+    this.send({
+      t: "MSG",
+      sid,
+      data: { payload },
+      c: true,
+      p: 1,
+    });
+
+    try {
+      await executeDB(
+        "UPDATE messages SET text = ?, type = 'deleted' WHERE id = ?",
+        ["🚫 This message was deleted", messageId],
+      );
+      this.emit("message_updated", {
+        sid,
+        id: messageId,
+        text: "🚫 This message was deleted",
+        type: "deleted",
+      });
+    } catch (e) {
+      console.error("[Client] Failed to mark message as deleted locally:", e);
+    }
+  }
+
   public async broadcastProfileUpdate() {
     try {
       const rows = await queryDB(
@@ -1277,7 +1353,7 @@ export class ChatClient extends EventEmitter {
                 sid,
                 data.text,
                 data.type.toLowerCase(),
-                Date.now(),
+                data.timestamp,
                 data.replyTo ? JSON.stringify(data.replyTo) : null,
               ],
             );
@@ -1293,6 +1369,39 @@ export class ChatClient extends EventEmitter {
             replyTo: data.replyTo,
             timestamp: data.timestamp,
           });
+          break;
+
+        case "EDIT":
+          try {
+            await executeDB("UPDATE messages SET text = ? WHERE id = ?", [
+              data.text,
+              data.id,
+            ]);
+            this.emit("message_updated", {
+              sid,
+              id: data.id,
+              text: data.text,
+            });
+          } catch (e) {
+            console.error("[Client] Failed to process EDIT message:", e);
+          }
+          break;
+
+        case "DELETE":
+          try {
+            await executeDB(
+              "UPDATE messages SET text = ?, type = 'deleted' WHERE id = ?",
+              ["🚫 This message was deleted", data.id],
+            );
+            this.emit("message_updated", {
+              sid,
+              id: data.id,
+              text: "🚫 This message was deleted",
+              type: "deleted",
+            });
+          } catch (e) {
+            console.error("[Client] Failed to process DELETE message:", e);
+          }
           break;
         case "STREAM":
           console.warn(

@@ -13,15 +13,16 @@ export interface ChatMessage {
   timestamp: number;
 
   type:
-    | "text"
-    | "image"
-    | "gif"
-    | "audio"
-    | "file"
-    | "video"
-    | "sticker"
-    | "live share port"
-    | "system";
+  | "text"
+  | "image"
+  | "gif"
+  | "audio"
+  | "file"
+  | "video"
+  | "sticker"
+  | "live share port"
+  | "system"
+  | "deleted";
 
   text?: string;
 
@@ -41,11 +42,11 @@ export interface ChatMessage {
   thumbnail?: string;
   tempUrl?: string;
   mediaStatus?:
-    | "pending"
-    | "downloading"
-    | "downloaded"
-    | "error"
-    | "uploading";
+  | "pending"
+  | "downloading"
+  | "downloaded"
+  | "error"
+  | "uploading";
   mediaFilename?: string;
   mediaTotalSize?: number;
   mediaCurrentSize?: number;
