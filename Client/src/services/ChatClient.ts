@@ -19,6 +19,19 @@ import {
 import { CompressionService } from "./CompressionService";
 import { WorkerManager } from "./WorkerManager";
 
+// --- Fix for missing crypto.randomUUID in some environments if needed, though usually available ---
+if (!crypto.randomUUID) {
+  // @ts-ignore
+  crypto.randomUUID = () => {
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c: any) =>
+      (
+        c ^
+        (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+      ).toString(16),
+    );
+  };
+}
+
 (window as any).Buffer = Buffer;
 
 interface ServerFrame {
@@ -158,6 +171,12 @@ export class ChatClient extends EventEmitter {
             JSON.stringify({
               t: "MSG",
               data: {
+                type:
+                  row.type === "text"
+                    ? "TEXT"
+                    : row.type
+                      ? row.type.toUpperCase()
+                      : "TEXT",
                 text: row.text,
                 id: row.id,
                 timestamp: row.timestamp,
@@ -219,7 +238,12 @@ export class ChatClient extends EventEmitter {
     this.send({ t: "JOIN_DENY", sid, c: true, p: 0 });
   }
 
-  public async sendMessage(sid: string, text: string, replyTo?: any) {
+  public async sendMessage(
+    sid: string,
+    text: string,
+    replyTo?: any,
+    type: string = "text",
+  ) {
     if (!this.sessions[sid]) throw new Error("Session not found");
 
     const id = crypto.randomUUID();
@@ -228,15 +252,28 @@ export class ChatClient extends EventEmitter {
       sid,
       JSON.stringify({
         t: "MSG",
-        data: { type: "TEXT", text, id, timestamp: Date.now(), replyTo },
+        data: {
+          type: type === "text" ? "TEXT" : type.toUpperCase(),
+          text,
+          id,
+          timestamp: Date.now(),
+          replyTo,
+        },
       }),
       1,
     );
     this.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
     try {
       await executeDB(
-        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
-        [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
+        "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, ?, ?, 1, ?)",
+        [
+          id,
+          sid,
+          text,
+          type,
+          timestamp,
+          replyTo ? JSON.stringify(replyTo) : null,
+        ],
       );
     } catch (e) {
       console.error("[Client] Failed to save sent message:", e);
@@ -380,10 +417,10 @@ export class ChatClient extends EventEmitter {
     const msgType = isImage
       ? "image"
       : isVideo
-      ? "video"
-      : isAudio
-      ? "audio"
-      : "file";
+        ? "video"
+        : isAudio
+          ? "audio"
+          : "file";
     const messageId = await this.insertMessageRecord(sid, "", msgType, "me");
 
     await StorageService.initMediaEntry(
@@ -749,11 +786,11 @@ export class ChatClient extends EventEmitter {
     if (this.remoteAudioEl) {
       this.remoteAudioEl.muted = false;
       this.remoteAudioEl.volume = 1.0;
-      this.remoteAudioEl.play().catch(() => {});
+      this.remoteAudioEl.play().catch(() => { });
     }
 
     if (this.audioContext?.state === "suspended") {
-      this.audioContext.resume().catch(() => {});
+      this.audioContext.resume().catch(() => { });
     }
   }
 
@@ -1230,13 +1267,16 @@ export class ChatClient extends EventEmitter {
           this.emit("call_mode_changed", { sid, mode: data.mode });
           break;
         case "TEXT":
+        case "GIF":
+        case "IMAGE":
           try {
             await executeDB(
-              "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, 'text', ?, 2, ?)",
+              "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, ?, ?, 2, ?)",
               [
                 data.id,
                 sid,
                 data.text,
+                data.type.toLowerCase(),
                 Date.now(),
                 data.replyTo ? JSON.stringify(data.replyTo) : null,
               ],
@@ -1248,7 +1288,7 @@ export class ChatClient extends EventEmitter {
             sid,
             text: data.text,
             sender: "other",
-            type: "text",
+            type: data.type.toLowerCase(),
             id: data.id,
             replyTo: data.replyTo,
             timestamp: data.timestamp,
@@ -1266,10 +1306,10 @@ export class ChatClient extends EventEmitter {
           const msgType = isImage
             ? "image"
             : isVideo
-            ? "video"
-            : isAudio
-            ? "audio"
-            : "file";
+              ? "video"
+              : isAudio
+                ? "audio"
+                : "file";
 
           const localId = await this.insertMessageRecord(
             sid,
@@ -1609,8 +1649,7 @@ export class ChatClient extends EventEmitter {
         }
 
         console.log(
-          `[Client] Streamed chunk ${
-            chunkIndex + 1
+          `[Client] Streamed chunk ${chunkIndex + 1
           }/${totalChunks} for ${messageId}`,
         );
       } catch (e) {
@@ -2087,7 +2126,7 @@ export class ChatClient extends EventEmitter {
       this.ringtoneInterval = null;
     }
     if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
+      this.audioContext.close().catch(() => { });
       this.audioContext = null;
     }
   }

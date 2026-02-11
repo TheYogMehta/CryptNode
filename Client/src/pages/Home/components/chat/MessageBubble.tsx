@@ -146,8 +146,8 @@ const AudioPlayer = ({
           {isDownloaded
             ? formatTime(duration)
             : isDownloading
-            ? "Downloading..."
-            : "Voice Note"}
+              ? "Downloading..."
+              : "Voice Note"}
         </span>
       </AudioTimeInfo>
 
@@ -605,6 +605,32 @@ export const MessageBubble = ({
       );
     }
 
+    if (msg.type === "gif") {
+      return (
+        <MediaContainer>
+          <img
+            src={msg.text}
+            alt="gif"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onMediaClick) {
+                onMediaClick(msg.text || "", "image", "GIF");
+              } else {
+                window.open(msg.text, "_blank");
+              }
+            }}
+            style={{
+              width: "100%",
+              height: "auto",
+              borderRadius: "8px",
+              cursor: "pointer",
+              minHeight: "100px",
+            }}
+          />
+        </MediaContainer>
+      );
+    }
+
     return null;
   };
 
@@ -645,10 +671,10 @@ export const MessageBubble = ({
   const safeDate = new Date(msg.timestamp);
   const timeString = isValidDate(safeDate)
     ? safeDate.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
     : "";
 
   return (
@@ -797,9 +823,9 @@ export const MessageBubble = ({
               {firstUrl && !msg.mediaFilename && (
                 <div style={{ marginTop: "8px", maxWidth: "400px" }}>
                   {isTrustedUrl(firstUrl) &&
-                  /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
-                    new URL(firstUrl).pathname,
-                  ) ? (
+                    /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
+                      new URL(firstUrl).pathname,
+                    ) ? (
                     <MediaContainer>
                       <img
                         src={firstUrl}
@@ -909,19 +935,19 @@ export const MessageBubble = ({
             onTrust={
               unsafeLink.type === "unknown"
                 ? () => {
-                    try {
-                      const hostname = new URL(unsafeLink.url).hostname;
-                      addTrustedDomain(hostname);
-                      window.open(
-                        unsafeLink.url,
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
-                      setUnsafeLink(null);
-                    } catch (e) {
-                      console.error("Invalid URL", e);
-                    }
+                  try {
+                    const hostname = new URL(unsafeLink.url).hostname;
+                    addTrustedDomain(hostname);
+                    window.open(
+                      unsafeLink.url,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                    setUnsafeLink(null);
+                  } catch (e) {
+                    console.error("Invalid URL", e);
                   }
+                }
                 : undefined
             }
             onCancel={() => setUnsafeLink(null)}

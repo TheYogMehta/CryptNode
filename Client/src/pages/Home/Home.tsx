@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { App } from "@capacitor/app";
 import { useChatLogic } from "./hooks/useChatLogic";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { ChatWindow } from "./components/chat/ChatWindow";
@@ -72,6 +73,99 @@ const Home = () => {
   useEffect(() => {
     checkInitialState();
   }, []);
+
+  // Ref to keep track of current state for the back button listener
+  const contextRef = useRef({
+    isSidebarOpen: state.isSidebarOpen,
+    view: state.view,
+    showSettings,
+    renameTarget,
+    isLocked,
+    inboundReq: state.inboundReq,
+    isWaiting: state.isWaiting,
+    showProfileSetup,
+  });
+
+  // Update ref whenever relevant state changes
+  useEffect(() => {
+    contextRef.current = {
+      isSidebarOpen: state.isSidebarOpen,
+      view: state.view,
+      showSettings,
+      renameTarget,
+      isLocked,
+      inboundReq: state.inboundReq,
+      isWaiting: state.isWaiting,
+      showProfileSetup,
+    };
+  }, [
+    state.isSidebarOpen,
+    state.view,
+    showSettings,
+    renameTarget,
+    isLocked,
+    state.inboundReq,
+    state.isWaiting,
+    showProfileSetup,
+  ]);
+
+  // Handle Android Hardware Back Button
+  useEffect(() => {
+    const setupBackListener = async () => {
+      try {
+        await App.addListener("backButton", ({ canGoBack }) => {
+          const ctx = contextRef.current;
+          console.log("[Home] Back button pressed. State:", ctx);
+
+          // 1. Critical Overlays (Lock, Profile)
+          if (ctx.isLocked || ctx.showProfileSetup) {
+            App.exitApp();
+            return;
+          }
+
+          // 2. Modals
+          if (ctx.renameTarget) {
+            setRenameTarget(null);
+            return;
+          }
+          if (ctx.showSettings) {
+            setShowSettings(false);
+            return;
+          }
+          if (ctx.inboundReq || ctx.isWaiting) {
+            // Cancel request/waiting logic if applicable
+            actions.setIsWaiting(false);
+            actions.setInboundReq(null);
+            return;
+          }
+
+          // 3. Sidebar (Mobile only logic mostly, but applicable if open)
+          if (ctx.isSidebarOpen) {
+            actions.setIsSidebarOpen(false);
+            return;
+          }
+
+          // 4. Navigation Views
+          if (ctx.view === "chat" || ctx.view === "add") {
+            actions.setView("welcome");
+            actions.setActiveChat(null);
+            return;
+          }
+
+          // 5. Default: Exit App (at Home/Welcome screen)
+          App.exitApp();
+        });
+      } catch (e) {
+        console.error("Error adding back button listener:", e);
+      }
+    };
+
+    setupBackListener();
+
+    return () => {
+      App.removeAllListeners();
+    };
+  }, []); // Actions are stable enough for the setters we use
 
   const checkInitialState = async () => {
     try {

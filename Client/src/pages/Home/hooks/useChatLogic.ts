@@ -303,7 +303,7 @@ export const useChatLogic = () => {
       client.off("session_updated", onSessionUpdate);
       client.off("message", onMsg);
       client.off("file_downloaded", onFileDownloaded);
-      client.off("auth_success", () => {});
+      client.off("auth_success", () => { });
       client.off("remote_stream_ready", onRemoteStream);
     };
   }, []);
@@ -318,26 +318,37 @@ export const useChatLogic = () => {
     const replyContext =
       currentReplyTo && currentReplyTo.id
         ? {
-            id: currentReplyTo.id,
-            text: currentReplyTo.text,
-            sender:
-              currentReplyTo.sender === "me"
-                ? "Me"
-                : currentReplyTo.sender || "Other",
-            type: currentReplyTo.type,
-            mediaFilename: currentReplyTo.mediaFilename,
-            thumbnail: currentReplyTo.thumbnail,
-          }
+          id: currentReplyTo.id,
+          text: currentReplyTo.text,
+          sender:
+            currentReplyTo.sender === "me"
+              ? "Me"
+              : currentReplyTo.sender || "Other",
+          type: currentReplyTo.type,
+          mediaFilename: currentReplyTo.mediaFilename,
+          thumbnail: currentReplyTo.thumbnail,
+        }
         : undefined;
 
-    await ChatClient.sendMessage(activeChat, currentInput, replyContext);
+    const isGif =
+      /https?:\/\/(?:www\.)?(?:tenor\.com|giphy\.com|media\.giphy\.com|.*\.gif)/i.test(
+        currentInput,
+      );
+    const msgType = isGif ? "gif" : "text";
+
+    await ChatClient.sendMessage(
+      activeChat,
+      currentInput,
+      replyContext,
+      msgType,
+    );
 
     const newMsg: ChatMessage = {
       sid: activeChat,
       text: currentInput,
       sender: "me",
       timestamp: Date.now(),
-      type: "text",
+      type: msgType,
       status: 1,
       replyTo: replyContext,
     };
@@ -358,8 +369,8 @@ export const useChatLogic = () => {
       type: file.type.startsWith("image")
         ? "image"
         : file.type.startsWith("video")
-        ? "video"
-        : "file",
+          ? "video"
+          : "file",
       timestamp: Date.now(),
       mediaTotalSize: file.size,
       tempUrl: URL.createObjectURL(file),

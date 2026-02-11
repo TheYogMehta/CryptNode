@@ -1,6 +1,6 @@
 package com.chatapp;
 
-import android.os.Bundle;
+import  android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 
 import ee.forgr.capacitor.social.login.ModifiedMainActivityForSocialLoginPlugin;
