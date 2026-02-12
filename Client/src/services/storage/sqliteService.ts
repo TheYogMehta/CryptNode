@@ -137,9 +137,15 @@ export const dbInit = () => {
         lastSecretSet = key;
       } catch (e: any) {
         const msg = e.message || JSON.stringify(e);
-        if (msg.includes("passphrase already in store")) {
-          console.log("[sqlite] Passphrase already in store, continuing...");
+        if (
+          msg.includes("passphrase already in store") ||
+          msg.includes("setEncryptionSecret")
+        ) {
+          console.log(
+            "[sqlite] Passphrase likely already in store, continuing...",
+          );
           lastSecretSet = key;
+        } else {
           console.warn("Failed to set encryption key/secret:", e);
         }
       }

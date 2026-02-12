@@ -103,6 +103,26 @@ export class ElectronCapacitorApp {
       return handler(request, response, {
         public: join(app.getAppPath(), "app"),
         rewrites: [{ source: "**", destination: "/index.html" }],
+        headers: [
+          {
+            source: "**/*.@(js|css|html|json)",
+            headers: [
+              {
+                key: "Cache-Control",
+                value: "no-cache, no-store, must-revalidate",
+              },
+            ],
+          },
+          {
+            source: "**/*.@(jpg|jpeg|gif|png|svg|ico)",
+            headers: [
+              {
+                key: "Cache-Control",
+                value: "max-age=31536000",
+              },
+            ],
+          },
+        ],
       });
     });
 
