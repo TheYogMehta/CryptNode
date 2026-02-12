@@ -96,36 +96,58 @@ export const useSessionLogic = () => {
       }
     };
 
-    client.on("session_updated", onSessionUpdate);
-    client.on("waiting_for_accept", () => {
+    const onWaitingForAccept = () => {
       setIsJoining(false);
       setIsWaiting(true);
-    });
-    client.on("joined_success", () => {
+    };
+
+    const onJoinedSuccess = () => {
       setIsWaiting(false);
       setIsJoining(false);
       loadSessions();
-    });
-    client.on("session_created", () => {
+    };
+
+    const onSessionCreated = () => {
       loadSessions();
-    });
-    client.on("inbound_request", (req) => setInboundReq(req));
-    client.on("auth_success", (email) => {
+    };
+
+    const onInboundRequest = (req: InboundReq) => setInboundReq(req);
+
+    const onAuthSuccess = (email: string) => {
       setUserEmail(email);
       setIsLoading(false);
-    });
-    client.on("auth_error", () => {
+      loadSessions();
+    };
+
+    const onAuthError = () => {
       setUserEmail(null);
       setIsLoading(false);
-    });
-    client.on("notification", (notif) => {
+      window.location.href = "/login";
+    };
+
+    const onNotification = (notif: { type: string; message: string }) => {
       setNotification(notif);
       setTimeout(() => setNotification(null), 3000);
-    });
+    };
+
+    client.on("session_updated", onSessionUpdate);
+    client.on("waiting_for_accept", onWaitingForAccept);
+    client.on("joined_success", onJoinedSuccess);
+    client.on("session_created", onSessionCreated);
+    client.on("inbound_request", onInboundRequest);
+    client.on("auth_success", onAuthSuccess);
+    client.on("auth_error", onAuthError);
+    client.on("notification", onNotification);
 
     return () => {
       client.off("session_updated", onSessionUpdate);
-      client.off("auth_success", () => {});
+      client.off("waiting_for_accept", onWaitingForAccept);
+      client.off("joined_success", onJoinedSuccess);
+      client.off("session_created", onSessionCreated);
+      client.off("inbound_request", onInboundRequest);
+      client.off("auth_success", onAuthSuccess);
+      client.off("auth_error", onAuthError);
+      client.off("notification", onNotification);
     };
   }, [loadSessions]);
 

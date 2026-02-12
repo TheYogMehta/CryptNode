@@ -48,6 +48,7 @@ export class AuthService extends EventEmitter {
     }
     this.authToken = null;
     this.userEmail = null;
+    socket.disconnect();
     this.emit("auth_error");
   }
 

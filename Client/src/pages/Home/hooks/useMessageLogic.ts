@@ -89,9 +89,11 @@ export const useMessageLogic = ({
       );
     };
 
-    client.on("message", onMsg);
-    client.on("download_progress", onDownloadProgress);
-    client.on("file_downloaded", onFileDownloaded);
+    const onMessageStatus = ({ sid }: { sid: string }) => {
+      if (sid === activeChatRef.current) {
+        loadHistory(sid);
+      }
+    };
 
     client.on("message_status", ({ sid }) => {
       if (sid === activeChatRef.current) {
@@ -99,7 +101,7 @@ export const useMessageLogic = ({
       }
     });
 
-    client.on("message_updated", ({ sid, id, text, type }) => {
+    const onMessageUpdated = ({ sid, id, text, type }: any) => {
       if (sid === activeChatRef.current) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -108,18 +110,27 @@ export const useMessageLogic = ({
         );
       }
       loadSessions();
-    });
+    };
 
     const handleRateLimit = () => {
       setIsRateLimited(true);
       setTimeout(() => setIsRateLimited(false), 1000);
     };
+    client.on("message", onMsg);
+    client.on("download_progress", onDownloadProgress);
+    client.on("file_downloaded", onFileDownloaded);
+    client.on("message_status", onMessageStatus);
+    client.on("message_updated", onMessageUpdated);
+    client.on("rate_limit_exceeded", handleRateLimit);
+
     client.on("rate_limit_exceeded", handleRateLimit);
 
     return () => {
       client.off("message", onMsg);
       client.off("download_progress", onDownloadProgress);
       client.off("file_downloaded", onFileDownloaded);
+      client.off("message_status", onMessageStatus);
+      client.off("message_updated", onMessageUpdated);
       client.off("rate_limit_exceeded", handleRateLimit);
     };
   }, [loadSessions, activeChatRef]);

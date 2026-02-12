@@ -3,7 +3,6 @@
 interface Window {
   electron?: {
     getDesktopSources: () => Promise<any[]>;
-    forceDeleteDatabase: (dbName: string) => Promise<boolean>;
   };
 }
 

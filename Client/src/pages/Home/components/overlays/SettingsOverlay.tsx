@@ -102,9 +102,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             }
 
             await StorageService.deleteProfileImage(dbName);
-            await deleteDatabase(dbName);
 
-            // Ensure we have permission to delete keys
             await setActiveUser(currentUserEmail);
 
             const keysToClear = [
@@ -123,7 +121,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               await setKeyFromSecureStorage(scopedKey, "");
             }
 
-            await deleteDatabase();
+            await deleteDatabase(dbName);
             await AccountService.removeAccount(currentUserEmail);
             await ChatClient.logout();
             onClose();

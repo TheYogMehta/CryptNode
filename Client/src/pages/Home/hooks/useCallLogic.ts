@@ -59,10 +59,14 @@ export const useCallLogic = ({
       setActiveCall({ ...call, ...info, status: "outgoing" });
     };
 
-    const onCallStarted = ({ sid }: { sid: string }) =>
-      setActiveCall((prev: any) =>
-        prev && prev.sid === sid ? { ...prev, status: "connected" } : prev,
-      );
+    const onCallStarted = (payload: { sid?: string } = {}) =>
+      setActiveCall((prev: any) => {
+        if (!prev) return prev;
+        if (!payload.sid || prev.sid === payload.sid) {
+          return { ...prev, status: "connected" };
+        }
+        return prev;
+      });
 
     const onIceStatus = (status: any) =>
       setActiveCall((prev: any) =>

@@ -77,6 +77,16 @@ class SocketManager extends EventEmitter {
   public isConnected(): boolean {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN;
   }
+
+  public disconnect() {
+    if (this.ws) {
+      console.log("Disconnecting WebSocket by user request...");
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+      this.emit("WS_DISCONNECTED");
+    }
+  }
 }
 
 export default SocketManager.getInstance();

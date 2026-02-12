@@ -14,6 +14,4 @@ contextBridge.exposeInMainWorld("SafeStorage", {
 
 contextBridge.exposeInMainWorld("electron", {
   getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
-  forceDeleteDatabase: (dbName: string) =>
-    ipcRenderer.invoke("ForceDeleteDatabase", dbName),
 });
