@@ -292,24 +292,44 @@ export const executeDB = async (sql: string, values: any[] = []) => {
   });
 };
 
-export const deleteDatabase = async () => {
+export const getMediaFilenames = async (): Promise<string[]> => {
+  const rows = await queryDB("SELECT filename FROM media", []);
+  return rows
+    .map((row: { filename?: string }) => row.filename)
+    .filter((name): name is string => !!name);
+};
+
+export const deleteDatabase = async (databaseName: string = currentDbName) => {
   try {
     try {
       await CapacitorSQLite.closeConnection({
-        database: currentDbName,
+        database: databaseName,
         readonly: false,
       });
     } catch (ignore) {
       // ignore
     }
 
+    try {
+      await CapacitorSQLite.deleteDatabase({
+        database: databaseName,
+      });
+      if (databaseName === currentDbName) {
+        dbReady = null;
+      }
+      console.log(`[sqlite] Deleted database via plugin: ${databaseName}`);
+      return;
+    } catch (ignore) {
+      // Fallback to file-level cleanup below.
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     const targets = [
-      `${currentDbName}SQLite.db`,
-      `${currentDbName}SQLite.db-journal`,
-      `${currentDbName}SQLite.db-wal`,
-      `${currentDbName}SQLite.db-shm`,
+      `${databaseName}SQLite.db`,
+      `${databaseName}SQLite.db-journal`,
+      `${databaseName}SQLite.db-wal`,
+      `${databaseName}SQLite.db-shm`,
     ];
 
     let filesDeleted = 0;
@@ -331,9 +351,9 @@ export const deleteDatabase = async () => {
       console.log(`[sqlite] Deleted database files via filesystem.`);
       return;
     } else {
-      console.error(`[sqlite] Failed to delete database ${currentDbName}`);
+      console.error(`[sqlite] Failed to delete database ${databaseName}`);
     }
   } catch (e) {
-    console.error(`[sqlite] Failed to delete database ${currentDbName}`, e);
+    console.error(`[sqlite] Failed to delete database ${databaseName}`, e);
   }
 };

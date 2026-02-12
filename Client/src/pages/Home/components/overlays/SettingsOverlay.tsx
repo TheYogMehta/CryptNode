@@ -3,9 +3,16 @@ import {
   AccountService,
   StoredAccount,
 } from "../../../../services/auth/AccountService";
-import { deleteDatabase } from "../../../../services/storage/sqliteService";
+import {
+  deleteDatabase,
+  getMediaFilenames,
+  switchDatabase,
+} from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
-import { setKeyFromSecureStorage } from "../../../../services/storage/SafeStorage";
+import {
+  getKeyFromSecureStorage,
+  setKeyFromSecureStorage,
+} from "../../../../services/storage/SafeStorage";
 import UserAvatar from "../../../../components/UserAvatar";
 import { ModalOverlay } from "./Overlay.styles";
 import {
@@ -26,6 +33,7 @@ import { ArrowLeft } from "lucide-react";
 import { ProfileSettings } from "../settings/ProfileSettings";
 import { SecuritySettings } from "../settings/SecuritySettings";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
+import { StorageService } from "../../../../services/storage/StorageService";
 
 interface SettingsOverlayProps {
   onClose: () => void;
@@ -77,6 +85,24 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       if (confirm("Really really sure? This cannot be undone.")) {
         if (currentUserEmail) {
           try {
+            const dbName = await AccountService.getDbName(currentUserEmail);
+            const masterKey = await getKeyFromSecureStorage(
+              await AccountService.getStorageKey(
+                currentUserEmail,
+                "MASTER_KEY",
+              ),
+            );
+
+            await switchDatabase(dbName, masterKey || undefined);
+
+            const mediaFiles = await getMediaFilenames();
+            for (const fileName of mediaFiles) {
+              await StorageService.deleteFile(fileName);
+            }
+
+            await StorageService.deleteProfileImage(dbName);
+            await deleteDatabase(dbName);
+
             const keysToClear = [
               "app_lock_pin",
               "MASTER_KEY",

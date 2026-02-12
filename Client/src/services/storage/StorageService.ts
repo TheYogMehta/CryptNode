@@ -237,6 +237,17 @@ export const StorageService = {
     }
   },
 
+  deleteProfileImage: async (identifier: string): Promise<void> => {
+    try {
+      await Filesystem.deleteFile({
+        path: `${PROFILE_DIR}/${identifier}.jpg`,
+        directory: Directory.Data,
+      });
+    } catch (_e) {
+      // Ignore missing profile image
+    }
+  },
+
   deleteFile: async (fileName: string): Promise<void> => {
     try {
       if (!StorageUtils.isLocalSystemPath(fileName)) {
