@@ -2,7 +2,7 @@ import {
   getKeyFromSecureStorage,
   setKeyFromSecureStorage,
   hashIdentifier,
-} from "./SafeStorage";
+} from "../storage/SafeStorage";
 
 export interface StoredAccount {
   email: string;

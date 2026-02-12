@@ -1,11 +1,16 @@
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
-import { Capacitor } from "@capacitor/core";
-import { executeDB } from "../services/sqliteService";
+import { executeDB } from "./sqliteService";
+import {
+  StorageUtils,
+  VAULT_DIR,
+  PROFILE_DIR,
+  CHUNK_SIZE,
+} from "./StorageUtils";
+import { PlatformStorage } from "./PlatformStorage";
 
-const VAULT_DIR = "chatapp_vault";
-const PROFILE_DIR = "chatapp_profiles";
-export const CHUNK_SIZE = 256000;
 const writeLocks = new Map<string, boolean>();
+
+export { CHUNK_SIZE };
 
 export const StorageService = {
   async lock(key: string) {
@@ -17,18 +22,6 @@ export const StorageService = {
 
   unlock(key: string) {
     writeLocks.delete(key);
-  },
-
-  async getUniqueVaultPath(): Promise<{ fileName: string; path: string }> {
-    const fileName = `${Date.now().toString(36)}_${Math.random()
-      .toString(36)
-      .slice(2, 10)}.bin`;
-    const path = `${VAULT_DIR}/${fileName}`;
-    return { fileName, path };
-  },
-
-  isLocalSystemPath(fileName: string): boolean {
-    return fileName.startsWith("/") || fileName.includes("://");
   },
 
   async saveProfileImage(data: string, identifier: string): Promise<string> {
@@ -81,31 +74,26 @@ export const StorageService = {
     existingFileName: string | null = null,
   ): Promise<string> => {
     let fileName: string;
-    let path: string;
+    let pathObj: { path: string; directory?: Directory };
 
     if (!existingFileName) {
-      const unique = await StorageService.getUniqueVaultPath();
+      const unique = await StorageUtils.getUniqueVaultPath();
       fileName = unique.fileName;
-      path = unique.path;
+      pathObj = { path: unique.path, directory: Directory.Data };
     } else {
       fileName = existingFileName;
-      path = StorageService.isLocalSystemPath(fileName)
-        ? fileName
-        : `${VAULT_DIR}/${fileName}`;
+      pathObj = StorageUtils.resolvePath(fileName);
     }
 
     await StorageService.lock(fileName);
     try {
-      const isLocal = StorageService.isLocalSystemPath(fileName);
-      const writeOptions: any = {
-        path,
+      await Filesystem.writeFile({
+        path: pathObj.path,
         data,
+        directory: pathObj.directory,
         recursive: true,
         encoding: Encoding.UTF8,
-      };
-      if (!isLocal) writeOptions.directory = Directory.Data;
-
-      await Filesystem.writeFile(writeOptions);
+      });
       return fileName;
     } finally {
       StorageService.unlock(fileName);
@@ -119,6 +107,7 @@ export const StorageService = {
     mimeType: string,
     thumbnail: string | null = null,
     localPath: string | null = null,
+    isCompressed: boolean = false,
   ): Promise<string> => {
     let finalFileName: string;
     let status: "pending" | "downloaded" = "pending";
@@ -127,7 +116,7 @@ export const StorageService = {
       finalFileName = localPath;
       status = "downloaded";
     } else {
-      const { fileName, path } = await StorageService.getUniqueVaultPath();
+      const { fileName, path } = await StorageUtils.getUniqueVaultPath();
       await Filesystem.writeFile({
         path,
         data: "",
@@ -139,8 +128,8 @@ export const StorageService = {
     }
 
     await executeDB(
-      `INSERT INTO media (filename, original_name, file_size, size, mime_type, message_id, status, download_progress, thumbnail) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO media (filename, original_name, file_size, size, mime_type, message_id, status, download_progress, thumbnail, is_compressed) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         finalFileName,
         originalName,
@@ -151,6 +140,7 @@ export const StorageService = {
         status,
         localPath ? 1.0 : 0.0,
         thumbnail,
+        isCompressed ? 1 : 0,
       ],
     );
 
@@ -158,18 +148,18 @@ export const StorageService = {
   },
 
   appendChunk: async (fileName: string, base64Chunk: string): Promise<void> => {
-    const path = `${VAULT_DIR}/${fileName}`;
+    const { path, directory } = StorageUtils.resolvePath(fileName);
     await StorageService.lock(fileName);
 
     try {
       await Filesystem.appendFile({
         path,
         data: base64Chunk,
-        directory: Directory.Data,
+        directory,
         encoding: Encoding.UTF8,
       });
 
-      const stats = await Filesystem.stat({ path, directory: Directory.Data });
+      const stats = await Filesystem.stat({ path, directory });
 
       await executeDB(
         `UPDATE media SET size = ?, status = 'downloading', download_progress = CAST(? AS REAL) / file_size WHERE filename = ?`,
@@ -193,30 +183,32 @@ export const StorageService = {
   },
 
   readChunk: async (fileName: string, chunkIndex: number): Promise<string> => {
-    const isLocal = StorageService.isLocalSystemPath(fileName);
-    const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
-    const directory = isLocal ? undefined : Directory.Data;
+    const { path, directory } = StorageUtils.resolvePath(fileName);
 
-    const file = await Filesystem.readFile({
-      path,
-      directory,
-      encoding: Encoding.UTF8,
-    });
+    try {
+      const file = await Filesystem.readFile({
+        path,
+        directory,
+        encoding: Encoding.UTF8,
+      });
 
-    const base64 = typeof file.data === "string" ? file.data : "";
-    if (!base64) return "";
+      const base64 = typeof file.data === "string" ? file.data : "";
+      if (!base64) return "";
 
-    const start = chunkIndex * CHUNK_SIZE;
-    if (start >= base64.length) return "";
+      const start = chunkIndex * CHUNK_SIZE;
+      if (start >= base64.length) return "";
 
-    const end = Math.min(start + CHUNK_SIZE, base64.length);
-    return base64.slice(start, end);
+      const end = Math.min(start + CHUNK_SIZE, base64.length);
+      return base64.slice(start, end);
+    } catch (e) {
+      console.warn(`[Storage] readChunk failed for ${fileName}`, e);
+      return "";
+    }
   },
 
   readFile: async (fileName: string): Promise<string> => {
-    const isLocal = StorageService.isLocalSystemPath(fileName);
-    const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
-    const directory = isLocal ? undefined : Directory.Data;
+    const { path, directory } = StorageUtils.resolvePath(fileName);
+    const isLocal = StorageUtils.isLocalSystemPath(fileName);
 
     try {
       if (!isLocal && fileName.endsWith(".jpg")) {
@@ -247,7 +239,7 @@ export const StorageService = {
 
   deleteFile: async (fileName: string): Promise<void> => {
     try {
-      if (!StorageService.isLocalSystemPath(fileName)) {
+      if (!StorageUtils.isLocalSystemPath(fileName)) {
         await Filesystem.deleteFile({
           path: `${VAULT_DIR}/${fileName}`,
           directory: Directory.Data,
@@ -261,10 +253,8 @@ export const StorageService = {
 
   getFileSrc: async (fileName: string, mimeType?: string): Promise<string> => {
     try {
-      const isLocal = StorageService.isLocalSystemPath(fileName);
-      const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
-      const directory = isLocal ? undefined : Directory.Data;
-
+      const { path, directory } = StorageUtils.resolvePath(fileName);
+      const isLocal = StorageUtils.isLocalSystemPath(fileName);
       let base64Data = "";
 
       if (isLocal) {
@@ -281,7 +271,6 @@ export const StorageService = {
           });
         }
       } else {
-        // Vault files are written with UTF8 encoding, so read them the same way
         const file = await Filesystem.readFile({
           path,
           directory,
@@ -290,25 +279,7 @@ export const StorageService = {
         base64Data = typeof file.data === "string" ? file.data : "";
       }
 
-      const ext = fileName.split(".").pop()?.toLowerCase();
-      let mime = mimeType || "application/octet-stream";
-
-      if (!mimeType) {
-        if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
-        else if (ext === "png") mime = "image/png";
-        else if (ext === "gif") mime = "image/gif";
-        else if (ext === "webp") mime = "image/webp";
-        else if (ext === "mp4") mime = "video/mp4";
-        else if (ext === "webm") mime = "video/webm";
-        else if (ext === "mp3") mime = "audio/mpeg";
-        else if (ext === "wav") mime = "audio/wav";
-        else if (ext === "ogg") mime = "audio/ogg";
-        else if (ext === "m4a") mime = "audio/mp4";
-      }
-
-      if (fileName.includes("voice-note") && ext === "webm") {
-        mime = "audio/webm";
-      }
+      const mime = StorageUtils.getMimeType(fileName, mimeType);
 
       if (!base64Data) {
         console.error(`[Storage] Empty data for ${fileName}`);
@@ -324,10 +295,7 @@ export const StorageService = {
 
   getFileSize: async (fileName: string): Promise<number> => {
     try {
-      const isLocal = StorageService.isLocalSystemPath(fileName);
-      const path = isLocal ? fileName : `${VAULT_DIR}/${fileName}`;
-      const directory = isLocal ? undefined : Directory.Data;
-
+      const { path, directory } = StorageUtils.resolvePath(fileName);
       const stats = await Filesystem.stat({ path, directory });
       return stats.size;
     } catch (e) {
@@ -339,85 +307,6 @@ export const StorageService = {
     vaultFileName: string,
     originalName: string,
   ): Promise<string> => {
-    const platform = Capacitor.getPlatform();
-
-    if (platform === "android") {
-      const srcPath = `${VAULT_DIR}/${vaultFileName}`;
-      const folderName = "Download/chatapp";
-
-      const perm = await Filesystem.checkPermissions();
-      if (perm.publicStorage !== "granted") {
-        const req = await Filesystem.requestPermissions();
-        if (req.publicStorage !== "granted") {
-          throw new Error("STORAGE_PERMISSION_DENIED");
-        }
-      }
-
-      await Filesystem.mkdir({
-        path: folderName,
-        directory: Directory.ExternalStorage,
-        recursive: true,
-      });
-
-      let finalName = originalName;
-      let counter = 1;
-      const parts = originalName.split(".");
-      const ext = parts.length > 1 ? "." + parts.pop() : "";
-      const base = parts.join(".");
-
-      while (true) {
-        try {
-          await Filesystem.stat({
-            path: `${folderName}/${finalName}`,
-            directory: Directory.ExternalStorage,
-          });
-          finalName = `${base} (${counter++})${ext}`;
-        } catch {
-          break;
-        }
-      }
-
-      await Filesystem.copy({
-        from: srcPath,
-        directory: Directory.Data,
-        to: `${folderName}/${finalName}`,
-        toDirectory: Directory.ExternalStorage,
-      });
-
-      return `Downloads/chatapp/${finalName}`;
-    }
-
-    if (platform === "electron") {
-      const fs = window.require("fs");
-      const path = window.require("path");
-      const { app } = window.require("electron").remote;
-
-      const downloadsDir = app.getPath("downloads");
-      const targetDir = path.join(downloadsDir, "chatapp");
-
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-
-      const srcPath = path.join(
-        app.getPath("userData"),
-        "vault",
-        vaultFileName,
-      );
-
-      let finalName = originalName;
-      let counter = 1;
-      const parsed = path.parse(originalName);
-
-      while (fs.existsSync(path.join(targetDir, finalName))) {
-        finalName = `${parsed.name} (${counter++})${parsed.ext}`;
-      }
-
-      fs.copyFileSync(srcPath, path.join(targetDir, finalName));
-
-      return path.join("Downloads", "chatapp", finalName);
-    }
-
-    throw new Error(`UNSUPPORTED_PLATFORM: ${platform}`);
+    return PlatformStorage.saveToDownloads(vaultFileName, originalName);
   },
 };

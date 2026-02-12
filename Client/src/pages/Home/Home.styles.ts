@@ -1,5 +1,11 @@
 import styled from "@emotion/styled";
-import { colors, spacing, typography, radii, shadows } from "../../theme/design-system";
+import {
+  colors,
+  spacing,
+  typography,
+  radii,
+  shadows,
+} from "../../theme/design-system";
 
 export const AppContainer = styled.div`
   display: flex;
@@ -8,6 +14,7 @@ export const AppContainer = styled.div`
   color: ${colors.text.primary};
   overflow: hidden;
   font-family: ${typography.fontFamily.sans};
+  transition: background-color 0.3s ease, color 0.3s ease;
 `;
 
 export const MainContent = styled.main`
@@ -16,7 +23,11 @@ export const MainContent = styled.main`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: ${colors.background.primary};
+  background-color: ${colors.background.secondary};
+
+  @media (max-width: 768px) {
+    width: 100%;
+  }
 `;
 
 export const MobileHeader = styled.div`
@@ -29,12 +40,13 @@ export const MobileHeader = styled.div`
   display: flex;
   align-items: center;
   border-bottom: 1px solid ${colors.border.subtle};
-  background-color: rgba(2, 6, 23, 0.8);
+  background-color: ${colors.background.overlay};
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 `;
 
 export const HeaderTitle = styled.h2`
-  font-size: ${typography.fontSize.base};
+  font-size: ${typography.fontSize.lg};
   font-weight: ${typography.fontWeight.bold};
   margin: 0;
   cursor: pointer;
@@ -74,7 +86,13 @@ export const ErrorToast = styled.div`
   animation: slideIn 0.3s ease-out;
 
   @keyframes slideIn {
-    from { transform: translateY(-20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    from {
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
 `;

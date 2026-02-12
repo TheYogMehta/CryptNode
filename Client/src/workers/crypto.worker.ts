@@ -1,4 +1,4 @@
-import { CompressionService } from "../services/CompressionService";
+import { CompressionService } from "../services/media/CompressionService";
 import {
   encryptToPackedString,
   decryptFromPackedString,
@@ -31,7 +31,6 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     switch (type) {
       case "INIT_SESSION": {
         const { sid, keyJWK } = msg;
-        // Import key
         const key = await crypto.subtle.importKey(
           "jwk",
           keyJWK,

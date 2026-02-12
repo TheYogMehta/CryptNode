@@ -3,7 +3,9 @@ import { Device } from "@capacitor/device";
 import {
   encryptToPackedString,
   decryptFromPackedString,
-} from "../utils/crypto";
+  sha256,
+  importAESKeyFromRaw,
+} from "../../utils/crypto";
 
 let cachedKey: CryptoKey | null = null;
 const isUnlockedAndroid = true;
@@ -14,25 +16,15 @@ export async function Platform(): Promise<string> {
 }
 
 export async function hashIdentifier(identifier: string): Promise<string> {
-  const msgUint8 = new TextEncoder().encode(identifier);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return sha256(identifier);
 }
 
 async function getCryptoKey(): Promise<CryptoKey> {
-  if (cachedKey) return cachedKey;
+  if (cachedKey) return cachedKey!;
   const id = (await Device.getId()).identifier;
   console.log("[SafeStorage] Using Device ID for Encryption:", id);
   const rawKey = new TextEncoder().encode(id).slice(0, 32);
-  cachedKey = await crypto.subtle.importKey(
-    "raw",
-    rawKey,
-    { name: "AES-GCM" },
-    false,
-    ["encrypt", "decrypt"],
-  );
+  cachedKey = await importAESKeyFromRaw(rawKey);
   return cachedKey;
 }
 

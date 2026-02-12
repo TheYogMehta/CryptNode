@@ -16,11 +16,11 @@ import {
   deleteItem,
   VaultItem,
 } from "../../../utils/secureStorage";
-import { StorageService } from "../../../utils/Storage";
+import { StorageService } from "../../../services/storage/StorageService";
 import { v4 as uuidv4 } from "uuid";
-import ChatClient from "../../../services/ChatClient";
-import { AccountService } from "../../../services/AccountService";
-import { getKeyFromSecureStorage } from "../../../services/SafeStorage";
+import ChatClient from "../../../services/core/ChatClient";
+import { AccountService } from "../../../services/auth/AccountService";
+import { getKeyFromSecureStorage } from "../../../services/storage/SafeStorage";
 
 export const useSecureChat = () => {
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -71,7 +71,7 @@ export const useSecureChat = () => {
         setIsUnlocked(true);
         setError(null);
 
-        loadItems(derivedKey);
+        loadItems();
       } catch (e: any) {
         console.error(e);
         setError(
@@ -86,66 +86,63 @@ export const useSecureChat = () => {
     [userEmail],
   );
 
-  const setupVault = useCallback(
-    async (password: string) => {
-      if (!userEmail) return;
-      try {
-        const masterStorageKey = await AccountService.getStorageKey(
-          userEmail,
-          "MASTER_KEY",
-        );
-        const mnemonic = await getKeyFromSecureStorage(masterStorageKey);
+  const setupVault = useCallback(async () => {
+    if (!userEmail) return;
+    try {
+      const masterStorageKey = await AccountService.getStorageKey(
+        userEmail,
+        "MASTER_KEY",
+      );
+      const mnemonic = await getKeyFromSecureStorage(masterStorageKey);
 
-        if (!mnemonic) {
-          throw new Error(
-            "Master Key not found. Complete profile setup first.",
-          );
-        }
-
-        let saltHex = localStorage.getItem(getSaltKey());
-        if (!saltHex) {
-          const salt = generateSalt();
-          saltHex = uint8ArrayToHex(salt);
-          localStorage.setItem(getSaltKey(), saltHex);
-        }
-
-        const salt = hexToUint8Array(saltHex);
-
-        const derivedKey = await deriveKey(mnemonic, salt);
-        setKey(derivedKey);
-        setIsUnlocked(true);
-        setError(null);
-
-        const { content: encryptedVerifier, iv: verifierIv } =
-          await encryptData("VERIFIER_CHECK", derivedKey);
-
-        const verifierBase64 = bufferToBase64(encryptedVerifier);
-        const verifierFile = await StorageService.saveRawFile(verifierBase64);
-
-        await storeItem({
-          id: `verifier_${userEmail}`,
-          type: "text",
-          encryptedFilePath: verifierFile,
-          iv: verifierIv,
-          metadata: { owner: userEmail, isVerifier: true },
-          timestamp: Date.now(),
-        });
-
-        await addItemWithKey(
-          derivedKey,
-          "text",
-          "Welcome to your Secure Vault! This data is encrypted using your Master Key.",
-          { title: "Welcome" },
-        );
-        loadItems(derivedKey);
-      } catch (e: any) {
-        setError("Setup failed: " + e.message);
+      if (!mnemonic) {
+        throw new Error("Master Key not found. Complete profile setup first.");
       }
-    },
-    [userEmail],
-  );
 
-  const loadItems = async (currentKey: CryptoKey) => {
+      let saltHex = localStorage.getItem(getSaltKey());
+      if (!saltHex) {
+        const salt = generateSalt();
+        saltHex = uint8ArrayToHex(salt);
+        localStorage.setItem(getSaltKey(), saltHex);
+      }
+
+      const salt = hexToUint8Array(saltHex);
+
+      const derivedKey = await deriveKey(mnemonic, salt);
+      setKey(derivedKey);
+      setIsUnlocked(true);
+      setError(null);
+
+      const { content: encryptedVerifier, iv: verifierIv } = await encryptData(
+        "VERIFIER_CHECK",
+        derivedKey,
+      );
+
+      const verifierBase64 = bufferToBase64(encryptedVerifier);
+      const verifierFile = await StorageService.saveRawFile(verifierBase64);
+
+      await storeItem({
+        id: `verifier_${userEmail}`,
+        type: "text",
+        encryptedFilePath: verifierFile,
+        iv: verifierIv,
+        metadata: { owner: userEmail, isVerifier: true },
+        timestamp: Date.now(),
+      });
+
+      await addItemWithKey(
+        derivedKey,
+        "text",
+        "Welcome to your Secure Vault! This data is encrypted using your Master Key.",
+        { title: "Welcome" },
+      );
+      loadItems();
+    } catch (e: any) {
+      setError("Setup failed: " + e.message);
+    }
+  }, [userEmail]);
+
+  const loadItems = async () => {
     try {
       const all = await getAllItems();
       const myItems = all.filter((i) => i.metadata?.owner === userEmail);
@@ -167,7 +164,7 @@ export const useSecureChat = () => {
         ...metadata,
         owner: userEmail,
       });
-      loadItems(key);
+      loadItems();
     },
     [key, userEmail],
   );
@@ -196,7 +193,7 @@ export const useSecureChat = () => {
   const removeItem = useCallback(
     async (id: string) => {
       await deleteItem(id);
-      if (key) loadItems(key);
+      if (key) loadItems();
     },
     [key],
   );

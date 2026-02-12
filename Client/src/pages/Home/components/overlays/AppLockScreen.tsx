@@ -2,11 +2,11 @@ import React, { useState, useEffect } from "react";
 import {
   getKeyFromSecureStorage,
   setActiveUser,
-} from "../../../../services/SafeStorage";
+} from "../../../../services/storage/SafeStorage";
 import {
   AccountService,
   StoredAccount,
-} from "../../../../services/AccountService";
+} from "../../../../services/auth/AccountService";
 
 interface AppLockScreenProps {
   onSuccess: (pin?: string) => void;

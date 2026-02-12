@@ -23,7 +23,7 @@ export const getTrustedDomains = (): string[] => {
     const stored = localStorage.getItem(STORAGE_KEY);
     const userDomains = stored ? JSON.parse(stored) : [];
     return Array.from(new Set([...DEFAULT_TRUSTED_DOMAINS, ...userDomains]));
-  } catch (e) {
+  } catch {
     return DEFAULT_TRUSTED_DOMAINS;
   }
 };
@@ -46,7 +46,7 @@ export const isTrustedUrl = (url: string): boolean => {
     const hostname = new URL(url).hostname;
     const allTrusted = getTrustedDomains();
     return allTrusted.some((domain) => hostname.endsWith(domain));
-  } catch (e) {
+  } catch {
     return false;
   }
 };

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { App } from "@capacitor/app";
 import { useChatLogic } from "./hooks/useChatLogic";
 import { Sidebar } from "./components/sidebar/Sidebar";
-import { ChatWindow } from "./components/chat/ChatWindow";
+import { ChatWindow } from "./components/chat/ChatWindowContainer";
 import { ConnectionSetup } from "./components/overlays/ConnectionSetup";
 import { RequestModal } from "./components/overlays/RequestModal";
 import { CallOverlay } from "./components/overlays/CallOverlay";
@@ -12,8 +12,8 @@ import { SettingsOverlay } from "./components/overlays/SettingsOverlay";
 import { ProfileSetup } from "./components/overlays/ProfileSetup";
 import { AppLockScreen } from "./components/overlays/AppLockScreen";
 import LoadingScreen from "../LoadingScreen";
-import { AccountService } from "../../services/AccountService";
-import ChatClient from "../../services/ChatClient";
+import { AccountService } from "../../services/auth/AccountService";
+import ChatClient from "../../services/core/ChatClient";
 import { Login } from "../Login";
 import { RenameModal } from "./components/overlays/RenameModal";
 import { useHistory } from "react-router-dom";
@@ -74,7 +74,6 @@ const Home = () => {
     checkInitialState();
   }, []);
 
-  // Ref to keep track of current state for the back button listener
   const contextRef = useRef({
     isSidebarOpen: state.isSidebarOpen,
     view: state.view,
@@ -86,7 +85,6 @@ const Home = () => {
     showProfileSetup,
   });
 
-  // Update ref whenever relevant state changes
   useEffect(() => {
     contextRef.current = {
       isSidebarOpen: state.isSidebarOpen,
@@ -109,21 +107,18 @@ const Home = () => {
     showProfileSetup,
   ]);
 
-  // Handle Android Hardware Back Button
   useEffect(() => {
     const setupBackListener = async () => {
       try {
-        await App.addListener("backButton", ({ canGoBack }) => {
+        await App.addListener("backButton", () => {
           const ctx = contextRef.current;
           console.log("[Home] Back button pressed. State:", ctx);
 
-          // 1. Critical Overlays (Lock, Profile)
           if (ctx.isLocked || ctx.showProfileSetup) {
             App.exitApp();
             return;
           }
 
-          // 2. Modals
           if (ctx.renameTarget) {
             setRenameTarget(null);
             return;
@@ -133,26 +128,22 @@ const Home = () => {
             return;
           }
           if (ctx.inboundReq || ctx.isWaiting) {
-            // Cancel request/waiting logic if applicable
             actions.setIsWaiting(false);
             actions.setInboundReq(null);
             return;
           }
 
-          // 3. Sidebar (Mobile only logic mostly, but applicable if open)
           if (ctx.isSidebarOpen) {
             actions.setIsSidebarOpen(false);
             return;
           }
 
-          // 4. Navigation Views
           if (ctx.view === "chat" || ctx.view === "add") {
             actions.setView("welcome");
             actions.setActiveChat(null);
             return;
           }
 
-          // 5. Default: Exit App (at Home/Welcome screen)
           App.exitApp();
         });
       } catch (e) {
@@ -165,8 +156,7 @@ const Home = () => {
     return () => {
       App.removeAllListeners();
     };
-  }, []); // Actions are stable enough for the setters we use
-
+  }, []); 
   const checkInitialState = async () => {
     try {
       const accs = await AccountService.getAccounts();
@@ -222,13 +212,11 @@ const Home = () => {
     const isLeftSwipe = distance > minSwipeDistance;
     const isRightSwipe = distance < -minSwipeDistance;
 
-    // Right Swipe
     if (isRightSwipe && isMobile && !state.isSidebarOpen) {
       if (touchStart < 50) {
         actions.setIsSidebarOpen(true);
       }
     }
-    // Left Swipe
     if (isLeftSwipe && isMobile && state.isSidebarOpen) {
       actions.setIsSidebarOpen(false);
     }

@@ -54,10 +54,10 @@ export const generateThumbnail = async (
     const media = isVideo ? document.createElement("video") : new Image();
 
     media.crossOrigin = "anonymous";
-    const source = fileUri.startsWith("blob:") 
-      ? fileUri 
+    const source = fileUri.startsWith("blob:")
+      ? fileUri
       : Capacitor.convertFileSrc(fileUri);
-    
+
     console.log(`[imageUtils] Source URI: ${source.substring(0, 50)}...`);
 
     const timeout = setTimeout(() => {
@@ -124,5 +124,63 @@ export const generateThumbnail = async (
       };
       img.src = source;
     }
+  });
+};
+
+export const compressImage = async (
+  file: File,
+  quality: number = 0.7,
+  maxWidth: number = 1920,
+  maxHeight: number = 1920,
+): Promise<File> => {
+  if (!file.type.startsWith("image/")) {
+    return file;
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+
+        if (height > maxHeight) {
+          width *= maxHeight / height;
+          height = maxHeight;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const newFile = new File([blob], file.name, {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              });
+              resolve(newFile);
+            } else {
+              reject(new Error("Canvas to Blob failed"));
+            }
+          },
+          "image/jpeg",
+          quality,
+        );
+      };
+      img.onerror = (error) => reject(error);
+    };
+    reader.onerror = (error) => reject(error);
   });
 };

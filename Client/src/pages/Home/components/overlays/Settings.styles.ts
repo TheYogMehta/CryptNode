@@ -58,6 +58,29 @@ export const SettingsSidebar = styled.div`
   }
 `;
 
+export const SidebarHeader = styled.div`
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+export const SidebarTitle = styled.h2`
+  margin: 0;
+  font-size: 20px;
+  color: ${colors.text.primary};
+`;
+
+export const BackButton = styled.button`
+  background: none;
+  border: none;
+  color: ${colors.text.primary};
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+`;
+
 export const SettingsContent = styled.div`
   flex: 1;
   padding: ${spacing[8]};

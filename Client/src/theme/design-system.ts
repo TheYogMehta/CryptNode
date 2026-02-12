@@ -2,79 +2,79 @@ import { css } from "@emotion/react";
 
 export const colors = {
   background: {
-    primary: "#020617",
-    secondary: "#0f172a",
-    tertiary: "#1e293b",
-    overlay: "rgba(2, 6, 23, 0.8)",
-    glass: "rgba(15, 23, 42, 0.6)",
+    primary: "var(--bg-primary)",
+    secondary: "var(--bg-secondary)",
+    tertiary: "var(--bg-tertiary)",
+    overlay: "var(--bg-overlay)",
+    glass: "var(--bg-glass)",
   },
   surface: {
-    primary: "#1e293b",
-    secondary: "#334155",
-    highlight: "#475569",
+    primary: "var(--surface-primary)",
+    secondary: "var(--surface-secondary)",
+    highlight: "var(--surface-highlight)",
   },
   text: {
-    primary: "#f8fafc",
-    secondary: "#94a3b8",
-    tertiary: "#64748b",
-    inverse: "#0f172a",
+    primary: "var(--text-primary)",
+    secondary: "var(--text-secondary)",
+    tertiary: "var(--text-tertiary)",
+    inverse: "var(--text-inverse)",
   },
   primary: {
-    DEFAULT: "#6366f1",
-    hover: "#4f46e5",
-    active: "#4338ca",
-    subtle: "rgba(99, 102, 241, 0.1)",
-    main: "#6366f1",
+    DEFAULT: "var(--brand-primary)",
+    hover: "var(--brand-hover)",
+    active: "var(--brand-active)",
+    subtle: "var(--brand-subtle)",
+    main: "var(--brand-primary)",
   },
   status: {
-    success: "#22c55e",
-    error: "#ef4444",
-    warning: "#f59e0b",
-    info: "#3b82f6",
+    success: "var(--status-success)",
+    error: "var(--status-error)",
+    warning: "var(--status-warning)",
+    info: "var(--status-info)",
   },
   border: {
-    subtle: "rgba(255, 255, 255, 0.08)",
-    highlight: "rgba(255, 255, 255, 0.15)",
+    subtle: "var(--border-subtle)",
+    highlight: "var(--border-highlight)",
   },
 };
 
 export const spacing = {
-  0: "0px",
-  1: "4px",
-  2: "8px",
-  3: "12px",
-  4: "16px",
-  5: "20px",
-  6: "24px",
-  8: "32px",
-  10: "40px",
-  12: "48px",
-  16: "64px",
+  0: "var(--space-0)",
+  1: "var(--space-1)",
+  2: "var(--space-2)",
+  3: "var(--space-3)",
+  4: "var(--space-4)",
+  5: "var(--space-5)",
+  6: "var(--space-6)",
+  8: "var(--space-8)",
+  10: "var(--space-10)",
+  12: "var(--space-12)",
+  16: "var(--space-16)",
 };
 
 export const radii = {
-  sm: "6px",
-  md: "8px",
-  lg: "12px",
-  xl: "16px",
-  "2xl": "24px",
-  "3xl": "32px",
-  full: "9999px",
+  sm: "var(--radius-sm)",
+  md: "var(--radius-md)",
+  lg: "var(--radius-lg)",
+  xl: "var(--radius-xl)",
+  "2xl": "var(--radius-2xl)",
+  "3xl": "var(--radius-3xl)",
+  full: "var(--radius-full)",
 };
 
 export const shadows = {
-  sm: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
-  md: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
-  lg: "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
-  xl: "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
-  "2xl": "0 25px 50px -12px rgb(0 0 0 / 0.25)",
-  glass: "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
-  glow: "0 0 20px rgba(99, 102, 241, 0.3)",
+  sm: "var(--shadow-sm)",
+  md: "var(--shadow-md)",
+  lg: "var(--shadow-lg)",
+  xl: "var(--shadow-xl)",
+  "2xl": "var(--shadow-2xl)",
+  glass: "var(--shadow-glass)",
+  glow: "var(--shadow-glow)",
 };
 
 export const typography = {
   fontFamily: {
-    sans: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    sans: "var(--font-sans)",
   },
   fontSize: {
     xs: "12px",
@@ -94,10 +94,10 @@ export const typography = {
 };
 
 export const glassEffect = css`
-  background: ${colors.background.glass};
+  background: var(--bg-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid ${colors.border.subtle};
+  border: 1px solid var(--border-subtle);
 `;
 
 export const flexCenter = css`

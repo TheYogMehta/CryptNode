@@ -1,30 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import styled, { keyframes, css } from "styled-components";
-import {
-  X,
-  ZoomIn,
-  ZoomOut,
-  Download,
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
-import {
-  colors,
-  radii,
-  spacing,
-  glassEffect,
-} from "../../../../theme/design-system";
+import styled, { keyframes } from "styled-components";
+import { X, ZoomIn, ZoomOut, Download } from "lucide-react";
+import { radii, spacing } from "../../../../theme/design-system";
 
 const fadeIn = keyframes`
   from { opacity: 0; }
   to { opacity: 1; }
-`;
-
-const scaleIn = keyframes`
-  from { transform: scale(0.9); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
 `;
 
 const Overlay = styled.div`

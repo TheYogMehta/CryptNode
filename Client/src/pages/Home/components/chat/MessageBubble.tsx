@@ -1,16 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { ChatMessage } from "../../types";
-import ChatClient from "../../../../services/ChatClient";
-import { StorageService } from "../../../../utils/Storage";
+import ChatClient from "../../../../services/core/ChatClient";
+import { StorageService } from "../../../../services/storage/StorageService";
 import {
-  Download,
-  Save,
-  Play,
-  Pause,
-  FileIcon,
-  Loader2,
   Reply,
-  Smile,
   Plus,
   Globe,
   Check,
@@ -22,32 +15,21 @@ import {
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { LinkPreview } from "../../../../components/LinkPreview";
-import { UnsafeLinkModal } from "./UnsafeLinkModal";
-import { queryDB } from "../../../../services/sqliteService";
+
+import { AudioBubble } from "./bubbles/AudioBubble";
+import { ImageBubble } from "./bubbles/ImageBubble";
+import { VideoBubble } from "./bubbles/VideoBubble";
+import { FileBubble } from "./bubbles/FileBubble";
+
+import { queryDB } from "../../../../services/storage/sqliteService";
 import { Reaction } from "../../types";
-import {
-  isTrustedUrl,
-  addTrustedDomain,
-} from "../../../../utils/trustedDomains";
+import { isTrustedUrl } from "../../../../utils/trustedDomains";
 import {
   BubbleWrapper,
   Bubble,
   ReplyButton,
   ReplyContext,
   MediaContainer,
-  DownloadOverlay,
-  MediaActionBtn,
-  AudioContainer,
-  AudioControls,
-  PlayPauseBtn,
-  WaveformContainer,
-  WaveformBar,
-  SpeedButton,
-  AudioTimeInfo,
-  FileAttachment,
-  FileInfo,
-  FileName,
-  FileStatus,
   ContextMenuContainer,
   ContextMenuItem,
   ReactionBar,
@@ -59,123 +41,6 @@ import {
   EditActionButtons,
   EditButton,
 } from "./Chat.styles";
-
-const AudioPlayer = ({
-  src,
-  onDownload,
-  isDownloaded,
-  isDownloading,
-  progress,
-  isMe,
-  onSave,
-}: any) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [speed, setSpeed] = useState(1);
-  const [waveform] = useState(() =>
-    Array.from({ length: 40 }, () => Math.random() * 0.8 + 0.2),
-  );
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = speed;
-    }
-  }, [speed]);
-
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) audioRef.current.pause();
-    else audioRef.current.play();
-    setIsPlaying(!isPlaying);
-  };
-
-  const formatTime = (time: number) => {
-    if (!Number.isFinite(time)) return "0:00";
-    const min = Math.floor(time / 60);
-    const sec = Math.floor(time % 60);
-    return `${min}:${sec < 10 ? "0" : ""}${sec}`;
-  };
-
-  const handleSpeed = () => {
-    setSpeed((prev) => (prev === 1 ? 1.5 : prev === 1.5 ? 2 : 1));
-  };
-
-  return (
-    <AudioContainer isMe={isMe}>
-      {src ? (
-        <audio
-          ref={audioRef}
-          src={src}
-          onLoadedMetadata={(e) => {
-            const d = e.currentTarget.duration;
-            if (Number.isFinite(d)) setDuration(d);
-          }}
-          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-          onEnded={() => setIsPlaying(false)}
-          style={{ display: "none" }}
-        />
-      ) : null}
-
-      <AudioControls isMe={isMe}>
-        <PlayPauseBtn
-          isMe={isMe}
-          onClick={isDownloaded ? togglePlay : onDownload}
-        >
-          {!isDownloaded ? (
-            isDownloading ? (
-              <span style={{ fontSize: "10px", fontWeight: "bold" }}>
-                {Math.round(progress * 100)}%
-              </span>
-            ) : (
-              <Download size={20} />
-            )
-          ) : isPlaying ? (
-            <Pause size={20} fill="currentColor" />
-          ) : (
-            <Play size={20} fill="currentColor" />
-          )}
-        </PlayPauseBtn>
-
-        <WaveformContainer>
-          {waveform.map((h, i) => (
-            <WaveformBar
-              key={i}
-              height={h}
-              isMe={isMe}
-              active={i / waveform.length < currentTime / duration}
-            />
-          ))}
-        </WaveformContainer>
-
-        {isDownloaded && (
-          <SpeedButton onClick={handleSpeed}>{speed}x</SpeedButton>
-        )}
-      </AudioControls>
-
-      <AudioTimeInfo>
-        <span>{isDownloaded ? formatTime(currentTime) : "0:00"}</span>
-        <span>
-          {isDownloaded
-            ? formatTime(duration)
-            : isDownloading
-              ? "Downloading..."
-              : "Voice Note"}
-        </span>
-      </AudioTimeInfo>
-
-      {isDownloaded && !isMe && (
-        <div
-          style={{ position: "absolute", top: 4, right: 4 }}
-          onClick={onSave}
-        >
-          <Save size={14} style={{ opacity: 0.5, cursor: "pointer" }} />
-        </div>
-      )}
-    </AudioContainer>
-  );
-};
 
 export const MessageBubble = ({
   msg,
@@ -198,17 +63,11 @@ export const MessageBubble = ({
   const touchMoveX = useRef(0);
   const prevMsgId = useRef<string>(msg.id);
 
-  const [isDecrypted, setIsDecrypted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isRequestingDownload, setIsRequestingDownload] = useState(false);
 
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [showPicker, setShowPicker] = useState(false);
-  const [unsafeLink, setUnsafeLink] = useState<{
-    url: string;
-    type: "unsafe" | "unknown";
-    isLoading?: boolean;
-  } | null>(null);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
@@ -231,8 +90,6 @@ export const MessageBubble = ({
     e.preventDefault();
     setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
   };
-
-
 
   const handleCopy = async () => {
     const text = msg.text || "";
@@ -287,7 +144,7 @@ export const MessageBubble = ({
   useEffect(() => {
     loadReactions();
 
-    const onUpdate = (e: any) => {
+    const onUpdate = () => {
       loadReactions();
     };
 
@@ -316,17 +173,6 @@ export const MessageBubble = ({
     }
   };
 
-  const toggleReaction = (emoji: string) => {
-    const myReaction = reactions.find(
-      (r) => r.emoji === emoji && r.senderEmail === "me",
-    );
-    if (myReaction && msg.sid && msg.id) {
-      ChatClient.sendReaction(msg.sid, msg.id, emoji, "remove");
-    } else if (msg.sid && msg.id) {
-      ChatClient.sendReaction(msg.sid, msg.id, emoji, "add");
-    }
-  };
-
   const handleLinkClick = async (e: React.MouseEvent, url: string) => {
     // If trusted, let the browser handle the click natively (avoids popup blockers)
     if (isTrustedUrl(url)) {
@@ -336,30 +182,17 @@ export const MessageBubble = ({
     e.preventDefault();
     // continue with safety check...
 
-    console.log("Link not trusted (or not in local list), checking safety...");
-    setUnsafeLink({ url, type: "unknown", isLoading: true });
-
     try {
       const status = await ChatClient.checkLinkSafety(url);
       console.log("Safety status:", status);
-
-      if (status === "SAFE") {
-        setUnsafeLink({ url, type: "unknown", isLoading: false });
-      } else if (status === "UNSAFE") {
-        setUnsafeLink({ url, type: "unsafe", isLoading: false });
-      } else {
-        setUnsafeLink({ url, type: "unknown", isLoading: false });
-      }
     } catch (e) {
       console.error("Failed to check link safety", e);
-      setUnsafeLink({ url, type: "unknown", isLoading: false });
     }
   };
 
   useEffect(() => {
     if (prevMsgId.current !== msg.id) {
       setImageSrc(null);
-      setIsDecrypted(false);
       prevMsgId.current = msg.id;
     }
 
@@ -369,7 +202,6 @@ export const MessageBubble = ({
       StorageService.getFileSrc(msg.mediaFilename, msg.mediaMime).then(
         (src) => {
           setImageSrc(src);
-          setIsDecrypted(true);
           setIsLoading(false);
         },
       );
@@ -432,115 +264,27 @@ export const MessageBubble = ({
       msg.tempUrl || processedThumbnail || (msg.media && msg.media.url) || null;
 
     if (msg.type === "image") {
-      if (imageSrc || (msg.mediaStatus === "uploading" && msg.tempUrl)) {
-        return (
-          <MediaContainer>
-            <img
-              src={imageSrc || msg.tempUrl}
-              alt="attachment"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onMediaClick) {
-                  onMediaClick(
-                    imageSrc || msg.tempUrl || "",
-                    "image",
-                    msg.text,
-                  );
-                } else {
-                  window.open(imageSrc || msg.tempUrl, "_blank");
-                }
-              }}
-              onError={(e) => {
-                console.error(
-                  `[MessageBubble] Image load failed. ID=${msg.id}`,
-                );
-                e.currentTarget.style.display = "none";
-              }}
-              style={{
-                cursor: "pointer",
-                opacity: msg.mediaStatus === "uploading" ? 0.7 : 1,
-              }}
-            />
-            <MediaActionBtn
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSave();
-              }}
-            >
-              <Save size={16} />
-            </MediaActionBtn>
-            {msg.mediaStatus === "uploading" && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "rgba(0,0,0,0.3)",
-                  borderRadius: "12px",
-                }}
-              >
-                <Loader2 className="animate-spin" size={24} color="white" />
-                <span
-                  style={{
-                    color: "white",
-                    fontSize: "0.75rem",
-                    marginTop: "4px",
-                    fontWeight: 500,
-                  }}
-                >
-                  Uploading...
-                </span>
-              </div>
-            )}
-          </MediaContainer>
-        );
-      }
-
       return (
-        <MediaContainer onClick={!isDownloaded ? handleDownload : undefined}>
-          {thumbnailSrc && (
-            <img
-              src={thumbnailSrc}
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                filter: "blur(10px)",
-                transform: "scale(1.1)",
-                opacity: 0.6,
-              }}
-            />
-          )}
-          <DownloadOverlay>
-            {isDownloading ? (
-              <div style={{ fontWeight: "bold" }}>
-                {isRequestingDownload
-                  ? "0%"
-                  : `${Math.round((msg.mediaProgress || 0) * 100)}%`}
-              </div>
-            ) : isLoading ? (
-              <Loader2 className="animate-spin" size={24} color="white" />
-            ) : (
-              <>
-                <Download size={32} />
-                <span style={{ fontSize: "12px", fontWeight: "500" }}>
-                  Download
-                </span>
-              </>
-            )}
-          </DownloadOverlay>
-        </MediaContainer>
+        <ImageBubble
+          src={imageSrc}
+          thumbnailSrc={thumbnailSrc}
+          text={msg.text || null}
+          mediaStatus={msg.mediaStatus || ""}
+          isDownloaded={isDownloaded}
+          isDownloading={isDownloading}
+          isRequestingDownload={isRequestingDownload}
+          progress={msg.mediaProgress || 0}
+          isLoading={isLoading}
+          onDownload={handleDownload}
+          onSave={handleSave}
+          onMediaClick={onMediaClick}
+        />
       );
     }
 
     if (msg.type === "audio") {
       return (
-        <AudioPlayer
+        <AudioBubble
           src={imageSrc}
           onDownload={handleDownload}
           isDownloaded={isDownloaded}
@@ -553,147 +297,37 @@ export const MessageBubble = ({
     }
 
     if (msg.type === "video") {
-      if (isDownloaded && imageSrc) {
-        return (
-          <MediaContainer>
-            <video
-              src={imageSrc}
-              controls={false}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onMediaClick?.(imageSrc || "", "video", msg.text);
-              }}
-              style={{
-                maxWidth: "100%",
-                borderRadius: "12px",
-                cursor: "pointer",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                pointerEvents: "none",
-              }}
-            >
-              <div
-                style={{
-                  background: "rgba(0,0,0,0.5)",
-                  borderRadius: "50%",
-                  padding: "12px",
-                  backdropFilter: "blur(4px)",
-                }}
-              >
-                <Play size={24} fill="white" color="white" />
-              </div>
-            </div>
-          </MediaContainer>
-        );
-      }
       return (
-        <MediaContainer>
-          {isDownloading ? (
-            <div style={{ color: "white" }}>
-              {isRequestingDownload
-                ? "0%"
-                : `${Math.round((msg.mediaProgress || 0) * 100)}%`}
-            </div>
-          ) : (
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: "8px 16px",
-                borderRadius: "20px",
-                border: "none",
-                backgroundColor: "rgba(255,255,255,0.2)",
-                color: "white",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <Download size={16} /> <span>Video</span>
-            </button>
-          )}
-        </MediaContainer>
+        <VideoBubble
+          src={imageSrc}
+          isDownloaded={isDownloaded}
+          isDownloading={isDownloading}
+          isRequestingDownload={isRequestingDownload}
+          progress={msg.mediaProgress || 0}
+          onDownload={handleDownload}
+          onMediaClick={onMediaClick}
+          text={msg.text || null}
+        />
       );
     }
 
     if (msg.type === "file") {
       return (
-        <FileAttachment>
-          <div
-            style={{
-              padding: "10px",
-              backgroundColor: "rgba(255,255,255,0.1)",
-              borderRadius: "8px",
-            }}
-          >
-            <FileIcon size={24} />
-          </div>
-          <FileInfo>
-            <FileName>{msg.text || "File"}</FileName>
-            <FileStatus>
-              {isDownloaded ? "Downloaded" : "Attachment"}
-            </FileStatus>
-          </FileInfo>
-          {isDownloaded ? (
-            <button
-              onClick={handleSave}
-              style={{
-                border: "none",
-                background: "none",
-                cursor: "pointer",
-                opacity: 0.8,
-              }}
-            >
-              <Save size={20} />
-            </button>
-          ) : (
-            !isDownloading && (
-              <button
-                onClick={handleDownload}
-                style={{
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                  opacity: 0.8,
-                }}
-              >
-                <Download size={20} />
-              </button>
-            )
-          )}
-          {isDownloading && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 12,
-                right: 12,
-                height: "3px",
-                backgroundColor: "rgba(255,255,255,0.1)",
-              }}
-            >
-              <div
-                style={{
-                  width: `${(msg.mediaProgress || 0) * 100}%`,
-                  height: "100%",
-                  backgroundColor: "#4ade80",
-                }}
-              />
-            </div>
-          )}
-        </FileAttachment>
+        <FileBubble
+          text={msg.text || null}
+          isDownloaded={isDownloaded}
+          isDownloading={isDownloading}
+          progress={msg.mediaProgress || 0}
+          onDownload={handleDownload}
+          onSave={handleSave}
+        />
       );
     }
 
     if (msg.type === "gif") {
+      // Reusing ImageBubble for GIF as it has similar behavior, or keep inline if simple
+      // Ideally ImageBubble handles it, but ImageBubble has download overlays etc which GIF might not need in same way
+      // But let's use ImageBubble with specific props or just MediaContainer as before for now to match exactly
       return (
         <MediaContainer>
           <img
@@ -723,9 +357,13 @@ export const MessageBubble = ({
   };
 
   const isEditable =
-    isMe && Date.now() - msg.timestamp < 15 * 60 * 1000 && msg.type !== "deleted"; // 15 mins
+    isMe &&
+    Date.now() - msg.timestamp < 15 * 60 * 1000 &&
+    msg.type !== "deleted"; // 15 mins
   const isDeletable =
-    isMe && Date.now() - msg.timestamp < 24 * 60 * 60 * 1000 && msg.type !== "deleted"; // 24 hours
+    isMe &&
+    Date.now() - msg.timestamp < 24 * 60 * 60 * 1000 &&
+    msg.type !== "deleted"; // 24 hours
 
   // ...
 
@@ -793,10 +431,10 @@ export const MessageBubble = ({
   const safeDate = new Date(msg.timestamp);
   const timeString = isValidDate(safeDate)
     ? safeDate.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
     : "";
 
   return (
@@ -943,10 +581,22 @@ export const MessageBubble = ({
                   onClick={(e) => e.stopPropagation()}
                 />
                 <EditActionButtons>
-                  <EditButton variant="secondary" onClick={(e) => { e.stopPropagation(); handleCancelEdit(); }}>
+                  <EditButton
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelEdit();
+                    }}
+                  >
                     <X size={14} /> Cancel
                   </EditButton>
-                  <EditButton variant="primary" onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}>
+                  <EditButton
+                    variant="primary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSaveEdit();
+                    }}
+                  >
                     <Check size={14} /> Save
                   </EditButton>
                 </EditActionButtons>
@@ -955,7 +605,10 @@ export const MessageBubble = ({
               <>
                 {renderMediaContent() || (
                   <div
-                    style={{ whiteSpace: "pre-wrap", overflowWrap: "break-word" }}
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "break-word",
+                    }}
                   >
                     {msg.text &&
                       msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
@@ -978,9 +631,9 @@ export const MessageBubble = ({
                     {firstUrl && !msg.mediaFilename && (
                       <div style={{ marginTop: "8px", maxWidth: "400px" }}>
                         {isTrustedUrl(firstUrl) &&
-                          /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
-                            new URL(firstUrl).pathname,
-                          ) ? (
+                        /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
+                          new URL(firstUrl).pathname,
+                        ) ? (
                           <MediaContainer>
                             <img
                               src={firstUrl}
@@ -1023,12 +676,20 @@ export const MessageBubble = ({
             {Object.entries(groupedReactions)
               .sort((a: any, b: any) => b[1] - a[1]) // Sort by count desc
               .slice(0, 3) // Show top 3
-              .map(([emoji, count]) => (
-                <span key={emoji as string} style={{ lineHeight: 1 }}>{emoji as string}</span>
+              .map(([emoji]) => (
+                <span key={emoji as string} style={{ lineHeight: 1 }}>
+                  {emoji as string}
+                </span>
               ))}
-            {(Object.values(groupedReactions) as number[]).reduce((a, b) => a + b, 0) > 1 && (
+            {(Object.values(groupedReactions) as number[]).reduce(
+              (a, b) => a + b,
+              0,
+            ) > 1 && (
               <span style={{ marginLeft: 2 }}>
-                {(Object.values(groupedReactions) as number[]).reduce((a, b) => a + b, 0)}
+                {(Object.values(groupedReactions) as number[]).reduce(
+                  (a, b) => a + b,
+                  0,
+                )}
               </span>
             )}
           </ReactionBubble>
@@ -1103,22 +764,46 @@ export const MessageBubble = ({
               </MoreReactionsButton>
             </ReactionBar>
 
-            <ContextMenuItem onClick={(e) => { e.stopPropagation(); if (onReply) { onReply(msg); setContextMenu({ visible: false, x: 0, y: 0 }); } }}>
+            <ContextMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onReply) {
+                  onReply(msg);
+                  setContextMenu({ visible: false, x: 0, y: 0 });
+                }
+              }}
+            >
               <Reply size={18} /> Reply
             </ContextMenuItem>
 
-            <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleCopy(); }}>
+            <ContextMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy();
+              }}
+            >
               <Copy size={18} /> Copy
             </ContextMenuItem>
 
             {isEditable && (
-              <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(); }}>
+              <ContextMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEdit();
+                }}
+              >
                 <Edit2 size={18} /> Edit
               </ContextMenuItem>
             )}
 
             {isDeletable && (
-              <ContextMenuItem variant="danger" onClick={(e) => { e.stopPropagation(); handleDelete(); }}>
+              <ContextMenuItem
+                variant="danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete();
+                }}
+              >
                 <Trash2 size={18} /> Delete
               </ContextMenuItem>
             )}

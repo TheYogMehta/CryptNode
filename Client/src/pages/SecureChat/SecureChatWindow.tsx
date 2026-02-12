@@ -7,14 +7,13 @@ import {
   Shield,
   Trash2,
   Copy,
-  Eye,
+  Key,
   FileText,
   Send,
-  Key,
   FolderOpen,
 } from "lucide-react";
 import { useHistory } from "react-router-dom";
-import ChatClient from "../../services/ChatClient";
+import ChatClient from "../../services/core/ChatClient";
 import {
   SecureContainer,
   SecureHeader,
@@ -38,7 +37,7 @@ import { ChatMessage } from "../Home/types";
 import { colors } from "../../theme/design-system";
 import { AppLockScreen } from "../Home/components/overlays/AppLockScreen";
 import { useSecureChat } from "./hooks/useSecureChat";
-import { VaultItem } from "../../utils/secureStorage";
+
 import { MediaModal } from "../Home/components/chat/MediaModal";
 
 export const SecureChatWindow: React.FC = () => {
@@ -139,7 +138,11 @@ export const SecureChatWindow: React.FC = () => {
     setViewingItem(null);
   };
 
-  const handleMediaClick = (url: string, type: "image" | "video", description?: string) => {
+  const handleMediaClick = (
+    url: string,
+    type: "image" | "video",
+    description?: string,
+  ) => {
     setSelectedMedia({ url, type, description });
     setMediaModalOpen(true);
   };
@@ -167,7 +170,7 @@ export const SecureChatWindow: React.FC = () => {
             if (isSetup) {
               unlock(pin || "");
             } else {
-              setupVault(pin || "");
+              setupVault();
             }
           }}
           onCancel={() => history.push("/home")}
@@ -271,7 +274,7 @@ export const SecureChatWindow: React.FC = () => {
             <MessageBubble
               key={msg.id}
               msg={msg} // Fixed prop name from message to msg
-              onReply={() => { }}
+              onReply={() => {}}
               onMediaClick={handleMediaClick}
             />
           ))}

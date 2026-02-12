@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StorageService } from "../utils/Storage";
+import { StorageService } from "../services/storage/StorageService";
 
 const UserAvatar: React.FC<{
   avatarUrl?: string | null;

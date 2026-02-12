@@ -1,7 +1,7 @@
 {
   "name": "chatapp",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -40,6 +40,7 @@
     "@mui/material": "^7.3.6",
     "@types/crypto-js": "^4.2.2",
     "@types/lodash.debounce": "^4.0.9",
+    "@types/pako": "^2.0.4",
     "@types/react-router": "^5.1.20",
     "@types/react-router-dom": "^5.3.3",
     "@types/styled-components": "^5.1.36",
@@ -51,6 +52,7 @@
     "ionicons": "^7.4.0",
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.563.0",
+    "pako": "^2.1.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-router": "^5.3.4",

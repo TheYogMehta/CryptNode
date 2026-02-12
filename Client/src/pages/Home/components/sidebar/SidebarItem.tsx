@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StorageService } from "../../../../utils/Storage";
+import { StorageService } from "../../../../services/storage/StorageService";
 import { SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
 import {

@@ -1,4 +1,4 @@
-import { StorageService } from "./Storage";
+import { StorageService } from "../services/storage/StorageService";
 
 const DB_NAME = "SecureChatVault";
 const STORE_NAME = "vault_items";

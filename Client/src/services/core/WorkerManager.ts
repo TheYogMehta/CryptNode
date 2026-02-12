@@ -1,4 +1,4 @@
-import CryptoWorker from "../workers/crypto.worker?worker";
+import CryptoWorker from "../../workers/crypto.worker?worker";
 
 export class WorkerManager {
   private static instance: WorkerManager;

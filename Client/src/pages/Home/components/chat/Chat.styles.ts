@@ -5,7 +5,6 @@ import {
   spacing,
   radii,
   typography,
-  glassEffect,
   shadows,
 } from "../../../../theme/design-system";
 
@@ -99,9 +98,9 @@ export const HeaderStatus = styled.div<{ isOnline?: boolean }>`
     height: 8px;
     border-radius: ${radii.full};
     background-color: ${(props) =>
-    props.isOnline ? colors.status.success : colors.text.tertiary};
+      props.isOnline ? colors.status.success : colors.text.tertiary};
     box-shadow: ${(props) =>
-    props.isOnline ? `0 0 8px ${colors.status.success}` : "none"};
+      props.isOnline ? `0 0 8px ${colors.status.success}` : "none"};
   }
 `;
 
@@ -144,9 +143,9 @@ export const InputContainer = styled.div`
   border-top: 1px solid ${colors.border.subtle};
 
   @media (max-width: 768px) {
-     padding: ${spacing[2]};
-     padding-bottom: max(${spacing[2]}, env(safe-area-inset-bottom));
-     gap: ${spacing[2]};
+    padding: ${spacing[2]};
+    padding-bottom: max(${spacing[2]}, env(safe-area-inset-bottom));
+    gap: ${spacing[2]};
   }
 `;
 
@@ -170,10 +169,10 @@ export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
 
   &:focus-within {
     border-color: ${(props) =>
-    props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
+      props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
     box-shadow: 0 0 0 2px
       ${(props) =>
-    props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
+        props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
   }
 `;
 
@@ -217,7 +216,7 @@ export const SendButton = styled.button<{ isRecording?: boolean }>`
   &:hover {
     transform: scale(1.05);
     background-color: ${(props) =>
-    props.isRecording ? colors.status.error : colors.primary.hover};
+      props.isRecording ? colors.status.error : colors.primary.hover};
   }
 
   &:active {
@@ -328,20 +327,26 @@ export const ReplyText = styled.div`
 `;
 
 // Message Bubble Styles
-export const BubbleWrapper = styled.div<{ isMe: boolean; hasReactions?: boolean }>`
+export const BubbleWrapper = styled.div<{
+  isMe: boolean;
+  hasReactions?: boolean;
+}>`
   display: flex;
   justify-content: ${(props) => (props.isMe ? "flex-end" : "flex-start")};
   width: 100%;
   position: relative;
   padding-left: ${(props) => (props.isMe ? spacing[12] : "0")};
   padding-right: ${(props) => (props.isMe ? "0" : spacing[12])};
-  margin-bottom: ${(props) => (props.hasReactions ? "22px" : "0")}; // Add space for reaction bubble
+  margin-bottom: ${(props) =>
+    props.hasReactions ? "22px" : "0"}; // Add space for reaction bubble
   transition: margin-bottom 0.2s;
 `;
 
 export const Bubble = styled.div<{ isMe: boolean }>`
   background-color: ${(props) =>
-    props.isMe ? "#005c4b" : colors.background.tertiary}; // WhatsApp-like dark green for me
+    props.isMe
+      ? "#005c4b"
+      : colors.background.tertiary}; // WhatsApp-like dark green for me
   color: ${(props) => (props.isMe ? "#e9edef" : colors.text.primary)};
   padding: ${spacing[2]} ${spacing[3]};
   border-radius: ${(props) =>
@@ -350,7 +355,7 @@ export const Bubble = styled.div<{ isMe: boolean }>`
       : `0 ${radii.lg} ${radii.lg} ${radii.lg}`};
   max-width: 85%;
   position: relative;
-  box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+  box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
   word-break: break-word;
   font-size: ${typography.fontSize.base};
   line-height: 1.4;
@@ -534,7 +539,7 @@ export const PlayPauseBtn = styled.div<{ isMe: boolean }>`
   &:hover {
     transform: scale(1.05);
     background-color: ${(props) =>
-    props.isMe ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)"};
+      props.isMe ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)"};
   }
 `;
 
@@ -562,8 +567,8 @@ export const WaveformBar = styled.div<{
         ? "#a5b4fc"
         : "#64748b"
       : props.isMe
-        ? "rgba(255, 255, 255, 0.4)"
-        : "rgba(0, 0, 0, 0.1)"};
+      ? "rgba(255, 255, 255, 0.4)"
+      : "rgba(0, 0, 0, 0.1)"};
 `;
 
 export const SpeedButton = styled.div`
@@ -611,8 +616,7 @@ export const ContextMenuItem = styled.div<{ variant?: "danger" }>`
   display: flex;
   align-items: center;
   gap: 16px;
-  color: ${(props) =>
-    props.variant === "danger" ? "#ef4444" : "#e9edef"};
+  color: ${(props) => (props.variant === "danger" ? "#ef4444" : "#e9edef")};
   font-size: 14.5px;
   transition: background-color 0.2s;
   letter-spacing: 0.3px;
@@ -637,10 +641,12 @@ export const ReactionBar = styled.div`
   z-index: 1001;
   animation: ${scaleIn} 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap; // Prevent wrapping
-  max-width: 90vw;     // Prevent overflow on very small screens
-  overflow-x: auto;    // Scroll if screen is tiny
+  max-width: 90vw; // Prevent overflow on very small screens
+  overflow-x: auto; // Scroll if screen is tiny
   scrollbar-width: none; // Hide scrollbar
-  &::-webkit-scrollbar { display: none; }
+  &::-webkit-scrollbar {
+    display: none;
+  }
 `;
 
 export const ReactionButton = styled.button`
@@ -655,14 +661,14 @@ export const ReactionButton = styled.button`
   &:hover {
     transform: scale(1.35);
   }
-  
+
   &:active {
     transform: scale(0.9);
   }
 `;
 
 export const MoreReactionsButton = styled.button`
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
   border: none;
   border-radius: 50%;
   width: 32px;
@@ -675,7 +681,7 @@ export const MoreReactionsButton = styled.button`
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.2);
     color: white;
   }
 `;
@@ -691,7 +697,7 @@ export const ReactionBubble = styled.div<{ isMe: boolean }>`
   display: flex;
   align-items: center;
   gap: 4px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   font-size: 11px;
   color: #aebac1;
   z-index: 10; // Ensure it floats above

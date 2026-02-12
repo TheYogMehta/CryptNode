@@ -1,6 +1,6 @@
 import React from "react";
 import styled from "styled-components";
-import { AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 const ModalOverlay = styled.div`
   position: fixed;

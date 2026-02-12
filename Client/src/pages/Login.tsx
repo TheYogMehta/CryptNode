@@ -1,8 +1,19 @@
 import React, { useEffect } from "react";
 import { SocialLogin } from "@capgo/capacitor-social-login";
-import { AppContainer } from "./Home/Home.styles";
 import { Capacitor } from "@capacitor/core";
-import { colors } from "../theme/design-system";
+import {
+  LoginContainer,
+  HeaderSection,
+  Title,
+  Subtitle,
+  LoginCard,
+  LogoIcon,
+  WelcomeTitle,
+  WelcomeText,
+  GoogleButton,
+  LoadingSpinner,
+  LoadingText,
+} from "./Login.styles";
 
 interface LoginProps {
   onLogin: (token: string) => void;
@@ -61,127 +72,29 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <AppContainer
-      style={{
-        flexDirection: "column",
-        padding: "max(40px, env(safe-area-inset-top)) 20px 20px",
-        justifyContent: "center",
-        alignItems: "center",
-        gap: "2rem",
-        background: `radial-gradient(circle at 50% 10%, rgba(99, 102, 241, 0.15) 0%, transparent 60%), ${colors.background.primary}`,
-      }}
-    >
-      <div style={{ textAlign: "center" }} className="animate-fade-up">
-        <h1
-          className="title-large"
-          style={{ marginBottom: "0.5rem", fontSize: "3.5rem" }}
-        >
-          Chat<span style={{ color: colors.primary.main }}>app</span>
-        </h1>
-        <p
-          style={{
-            color: colors.text.secondary,
-            marginBottom: "2rem",
-            letterSpacing: "0.5px",
-          }}
-        >
-          Secure End-to-End Encrypted Chat
-        </p>
-      </div>
+    <LoginContainer>
+      <HeaderSection>
+        <Title>
+          Chat<span>app</span>
+        </Title>
+        <Subtitle>Secure End-to-End Encrypted Chat</Subtitle>
+      </HeaderSection>
 
-      <div
-        className="glass-panel animate-scale-in"
-        style={{
-          padding: "2.5rem",
-          borderRadius: "24px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "1.5rem",
-          width: "90%",
-          maxWidth: "380px",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-        }}
-      >
-        <div
-          style={{
-            width: "64px",
-            height: "64px",
-            borderRadius: "20px",
-            background: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: "8px",
-            fontSize: "32px",
-            fontWeight: "bold",
-            color: "white",
-          }}
-        >
-          C
-        </div>
-        <h3
-          style={{
-            margin: 0,
-            fontWeight: 700,
-            color: colors.text.primary,
-            fontSize: "1.5rem",
-          }}
-        >
-          Welcome Back
-        </h3>
-        <p
-          style={{
-            fontSize: "0.95rem",
-            color: colors.text.secondary,
-            textAlign: "center",
-            lineHeight: "1.6",
-          }}
-        >
+      <LoginCard>
+        <LogoIcon>Yog</LogoIcon>
+        <WelcomeTitle>Welcome Back</WelcomeTitle>
+        <WelcomeText>
           Sign in to verify your identity and start chatting securely with your
           peers.
-        </p>
+        </WelcomeText>
 
-        <button
+        <GoogleButton
           onClick={signIn}
           disabled={isLoading}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "12px",
-            backgroundColor: "white",
-            color: "#3c4043",
-            border: "none",
-            borderRadius: "24px",
-            padding: "12px 24px",
-            fontSize: "1rem",
-            fontWeight: 500,
-            cursor: isLoading ? "not-allowed" : "pointer",
-            width: "100%",
-            maxWidth: "260px",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-            transition: "transform 0.1s",
-            opacity: isLoading ? 0.7 : 1,
-          }}
-          onMouseDown={(e) =>
-            !isLoading && (e.currentTarget.style.transform = "scale(0.98)")
-          }
-          onMouseUp={(e) =>
-            !isLoading && (e.currentTarget.style.transform = "scale(1)")
-          }
+          isLoading={isLoading}
         >
           {isLoading ? (
-            <div
-              style={{
-                width: "20px",
-                height: "20px",
-                border: "2px solid #3c4043",
-                borderTopColor: "transparent",
-                borderRadius: "50%",
-                animation: "spin 1s linear infinite",
-              }}
-            />
+            <LoadingSpinner />
           ) : (
             <>
               <svg width="20" height="20" viewBox="0 0 24 24">
@@ -205,31 +118,11 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <span>Sign in with Google</span>
             </>
           )}
-        </button>
+        </GoogleButton>
         {isLoading && (
-          <p
-            style={{
-              marginTop: "1rem",
-              fontSize: "0.85rem",
-              color: colors.text.secondary,
-              animation: "pulse 1.5s infinite",
-            }}
-          >
-            Setting up secure environment...
-          </p>
+          <LoadingText>Setting up secure environment...</LoadingText>
         )}
-      </div>
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-           @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-          }
-        `}
-      </style>
-    </AppContainer>
+      </LoginCard>
+    </LoginContainer>
   );
 };

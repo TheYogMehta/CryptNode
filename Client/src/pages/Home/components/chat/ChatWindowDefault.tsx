@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
-import { StorageService } from "../../../../utils/Storage";
+import { StorageService } from "../../../../services/storage/StorageService";
 import { MessageBubble } from "./MessageBubble";
 import { PortShareModal } from "./PortShareModal";
 import { MediaModal } from "./MediaModal";
@@ -64,7 +64,7 @@ interface ChatWindowProps {
   isRateLimited?: boolean;
 }
 
-export const ChatWindow = ({
+export const ChatWindowDefault = ({
   messages,
   onSend,
   activeChat,

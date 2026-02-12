@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { executeDB, queryDB } from "../../../../services/sqliteService";
-import { AccountService } from "../../../../services/AccountService";
+import { executeDB, queryDB } from "../../../../services/storage/sqliteService";
+import { AccountService } from "../../../../services/auth/AccountService";
 import {
   getKeyFromSecureStorage,
   setKeyFromSecureStorage,
-} from "../../../../services/SafeStorage";
-import { StorageService } from "../../../../utils/Storage";
+} from "../../../../services/storage/SafeStorage";
+import { StorageService } from "../../../../services/storage/StorageService";
 import { AppLockScreen } from "./AppLockScreen";
 import { Clipboard } from "@capacitor/clipboard";
 import * as bip39 from "bip39";
 import { Buffer } from "buffer";
-import { ChatClient } from "../../../../services/ChatClient";
+import { ChatClient } from "../../../../services/core/ChatClient";
 
 (window as any).Buffer = Buffer;
 
@@ -103,7 +103,6 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
 
   const handleMasterKeyNext = async () => {
     try {
-      // Ensure we persist the mnemonic (if it was legacy hex) so we don't show this screen again
       const storageKey = await AccountService.getStorageKey(
         userEmail,
         "MASTER_KEY",

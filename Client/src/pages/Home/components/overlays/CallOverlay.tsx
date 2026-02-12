@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 
 import { IconButton } from "../../../../components/ui/IconButton";
-import { ChatClient } from "../../../../services/ChatClient";
-import { StorageService } from "../../../../utils/Storage";
+import { ChatClient } from "../../../../services/core/ChatClient";
+import { StorageService } from "../../../../services/storage/StorageService";
 import {
   OverlayContainer,
   CallCard,
@@ -182,11 +182,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   };
 
   const toggleVideo = async () => {
-    await client.toggleVideo();
+    await client.toggleVideo(!isVideoEnabled);
   };
 
   const toggleScreen = async () => {
-    await client.toggleScreenShare();
+    await client.toggleScreenShare(!isScreenEnabled);
   };
 
   const displayName =

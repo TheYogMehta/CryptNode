@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
-import { ExternalLink, Loader2, AlertTriangle } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 
 const PreviewContainer = styled.a`
   display: flex;

@@ -58,6 +58,7 @@ const SCHEMA = {
       size INTEGER DEFAULT 0,
       status TEXT DEFAULT 'pending',
       thumbnail TEXT,
+      is_compressed INTEGER DEFAULT 0,
       FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     `,
     indices: ["CREATE INDEX IF NOT EXISTS idx_media_msg ON media(message_id);"],
@@ -138,8 +139,7 @@ export const dbInit = () => {
         const msg = e.message || JSON.stringify(e);
         if (msg.includes("passphrase already in store")) {
           console.log("[sqlite] Passphrase already in store, continuing...");
-          lastSecretSet = key; // Treat as success since it's already set
-        } else {
+          lastSecretSet = key;
           console.warn("Failed to set encryption key/secret:", e);
         }
       }
