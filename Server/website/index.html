@@ -1,310 +1,105 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description"
-        content="Download SecureChat - Private, encrypted, and anonymous messaging. Available on Windows, macOS, Linux, iOS, and Android.">
-    <meta name="theme-color" content="#0f172a">
-    <meta property="og:title" content="SecureChat - Secure Messaging">
-    <meta property="og:description" content="Private. Encrypted. Anonymous.">
-    <meta property="og:type" content="website">
-    <title>Download SecureChat - Secure Messaging App</title>
-
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: "Poppins", sans-serif;
-        }
-
-        body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f2854 100%);
-            color: white;
-            min-height: 100vh;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: auto;
-            padding: 60px 20px;
-        }
-
-        .hero {
-            text-align: center;
-            margin-bottom: 80px;
-            animation: fadeInDown 0.8s ease-out;
-        }
-
-        .hero h1 {
-            font-size: 3.5rem;
-            font-weight: 700;
-            margin-bottom: 15px;
-            background: linear-gradient(135deg, #60a5fa, #3b82f6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .hero p {
-            font-size: 1.25rem;
-            opacity: 0.8;
-            margin-bottom: 10px;
-        }
-
-        .tagline {
-            font-size: 0.95rem;
-            opacity: 0.6;
-            margin-top: 8px;
-        }
-
-        .features {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            margin-bottom: 70px;
-            flex-wrap: wrap;
-        }
-
-        .feature {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.95rem;
-            opacity: 0.85;
-        }
-
-        .platforms {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 30px;
-            margin-bottom: 60px;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 40px 30px;
-            text-align: center;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            animation: fadeInUp 0.6s ease-out backwards;
-        }
-
-        .card:nth-child(1) {
-            animation-delay: 0.1s;
-        }
-
-        .card:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .card:nth-child(3) {
-            animation-delay: 0.3s;
-        }
-
-        .card:nth-child(4) {
-            animation-delay: 0.4s;
-        }
-
-        .card:nth-child(5) {
-            animation-delay: 0.5s;
-        }
-
-        .card:hover {
-            transform: translateY(-15px);
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(59, 130, 246, 0.5);
-            box-shadow: 0 20px 40px rgba(59, 130, 246, 0.1);
-        }
-
-        .card-icon {
-            font-size: 3.5rem;
-            margin-bottom: 15px;
-            display: block;
-        }
-
-        .card h2 {
-            font-size: 1.5rem;
-            margin-bottom: 12px;
-            font-weight: 600;
-        }
-
-        .card p {
-            font-size: 0.95rem;
-            opacity: 0.7;
-            margin-bottom: 25px;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 12px 28px;
-            border-radius: 30px;
-            text-decoration: none;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            border: none;
-            font-size: 0.95rem;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-        }
-
-        .version {
-            margin-top: 60px;
-            text-align: center;
-            font-size: 0.85rem;
-            opacity: 0.6;
-        }
-
-        footer {
-            text-align: center;
-            margin-top: 40px;
-            padding-top: 30px;
-            padding-bottom: 20px;
-            font-size: 0.8rem;
-            opacity: 0.5;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        @keyframes fadeInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-30px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 40px 15px;
-            }
-
-            .hero h1 {
-                font-size: 2.2rem;
-            }
-
-            .hero p {
-                font-size: 1rem;
-            }
-
-            .features {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .platforms {
-                gap: 20px;
-            }
-
-            .card {
-                padding: 30px 20px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .hero h1 {
-                font-size: 1.8rem;
-            }
-
-            .hero p {
-                font-size: 0.9rem;
-            }
-
-            .card-icon {
-                font-size: 2.5rem;
-            }
-
-            .card h2 {
-                font-size: 1.1rem;
-            }
-        }
-    </style>
-</head>
-
-<body>
-    <div class="container">
-        <section class="hero">
-            <h1>SecureChat</h1>
-            <p>Private. Encrypted. Anonymous.</p>
-            <p class="tagline">Secure messaging you can trust</p>
-        </section>
-
-        <section class="features">
-            <div class="feature">
-                <span>🔒</span>
-                <span>End-to-End Encrypted</span>
-            </div>
-            <div class="feature">
-                <span>👥</span>
-                <span>Anonymous & Private</span>
-            </div>
-            <div class="feature">
-                <span>⚡</span>
-                <span>Lightning Fast</span>
-            </div>
-        </section>
-
-        <section class="platforms">
-            <!-- Windows -->
-            <div class="card">
-                <span class="card-icon">🪟</span>
-                <h2>Windows</h2>
-                <p>Windows 10 & 11 (64-bit)</p>
-                <a href="downloads/securechat-windows.exe" class="btn btn-primary">Download for Windows</a>
-            </div>
-
-            <!-- Linux -->
-            <div class="card">
-                <span class="card-icon">🐧</span>
-                <h2>Linux</h2>
-                <p>Ubuntu, Debian, Arch supported</p>
-                <a href="downloads/securechat-linux.tar.gz" class="btn btn-primary">Download for Linux</a>
-            </div>
-
-            <!-- Android -->
-            <div class="card">
-                <span class="card-icon">🤖</span>
-                <h2>Android</h2>
-                <p>Android 8.0 and above</p>
-                <a href="https://play.google.com" class="btn btn-primary">Get on Play Store</a>
-            </div>
-        </section>
-
-        <div class="version">
-            <p>Version 1.0.0 • Last Updated: February 2026</p>
-        </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="CryptNode is a secure communication platform with private chat, calls, and vault storage."
+    />
+    <meta name="theme-color" content="#0c1020" />
+    <title>CryptNode</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer" aria-hidden="true">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="grid"></div>
     </div>
-</body>
 
+    <header class="topbar">
+      <a class="brand" href="#">CryptNode</a>
+      <a class="btn btn-ghost" href="#download">Download</a>
+    </header>
+
+    <main class="container">
+      <section class="hero reveal">
+        <p class="kicker">Secure communication platform</p>
+        <h1>Built for private messaging and fast collaboration.</h1>
+        <p class="lead">
+          CryptNode delivers encrypted chat, media transfer, and calling with a
+          responsive interface across desktop and Android.
+        </p>
+        <div id="latest-download" class="download-group">
+          <!-- Buttons injected by JS -->
+          <button class="btn btn-primary" disabled>Loading...</button>
+        </div>
+        <div id="version-list" class="version-list hidden">
+          <h3>All Versions</h3>
+          <ul id="versions-ul"></ul>
+        </div>
+      </section>
+
+      <section class="features reveal">
+        <div class="section-head">
+          <p>Features</p>
+          <h2>Everything needed for modern secure communication</h2>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3>Encrypted Messaging</h3>
+            <p>
+              Private direct and group communication with media support and
+              reliable delivery.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Voice and Video Calls</h3>
+            <p>
+              Real-time calling with low latency and seamless transition between
+              audio and video.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Secure Vault</h3>
+            <p>
+              Protect sensitive notes, links, and files with local encryption
+              controls.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Cross-Platform Runtime</h3>
+            <p>
+              Consistent behavior across browser, desktop, and Android
+              environments.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Fast Interface</h3>
+            <p>
+              Optimized rendering, smooth transitions, and practical workflows
+              for daily usage.
+            </p>
+          </article>
+          <article class="feature-card">
+            <h3>Storage and Sharing</h3>
+            <p>
+              Share files and links quickly while preserving secure data
+              handling patterns.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
 </html>

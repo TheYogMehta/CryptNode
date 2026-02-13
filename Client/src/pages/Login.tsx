@@ -41,7 +41,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       await SocialLogin.initialize({
         google: {
           webClientId:
-            "588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com",
+            "588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com",
           mode: "online",
         },
       });
@@ -53,7 +53,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = React.useState(false);
   const [errorText, setErrorText] = React.useState<string | null>(null);
   const isAndroid = Capacitor.getPlatform() === "android";
-
   const extractMessage = (error: unknown): string => {
     if (error instanceof Error) return error.message || "Unknown error";
     if (typeof error === "string") return error;

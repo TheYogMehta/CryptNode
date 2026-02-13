@@ -82,6 +82,20 @@ interface ChatMessage {
 }
 ```
 
+### Advanced Messaging Features
+
+**GIF Support**:
+
+- **Tenor Integration**: Support for Tenor GIF URLs via `LinkPreview`.
+- **Privacy Proxy**: Tenor Page URLs are resolved via a privacy-preserving proxy to extract the direct image source without tracking.
+- **Display**: GIFs are rendered cleanly using an `imageOnly` mode in the link previewer, removing metadata cards for a native feel.
+
+**Message Deletion**:
+
+- **Hard Delete**: Messages are permanently removed from the local database (no "message deleted" placeholder).
+- **Local-Only Deletion**: Deleting a message sent by _another user_ removes it only from the local device; no network packet is sent.
+- **Unsend (Retraction)**: Deleting _your own_ message performs a local hard delete AND sends a `DELETE` packet to the peer to remove it from their device.
+
 ### Text Messaging Error Handling
 
 | Error                  | Cause                          | Recovery                                   |

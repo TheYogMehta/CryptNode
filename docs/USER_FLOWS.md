@@ -463,4 +463,29 @@ flowchart TD
 - Server responds with `ERROR: "Authentication required"`
 - App triggers logout flow
 - Clear session token
+- Clear session token
 - Return to login screen
+
+## 8. Message Deletion
+
+### Flow
+
+1. User right-clicks (desktop) or long-presses (mobile) on a message bubble.
+2. User selects **Delete**.
+3. **Condition Check**:
+   - **If My Message**:
+     - App constructs `DELETE` payload.
+     - Encrypts and sends to peer via `MSG` frame.
+     - Performs **hard delete** locally (DELETE FROM messages).
+     - UI removes bubble instantly.
+   - **If Peer's Message**:
+     - No network action taken.
+     - Performs **hard delete** locally.
+     - UI removes bubble instantly.
+
+### Backend/Peer Flow (Unsend)
+
+1. Peer receives `DELETE` frame.
+2. Basic validation (sender must be message owner).
+3. Peer performs **hard delete** locally.
+4. UI removes bubble instantly.

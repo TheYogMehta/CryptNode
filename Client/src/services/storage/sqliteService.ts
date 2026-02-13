@@ -153,11 +153,12 @@ export const dbInit = () => {
       }
     }
 
+    const useEncryption = Boolean(key);
     try {
       await CapacitorSQLite.createConnection({
         database: currentDbName,
-        encrypted: true,
-        mode: "secret",
+        encrypted: useEncryption,
+        mode: useEncryption ? "secret" : "no-encryption",
         version: 1,
       });
     } catch (e) {

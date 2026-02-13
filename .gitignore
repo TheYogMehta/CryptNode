@@ -4,3 +4,6 @@ Client/android/keystore.properties
 Client/android/app/chatapp-release.jks
 Client/android/app/release/*
 Server/.env
+Server/website/node_modules/*
+Server/website/dist/*
+Server/website/releases/*

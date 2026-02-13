@@ -394,6 +394,16 @@ The payload, when decrypted, contains a JSON object with its own type:
     "avatar_version": 1
   }
 }
+
+// Message Deletion
+{
+  "t": "MSG",
+  "data": {
+    "type": "DELETE",
+    "id": "uuid-1234",
+    "timestamp": 1704067200000
+  }
+}
 ```
 
 #### `DELIVERED` (Server → Client)
