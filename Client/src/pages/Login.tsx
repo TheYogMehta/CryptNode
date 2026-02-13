@@ -138,7 +138,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     <LoginContainer>
       <HeaderSection>
         <Title>
-          Chat<span>app</span>
+          Crypt<span>Node</span>
         </Title>
         <Subtitle>Secure End-to-End Encrypted Chat</Subtitle>
       </HeaderSection>

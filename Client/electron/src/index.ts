@@ -218,7 +218,7 @@ ipcMain.handle("open-external-url", async (_event, url: string) => {
 // Secure Storage
 // ============================================================================
 let activeUserHash: string | null = null;
-const GLOBAL_KEYS = ["chatapp_accounts"];
+const GLOBAL_KEYS = ["cryptnode_accounts"];
 
 function checkAccess(key: string): boolean {
   if (GLOBAL_KEYS.includes(key)) return true;
@@ -242,13 +242,13 @@ ipcMain.handle(
 
 ipcMain.handle("SafeStorage:getKey", async (_event, key: string) => {
   if (!checkAccess(key)) return null;
-  return keytar.getPassword("ChatApp", key);
+  return keytar.getPassword("CryptNode", key);
 });
 
 ipcMain.handle(
   "SafeStorage:setKey",
   async (_event, key: string, value: string) => {
     if (!checkAccess(key)) return null;
-    return keytar.setPassword("ChatApp", key, value);
+    return keytar.setPassword("CryptNode", key, value);
   },
 );

@@ -69,8 +69,9 @@ const (
 	maxWSFrameBytes       = 1024 * 1024
 	maxEncryptedDataBytes = 400 * 1024
 	maxSIDLength          = 128
-	maxMsgsPerSecond      = 100
 )
+
+var maxMsgsPerSecond = 100
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
@@ -147,7 +148,7 @@ func verifyGoogleToken(token string) (string, error) {
 
 	validClients := map[string]bool{
 		"588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com": true, // Web/Electron
-		"588653192623-lrcr1rs3meptlo4a2dkt6aam6jpvoua1.apps.googleusercontent.com": true, // Android
+		"588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com": true, // Android
 	}
 
 	if !validClients[claims.Aud] {

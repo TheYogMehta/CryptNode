@@ -129,6 +129,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               "app_lock_pin",
               "MASTER_KEY",
               "vault_mfa_secret",
+              "vault_mfa_provisioned",
               "identity_priv",
               "identity_pub",
               "auth_token",

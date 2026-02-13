@@ -46,7 +46,7 @@ export const Sidebar = React.memo(
       <SidebarContainer isOpen={isOpen} isMobile={isMobile}>
         <SidebarHeader>
           <Logo onClick={onLogoClick}>
-            Chat<span>app</span>
+            Crypt<span>Node</span>
           </Logo>
           {isMobile && <CloseButton onClick={onClose}>✕</CloseButton>}
         </SidebarHeader>

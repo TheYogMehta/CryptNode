@@ -80,14 +80,19 @@ export const useSecureChat = () => {
         }
 
         const onboarding = await mfaService.getOnboardingData(userEmail);
+        const isProvisioned = await mfaService.isProvisioned(userEmail);
         if (!otpToken) {
-          const qrDataUrl = await qrService.toDataUrl(onboarding.otpAuthUri);
-          setMfaOnboarding({ ...onboarding, qrDataUrl });
+          if (!isProvisioned) {
+            const qrDataUrl = await qrService.toDataUrl(onboarding.otpAuthUri);
+            setMfaOnboarding({ ...onboarding, qrDataUrl });
+          } else {
+            setMfaOnboarding(null);
+          }
           setError("Enter your authenticator code to unlock.");
           return { ok: false, requiresMfa: true };
         }
 
-        const valid = mfaService.verifyToken(onboarding.secret, otpToken);
+        const valid = await mfaService.verifyToken(onboarding.secret, otpToken);
         if (!valid) {
           throw new Error("Invalid verification code");
         }
@@ -113,6 +118,9 @@ export const useSecureChat = () => {
         setIsUnlocked(true);
         setError(null);
         setMfaOnboarding(null);
+        if (!isProvisioned) {
+          await mfaService.setProvisioned(userEmail, true);
+        }
 
         await loadItems();
         return { ok: true };
@@ -210,6 +218,7 @@ export const useSecureChat = () => {
         const onboarding = await mfaService.getOnboardingData(userEmail);
         const qrDataUrl = await qrService.toDataUrl(onboarding.otpAuthUri);
         setMfaOnboarding({ ...onboarding, qrDataUrl });
+        await mfaService.setProvisioned(userEmail, false);
 
         // Keep vault locked until OTP is verified.
         return { ok: false, requiresMfa: true };

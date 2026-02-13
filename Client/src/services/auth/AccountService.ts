@@ -12,7 +12,7 @@ export interface StoredAccount {
   avatarUrl?: string;
 }
 
-const STORAGE_KEY_ACCOUNTS = "chatapp_accounts";
+const STORAGE_KEY_ACCOUNTS = "cryptnode_accounts";
 
 export class AccountService {
   static async getDbName(email: string): Promise<string> {

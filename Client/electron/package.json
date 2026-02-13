@@ -1,14 +1,14 @@
 {
-  "name": "chatapp",
+  "name": "cryptnode",
   "version": "1.0.0",
-  "description": "Electron chatapp client using Capacitor",
+  "description": "Electron cryptnode client using Capacitor",
   "author": {
     "name": "TheYogMehta",
     "email": "mehtayog2005@gmail.com"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TheYogMehta/chatapp"
+    "url": "https://github.com/TheYogMehta/cryptnode"
   },
   "license": "MIT",
   "main": "build/src/index.js",
@@ -57,7 +57,7 @@
     "npm": ">=11.7.0"
   },
   "build": {
-    "appId": "com.chatapp",
+    "appId": "com.cryptnode",
     "directories": {
       "buildResources": "resources"
     },

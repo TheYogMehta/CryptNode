@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">chatapp</string>
-    <string name="title_activity_main">chatapp</string>
-    <string name="package_name">com.chatapp</string>
-    <string name="custom_url_scheme">com.chatapp</string>
+    <string name="app_name">cryptnode</string>
+    <string name="title_activity_main">cryptnode</string>
+    <string name="package_name">com.cryptnode</string>
+    <string name="custom_url_scheme">com.cryptnode</string>
 </resources>

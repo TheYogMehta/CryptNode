@@ -234,7 +234,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
               : "App Locked")}
         </h2>
         <p style={{ color: "#aaa" }}>
-          {description || "Enter your PIN to access Chatapp"}
+          {description || "Enter your PIN to access CryptNode"}
         </p>
       </div>
 

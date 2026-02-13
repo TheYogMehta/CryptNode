@@ -11,7 +11,7 @@ export const PlatformStorage = {
 
     if (platform === "android") {
       const srcPath = `${VAULT_DIR}/${vaultFileName}`;
-      const folderName = "Download/chatapp";
+      const folderName = "Download/cryptnode";
 
       const perm = await Filesystem.checkPermissions();
       if (perm.publicStorage !== "granted") {
@@ -66,7 +66,7 @@ export const PlatformStorage = {
         toDirectory: Directory.ExternalStorage,
       });
 
-      return `Downloads/chatapp/${finalName}`;
+      return `Downloads/cryptnode/${finalName}`;
     }
 
     if (platform === "electron") {
@@ -75,7 +75,7 @@ export const PlatformStorage = {
       const { app } = window.require("electron").remote;
 
       const downloadsDir = app.getPath("downloads");
-      const targetDir = path.join(downloadsDir, "chatapp");
+      const targetDir = path.join(downloadsDir, "cryptnode");
 
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
@@ -97,7 +97,7 @@ export const PlatformStorage = {
 
       fs.copyFileSync(srcPath, path.join(targetDir, finalName));
 
-      return path.join("Downloads", "chatapp", finalName);
+      return path.join("Downloads", "cryptnode", finalName);
     }
 
     throw new Error(`UNSUPPORTED_PLATFORM: ${platform}`);

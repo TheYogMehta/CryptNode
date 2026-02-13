@@ -1,4 +1,4 @@
-package com.chatapp;
+package com.cryptnode;
 
 import  android.os.Bundle;
 import com.getcapacitor.BridgeActivity;

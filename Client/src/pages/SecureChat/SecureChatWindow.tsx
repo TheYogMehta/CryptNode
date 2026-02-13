@@ -24,16 +24,16 @@ import {
   paperPlaneOutline,
   searchOutline,
 } from "ionicons/icons";
-import { useHistory } from "react-router-dom";
 import { useSecureChat } from "./hooks/useSecureChat";
 import SavePasswordModal from "./SavePasswordModal";
-import { AppLockScreen } from "../Home/components/overlays/AppLockScreen";
 import { colors } from "../../theme/design-system";
-import ChatClient from "../../services/core/ChatClient";
 import { platformLaunchService } from "../../services/mfa/platform-launch.service";
 
-export const SecureChatWindow: React.FC = () => {
-  const history = useHistory();
+interface SecureChatWindowProps {
+  onBack?: () => void;
+}
+
+export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) => {
   const {
     isUnlocked,
     isSetup,
@@ -60,7 +60,9 @@ export const SecureChatWindow: React.FC = () => {
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [mfaToken, setMfaToken] = useState("");
   const [canOpenOtpLink, setCanOpenOtpLink] = useState(false);
+  const [showOnboardingDetails, setShowOnboardingDetails] = useState(false);
   const MFA_SETUP_SENTINEL = "__setup__";
+  const handleBack = () => onBack?.();
 
   useEffect(() => {
     let active = true;
@@ -241,32 +243,8 @@ export const SecureChatWindow: React.FC = () => {
           </button>
           <h2 style={{ margin: "0 0 8px 0" }}>Two-Factor Verification</h2>
           <p style={{ margin: "0 0 14px 0", color: colors.text.secondary }}>
-            Enter your 6-digit authenticator code to unlock Secure Vault.
+            Enter your 6-digit authenticator code.
           </p>
-
-          {mfaOnboarding?.qrDataUrl && (
-            <div
-              style={{
-                background: colors.surface.primary,
-                border: `1px solid ${colors.border.subtle}`,
-                borderRadius: "12px",
-                padding: "12px",
-                marginBottom: "12px",
-                textAlign: "center",
-              }}
-            >
-              <img
-                src={mfaOnboarding.qrDataUrl}
-                alt="MFA QR"
-                style={{
-                  width: "220px",
-                  height: "220px",
-                  maxWidth: "100%",
-                  borderRadius: "10px",
-                }}
-              />
-            </div>
-          )}
 
           {canOpenOtpLink && mfaOnboarding?.otpAuthUri && (
             <button
@@ -294,24 +272,67 @@ export const SecureChatWindow: React.FC = () => {
           )}
 
           {mfaOnboarding && (
-            <div
-              style={{
-                background: colors.surface.primary,
-                border: `1px solid ${colors.border.subtle}`,
-                borderRadius: "12px",
-                padding: "12px",
-                marginBottom: "12px",
-                fontSize: "13px",
-                lineHeight: 1.5,
-              }}
-            >
-              <div>Secret (Base32): {mfaOnboarding.secret}</div>
-              <div>Account: {mfaOnboarding.accountName}</div>
-              <div>Issuer: {mfaOnboarding.issuer}</div>
-              <div>Type: Time-based (TOTP)</div>
-              <div>Digits: {mfaOnboarding.digits}</div>
-              <div>Interval: {mfaOnboarding.period}s</div>
-            </div>
+            <>
+              <button
+                onClick={() => setShowOnboardingDetails((s) => !s)}
+                style={{
+                  marginBottom: "12px",
+                  height: "38px",
+                  borderRadius: "10px",
+                  border: `1px solid ${colors.border.subtle}`,
+                  background: "transparent",
+                  color: colors.text.secondary,
+                  cursor: "pointer",
+                }}
+              >
+                {showOnboardingDetails ? "Hide setup details" : "Show setup details"}
+              </button>
+              {showOnboardingDetails && (
+                <>
+                  {mfaOnboarding.qrDataUrl && (
+                    <div
+                      style={{
+                        background: colors.surface.primary,
+                        border: `1px solid ${colors.border.subtle}`,
+                        borderRadius: "12px",
+                        padding: "12px",
+                        marginBottom: "12px",
+                        textAlign: "center",
+                      }}
+                    >
+                      <img
+                        src={mfaOnboarding.qrDataUrl}
+                        alt="MFA QR"
+                        style={{
+                          width: "220px",
+                          height: "220px",
+                          maxWidth: "100%",
+                          borderRadius: "10px",
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      background: colors.surface.primary,
+                      border: `1px solid ${colors.border.subtle}`,
+                      borderRadius: "12px",
+                      padding: "12px",
+                      marginBottom: "12px",
+                      fontSize: "13px",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div>Secret (Base32): {mfaOnboarding.secret}</div>
+                    <div>Account: {mfaOnboarding.accountName}</div>
+                    <div>Issuer: {mfaOnboarding.issuer}</div>
+                    <div>Type: Time-based (TOTP)</div>
+                    <div>Digits: {mfaOnboarding.digits}</div>
+                    <div>Interval: {mfaOnboarding.period}s</div>
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           <input
@@ -369,35 +390,69 @@ export const SecureChatWindow: React.FC = () => {
 
     return (
       <div style={{ width: "100%", height: "100%", position: "relative" }}>
-        <AppLockScreen
-          mode="input"
-          isOverlay={false}
-          userEmail={ChatClient.userEmail || ""}
-          title={isSetup ? "Secure Vault Locked" : "Setup Vault PIN"}
-          description={
-            isSetup
-              ? "Enter your PIN to access the vault"
-              : "Create a PIN for your secure vault"
-          }
-          onSuccess={(pin) => {
-            if (isSetup) {
-              unlock(pin || "").then((result) => {
-                if (result.requiresMfa) {
-                  setPendingPin(pin || "");
-                  setMfaToken("");
-                }
-              });
-            } else {
-              setupVault(pin || "").then((result) => {
-                if (result.requiresMfa) {
-                  setPendingPin(MFA_SETUP_SENTINEL);
-                  setMfaToken("");
-                }
-              });
-            }
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: "16px",
+            textAlign: "center",
+            background: colors.background.primary,
+            color: colors.text.primary,
           }}
-          onCancel={() => history.push("/home")}
-        />
+        >
+          <h2 style={{ margin: "0 0 8px 0" }}>
+            {isSetup ? "Secure Vault Locked" : "Secure Vault Setup"}
+          </h2>
+          <p style={{ margin: "0 0 14px 0", color: colors.text.secondary }}>
+            {isSetup
+              ? "Use your authenticator app to unlock."
+              : "Set up authenticator to secure your vault."}
+          </p>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={handleBack}
+              style={{
+                height: "40px",
+                padding: "0 14px",
+                borderRadius: "10px",
+                border: `1px solid ${colors.border.subtle}`,
+                background: "transparent",
+                color: colors.text.secondary,
+                cursor: "pointer",
+              }}
+            >
+              Back
+            </button>
+            <button
+              onClick={() => {
+                const task = isSetup ? unlock("", undefined, true) : setupVault("");
+                task.then((result) => {
+                  if (result.requiresMfa) {
+                    setPendingPin(MFA_SETUP_SENTINEL);
+                    setMfaToken("");
+                    setShowOnboardingDetails(!isSetup);
+                  }
+                });
+              }}
+              style={{
+                height: "40px",
+                padding: "0 14px",
+                borderRadius: "10px",
+                border: "none",
+                background: colors.primary.main,
+                color: colors.text.inverse,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {isSetup ? "Unlock" : "Start Setup"}
+            </button>
+          </div>
+        </div>
         {vaultError && (
           <div
             style={{
@@ -439,7 +494,7 @@ export const SecureChatWindow: React.FC = () => {
       >
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <button
-            onClick={() => history.push("/home")}
+            onClick={handleBack}
             aria-label="Back"
             style={{
               background: "transparent",

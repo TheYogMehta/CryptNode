@@ -1,5 +1,5 @@
-export const VAULT_DIR = "chatapp_vault";
-export const PROFILE_DIR = "chatapp_profiles";
+export const VAULT_DIR = "cryptnode_vault";
+export const PROFILE_DIR = "cryptnode_profiles";
 export const CHUNK_SIZE = 256000;
 import { Directory } from "@capacitor/filesystem";
 

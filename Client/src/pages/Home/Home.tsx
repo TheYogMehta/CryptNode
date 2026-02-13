@@ -341,13 +341,21 @@ const Home = () => {
               </MenuButton>
               <div style={{ flex: 1 }}>
                 <HeaderTitle onClick={() => actions.setView("welcome")}>
-                  Chatapp
+                  CryptNode
                 </HeaderTitle>
               </div>
             </MobileHeader>
           )}
           {state.view === "chat" && state.activeChat === "secure-vault" ? (
-            <SecureChatWindow />
+            <SecureChatWindow
+              onBack={() => {
+                actions.setActiveChat(null);
+                actions.setView("welcome");
+                if (isMobile) {
+                  actions.setIsSidebarOpen(true);
+                }
+              }}
+            />
           ) : state.view === "chat" && state.activeChat ? (
             <ChatWindow
               messages={state.messages}

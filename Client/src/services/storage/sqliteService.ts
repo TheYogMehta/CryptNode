@@ -3,7 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 
 let dbReady: Promise<void> | null = null;
-let currentDbName = "chatapp";
+let currentDbName = "cryptnode";
 let currentKey: string | null = null;
 let lastSecretSet: string | null = null;
 

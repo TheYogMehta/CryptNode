@@ -31,7 +31,7 @@ export const WelcomeView = ({ onAddFriend }: { onAddFriend: () => void }) => {
         <div>
           <GreetingTitle>{greeting}</GreetingTitle>
           <WelcomeMessage>
-            Welcome to <span>Chatapp</span>. Secure, fast, and private messaging
+            Welcome to <span>CryptNode</span>. Secure, fast, and private messaging
             for everyone.
           </WelcomeMessage>
         </div>

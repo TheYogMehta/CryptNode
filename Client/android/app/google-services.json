@@ -7,18 +7,18 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:588653192623:android:42cefee2373fdb5ae6bb5a",
+        "mobilesdk_app_id": "1:588653192623:android:c9c56df8d85699a0e6bb5a",
         "android_client_info": {
-          "package_name": "com.chatapp"
+          "package_name": "com.cryptnode"
         }
       },
       "oauth_client": [
         {
-          "client_id": "588653192623-lrcr1rs3meptlo4a2dkt6aam6jpvoua1.apps.googleusercontent.com",
+          "client_id": "588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.chatapp",
-            "certificate_hash": "af94ef7a145baefb5e817425056f10cdfe0fd97a"
+            "package_name": "com.cryptnode",
+            "certificate_hash": "75ad956fb37fbe345753c8a4d489057016dec4ce"
           }
         },
         {
@@ -28,7 +28,7 @@
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBBj_0t_GmxerLoeCNNDe5nl2szODkpSik"
+          "current_key": "AIzaSyCJXx36yqW3SJqQj0oLVdl4TDob3wReDXQ"
         }
       ],
       "services": {

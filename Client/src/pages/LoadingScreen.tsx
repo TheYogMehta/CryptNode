@@ -9,7 +9,7 @@ interface LoadingScreenProps {
 }
 
 const LoadingScreen: React.FC<LoadingScreenProps> = ({
-  title = "ChatApp",
+  title = "CryptNode",
   message = "Loading...",
 }) => {
   return (

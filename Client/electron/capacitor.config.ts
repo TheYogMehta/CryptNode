@@ -1,19 +1,19 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.chatapp",
-  appName: "chatapp",
+  appId: "com.cryptnode",
+  appName: "cryptnode",
   webDir: "dist",
   plugins: {
     CapacitorSQLite: {
       androidIsEncryption: true,
       androidBiometric: {
         biometricAuth: false,
-        biometricTitle: "Biometric login for chatapp",
+        biometricTitle: "Biometric login for cryptnode",
         biometricSubTitle: "Log in using your biometric",
       },
       electronIsEncryption: true,
-      electronWindowsLocation: "C:\\ProgramData\\chatapp",
+      electronWindowsLocation: "C:\\ProgramData\\cryptnode",
       electronLinuxLocation: "Databases",
     },
     PrivacyScreen: {
