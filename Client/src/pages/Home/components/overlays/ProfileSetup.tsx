@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { executeDB, queryDB } from "../../../../services/storage/sqliteService";
 import { AccountService } from "../../../../services/auth/AccountService";
 import {
@@ -36,6 +36,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
   // PIN state
   const [tempPin, setTempPin] = useState("");
   const [setupError, setSetupError] = useState("");
+  const usernameTouchedRef = useRef(false);
 
   useEffect(() => {
     checkProfile();
@@ -92,7 +93,9 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         onComplete();
       } else {
         const defaultName = userEmail.split("@")[0];
-        setUsername(defaultName);
+        if (!usernameTouchedRef.current && !username) {
+          setUsername(defaultName);
+        }
         setStep("profile");
       }
     } catch (e) {
@@ -186,7 +189,9 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
           );
           setStep("profile");
           const defaultName = userEmail.split("@")[0];
-          setUsername(defaultName);
+          if (!usernameTouchedRef.current && !username) {
+            setUsername(defaultName);
+          }
         } catch (e) {
           setSetupError("Failed to save PIN");
           setTempPin("");
@@ -459,7 +464,11 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
           <input
             type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              usernameTouchedRef.current = true;
+              setUsername(e.target.value);
+            }}
+            autoFocus
             style={{
               width: "100%",
               padding: "12px",

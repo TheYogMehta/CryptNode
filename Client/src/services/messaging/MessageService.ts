@@ -27,6 +27,8 @@ interface IMessageClient {
 
 export class MessageService extends EventEmitter {
   private client: IMessageClient;
+  private static readonly MAX_PROFILE_AVATAR_B64_CHARS = 120 * 1024;
+  private static readonly PROFILE_AVATAR_CHUNK_SIZE_CHARS = 60 * 1024;
   private textChunkBuffer = new Map<
     string,
     {
@@ -35,6 +37,17 @@ export class MessageService extends EventEmitter {
       chunkType: "TEXT" | "GIF";
       timestamp: number;
       replyTo?: any;
+    }
+  >();
+  private profileAvatarChunkBuffer = new Map<
+    string,
+    {
+      totalChunks: number;
+      parts: string[];
+      name: string | null;
+      nameVersion: number;
+      avatarVersion: number;
+      timestamp: number;
     }
   >();
 
@@ -53,6 +66,28 @@ export class MessageService extends EventEmitter {
 
   private chunkKey(sid: string, id: string): string {
     return `${sid}:${id}`;
+  }
+
+  private normalizeProfileAvatarPayload(avatar?: string | null): string | null {
+    if (!avatar || typeof avatar !== "string") return null;
+    let base64 = avatar;
+    if (avatar.startsWith("data:")) {
+      const parts = avatar.split(",");
+      base64 = parts.length > 1 ? parts[1] : "";
+    }
+    if (!base64) return null;
+    return base64;
+  }
+
+  private splitProfileAvatarIntoChunks(base64: string): string[] {
+    return this.splitTextIntoChunks(
+      base64,
+      MessageService.PROFILE_AVATAR_CHUNK_SIZE_CHARS,
+    );
+  }
+
+  private profileAvatarChunkKey(sid: string, transferId: string): string {
+    return `${sid}:${transferId}`;
   }
 
   private async saveAndEmitInboundMessage(
@@ -595,7 +630,7 @@ export class MessageService extends EventEmitter {
             );
             if (meRows.length) {
               const me = meRows[0];
-              let avatarBase64 = null;
+              let avatarBase64: string | null = null;
               if (me.public_avatar) {
                 if (!me.public_avatar.startsWith("data:")) {
                   try {
@@ -605,37 +640,81 @@ export class MessageService extends EventEmitter {
                     const fileData = await StorageService.readFile(
                       me.public_avatar,
                     );
-                    avatarBase64 = fileData;
+                    avatarBase64 = this.normalizeProfileAvatarPayload(fileData);
                     console.log(
-                      `[MessageService] Loaded avatar data, length: ${avatarBase64?.length}`,
+                      `[MessageService] Loaded avatar data, length: ${fileData?.length}`,
                     );
                   } catch (e) {
                     console.warn("Failed to load avatar file", e);
                   }
                 } else {
-                  avatarBase64 = me.public_avatar;
+                  const parts = me.public_avatar.split(",");
+                  avatarBase64 = parts.length > 1 ? parts[1] : null;
                 }
               }
+              const normalizedAvatar = this.normalizeProfileAvatarPayload(
+                avatarBase64,
+              );
+              const canInlineAvatar =
+                !!normalizedAvatar &&
+                normalizedAvatar.length <=
+                  MessageService.MAX_PROFILE_AVATAR_B64_CHARS;
+              const transferId = canInlineAvatar ? null : crypto.randomUUID();
+              const avatarChunks =
+                !canInlineAvatar && avatarBase64
+                  ? this.splitProfileAvatarIntoChunks(avatarBase64)
+                  : [];
 
-              const respPayload = await this.client.encryptForSession(
+              const profilePayload = await this.client.encryptForSession(
                 sid,
                 JSON.stringify({
                   t: "MSG",
                   data: {
                     type: "PROFILE_DATA",
                     name: me.public_name,
-                    avatar: avatarBase64,
+                    avatar: canInlineAvatar ? normalizedAvatar : null,
                     name_version: me.name_version,
                     avatar_version: me.avatar_version,
+                    avatar_chunked: !!avatarChunks.length,
+                    avatar_transfer_id: transferId,
+                    avatar_total_chunks: avatarChunks.length,
                   },
                 }),
                 1,
               );
-              this.client.send({
-                t: "MSG",
-                sid,
-                data: { payload: respPayload },
-              });
+              this.client.send({ t: "MSG", sid, data: { payload: profilePayload } });
+
+              if (avatarChunks.length && transferId) {
+                console.log(
+                  `[MessageService] Sending chunked avatar for ${sid}: ${avatarChunks.length} chunks`,
+                );
+                for (let chunkIndex = 0; chunkIndex < avatarChunks.length; chunkIndex++) {
+                  const chunkPayload = await this.client.encryptForSession(
+                    sid,
+                    JSON.stringify({
+                      t: "MSG",
+                      data: {
+                        type: "PROFILE_AVATAR_CHUNK",
+                        transfer_id: transferId,
+                        chunk_index: chunkIndex,
+                        total_chunks: avatarChunks.length,
+                        chunk: avatarChunks[chunkIndex],
+                        name_version: me.name_version,
+                        avatar_version: me.avatar_version,
+                        name: me.public_name,
+                      },
+                    }),
+                    1,
+                  );
+                  this.client.send({
+                    t: "MSG",
+                    sid,
+                    data: { payload: chunkPayload },
+                    c: chunkIndex === avatarChunks.length - 1,
+                    p: 1,
+                  });
+                }
+              }
             }
           } catch (e) {
             console.error("Error handling GET_PROFILE", e);
@@ -643,13 +722,21 @@ export class MessageService extends EventEmitter {
           break;
         case "PROFILE_DATA":
           try {
-            const { name, avatar, name_version, avatar_version } = data;
+            const {
+              name,
+              avatar,
+              name_version,
+              avatar_version,
+              avatar_chunked,
+              avatar_transfer_id,
+              avatar_total_chunks,
+            } = data;
             console.log(
               `[MessageService] Received PROFILE_DATA from ${sid}: ${name}`,
             );
 
             let avatarFile = null;
-            if (avatar) {
+            if (avatar && !avatar_chunked) {
               let base64 = "";
               if (avatar.startsWith("data:")) {
                 base64 = avatar.split(",")[1];
@@ -662,14 +749,93 @@ export class MessageService extends EventEmitter {
                 avatarFile = avatar;
               }
             }
-
-            await executeDB(
-              "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
-              [name, avatarFile, name_version, avatar_version, sid],
-            );
+            if (avatar_chunked && avatar_transfer_id && avatar_total_chunks > 0) {
+              const chunkKey = this.profileAvatarChunkKey(sid, avatar_transfer_id);
+              this.profileAvatarChunkBuffer.set(chunkKey, {
+                totalChunks: avatar_total_chunks,
+                parts: new Array(avatar_total_chunks),
+                name: name || null,
+                nameVersion: name_version || 0,
+                avatarVersion: avatar_version || 0,
+                timestamp: Date.now(),
+              });
+              await executeDB(
+                "UPDATE sessions SET peer_name = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
+                [name, name_version, avatar_version, sid],
+              );
+            } else {
+              await executeDB(
+                "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
+                [name, avatarFile, name_version, avatar_version, sid],
+              );
+            }
             this.client.emit("session_updated");
           } catch (e) {
             console.error("Error handling PROFILE_DATA", e);
+          }
+          break;
+        case "PROFILE_AVATAR_CHUNK":
+          try {
+            const {
+              transfer_id,
+              chunk_index,
+              total_chunks,
+              chunk,
+              name,
+              name_version,
+              avatar_version,
+            } = data;
+            if (
+              typeof transfer_id !== "string" ||
+              typeof chunk_index !== "number" ||
+              typeof total_chunks !== "number" ||
+              typeof chunk !== "string" ||
+              chunk_index < 0 ||
+              total_chunks <= 0 ||
+              chunk_index >= total_chunks ||
+              total_chunks > 10000
+            ) {
+              console.warn("[MessageService] Invalid PROFILE_AVATAR_CHUNK");
+              break;
+            }
+            const chunkKey = this.profileAvatarChunkKey(sid, transfer_id);
+            const existing = this.profileAvatarChunkBuffer.get(chunkKey);
+            const buffer =
+              existing ||
+              ({
+                totalChunks: total_chunks,
+                parts: new Array(total_chunks),
+                name: name || null,
+                nameVersion: name_version || 0,
+                avatarVersion: avatar_version || 0,
+                timestamp: Date.now(),
+              } as {
+                totalChunks: number;
+                parts: string[];
+                name: string | null;
+                nameVersion: number;
+                avatarVersion: number;
+                timestamp: number;
+              });
+            if (buffer.totalChunks !== total_chunks) {
+              this.profileAvatarChunkBuffer.delete(chunkKey);
+              break;
+            }
+            buffer.parts[chunk_index] = chunk;
+            this.profileAvatarChunkBuffer.set(chunkKey, buffer);
+            if (buffer.parts.some((part) => typeof part !== "string")) {
+              break;
+            }
+            this.profileAvatarChunkBuffer.delete(chunkKey);
+            const base64 = buffer.parts.join("");
+            const avatarFile = await StorageService.saveProfileImage(base64, sid);
+            await executeDB(
+              "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
+              [buffer.name, avatarFile, buffer.nameVersion, buffer.avatarVersion, sid],
+            );
+            this.client.emit("session_updated");
+          } catch (e) {
+            console.error("Error handling PROFILE_AVATAR_CHUNK", e);
           }
           break;
         case "REACTION":

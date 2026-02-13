@@ -124,7 +124,10 @@ export const LinkPreview: React.FC<LinkPreviewProps> = ({
             const oembedUrl = `https://tenor.com/oembed?url=${encodeURIComponent(
               url,
             )}&format=json`;
-            const res = await fetch(oembedUrl, { mode: "cors" });
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(
+              oembedUrl,
+            )}`;
+            const res = await fetch(proxyUrl);
             const data = await res.json();
             if (data && mounted) {
               const img = data.url || data.thumbnail_url;

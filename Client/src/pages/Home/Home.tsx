@@ -166,6 +166,11 @@ const Home = () => {
       if (accs.length === 0) {
         console.log("[Home] No accounts found, setting isLocked=false");
         setIsLocked(false);
+      } else if (!accs.some((a) => Boolean(a?.token && String(a.token).trim()))) {
+        console.log(
+          "[Home] Accounts found but no valid session token, showing login",
+        );
+        setIsLocked(false);
       } else {
         console.log("[Home] Accounts found, setting isLocked=true");
         setIsLocked(true);
@@ -182,8 +187,16 @@ const Home = () => {
       setIsLocked(false);
     } catch (e) {
       console.error("Unlock failed", e);
+      const msg = e instanceof Error ? e.message : String(e || "");
+      if (
+        msg.includes("Session expired") ||
+        msg.includes("Authentication failed")
+      ) {
+        setIsLocked(false);
+        history.push("/login");
+      }
     }
-  }, []);
+  }, [history]);
 
   useEffect(() => {
     console.log("[Home] Render state:", {

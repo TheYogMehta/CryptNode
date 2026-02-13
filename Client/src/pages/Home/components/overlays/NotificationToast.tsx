@@ -49,7 +49,7 @@ export const NotificationToast: React.FC<NotificationToastProps> = ({
       onTouchEnd={handleTouchEnd}
       style={{
         position: "fixed",
-        top: "20px",
+        top: "50px",
         left: "50%",
         width: "90%",
         maxWidth: "400px",

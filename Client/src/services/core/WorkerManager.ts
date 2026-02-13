@@ -16,7 +16,8 @@ export class WorkerManager {
   }
 
   public async initSession(sid: string, keyJWK: JsonWebKey) {
-    const msg = { type: "INIT_SESSION", sid, keyJWK };
+    const id = crypto.randomUUID();
+    const msg = { type: "INIT_SESSION", sid, keyJWK, id };
     await this.worker.postMessage(msg);
   }
 
@@ -59,7 +60,11 @@ class WorkerPool {
       if (msg.error) {
         callback.reject(new Error(msg.error));
       } else {
-        if (msg.type === "ENCRYPT_RESULT" || msg.type === "DECRYPT_RESULT") {
+        if (
+          msg.type === "ENCRYPT_RESULT" ||
+          msg.type === "DECRYPT_RESULT" ||
+          msg.type === "INIT_SESSION_RESULT"
+        ) {
           callback.resolve(msg.data);
         }
       }
@@ -69,13 +74,14 @@ class WorkerPool {
 
   public postMessage(msg: any): Promise<any> {
     return new Promise((resolve, reject) => {
-      if (msg.type === "ENCRYPT" || msg.type === "DECRYPT") {
+      if (
+        msg.type === "ENCRYPT" ||
+        msg.type === "DECRYPT" ||
+        msg.type === "INIT_SESSION"
+      ) {
         this.callbacks.set(msg.id, { resolve, reject });
       }
       this.worker.postMessage(msg);
-      if (msg.type === "INIT_SESSION") {
-        resolve(true);
-      }
     });
   }
 }

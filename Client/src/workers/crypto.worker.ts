@@ -5,7 +5,7 @@ import {
 } from "../utils/crypto";
 
 type WorkerMessage =
-  | { type: "INIT_SESSION"; sid: string; keyJWK: JsonWebKey }
+  | { type: "INIT_SESSION"; sid: string; keyJWK: JsonWebKey; id: string }
   | {
       type: "ENCRYPT";
       sid: string;
@@ -30,7 +30,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   try {
     switch (type) {
       case "INIT_SESSION": {
-        const { sid, keyJWK } = msg;
+        const { sid, keyJWK, id } = msg;
         const key = await crypto.subtle.importKey(
           "jwk",
           keyJWK,
@@ -39,6 +39,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           ["encrypt", "decrypt"],
         );
         sessions[sid] = key;
+        self.postMessage({ type: "INIT_SESSION_RESULT", id, data: true });
         break;
       }
 
@@ -79,7 +80,11 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     }
   } catch (err: any) {
     console.error("Worker Error:", err);
-    if (msg.type === "ENCRYPT" || msg.type === "DECRYPT") {
+    if (
+      msg.type === "ENCRYPT" ||
+      msg.type === "DECRYPT" ||
+      msg.type === "INIT_SESSION"
+    ) {
       self.postMessage({
         type: msg.type + "_RESULT",
         id: (msg as any).id,

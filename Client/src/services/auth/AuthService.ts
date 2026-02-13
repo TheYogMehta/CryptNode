@@ -48,6 +48,7 @@ export class AuthService extends EventEmitter {
         "auth_token",
       );
       await setKeyFromSecureStorage(key, "");
+      await AccountService.updateToken(this.userEmail, "");
     }
     this.authToken = null;
     this.userEmail = null;
@@ -60,11 +61,13 @@ export class AuthService extends EventEmitter {
     const account = accounts.find((a) => a.email === email);
     if (!account) throw new Error("Account not found");
 
-    this.authToken = account.token;
-    await setKeyFromSecureStorage(
-      await AccountService.getStorageKey(email, "auth_token"),
-      account.token,
-    );
+    const tokenKey = await AccountService.getStorageKey(email, "auth_token");
+    const secureStoredToken = (await getKeyFromSecureStorage(tokenKey)) || "";
+    const tokenToUse = (secureStoredToken || account.token || "").trim();
+    if (!tokenToUse) {
+      throw new Error("Session expired. Please login again.");
+    }
+    this.authToken = tokenToUse;
 
     const key = await getKeyFromSecureStorage(
       await AccountService.getStorageKey(email, "MASTER_KEY"),
@@ -80,9 +83,35 @@ export class AuthService extends EventEmitter {
     if (!socket.isConnected()) {
       await socket.connect("wss://socket.cryptnode.theyogmehta.online");
     }
-    socket.send({ t: "AUTH", data: { token: this.authToken } });
+    const waitForAuth = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Authentication timed out"));
+      }, 10000);
 
-    this.emit("auth_success", email);
+      const onSuccess = (authedEmail: string) => {
+        if (authedEmail !== email) return;
+        cleanup();
+        resolve();
+      };
+
+      const onError = () => {
+        cleanup();
+        reject(new Error("Authentication failed"));
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.off("auth_success", onSuccess);
+        this.off("auth_error", onError);
+      };
+
+      this.on("auth_success", onSuccess);
+      this.on("auth_error", onError);
+    });
+
+    socket.send({ t: "AUTH", data: { token: this.authToken } });
+    await waitForAuth;
   }
 
   public async loadIdentity() {

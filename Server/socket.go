@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -196,12 +195,13 @@ func init() {
 		log.Println("⚠️ No .env file found, relying on environment variables")
 	}
 
-	sessionSecret = make([]byte, 32)
-	rand.Read(sessionSecret)
-
 	if os.Getenv("TURN_SECRET") == "" {
 		log.Fatal("❌ TURN_SECRET is not set")
 	}
+
+	seed := strings.TrimSpace(os.Getenv("AUTH_SESSION_SECRET"))
+	sum := sha256.Sum256([]byte(seed))
+	sessionSecret = sum[:]
 }
 
 func generateSessionToken(email string) string {
@@ -315,18 +315,20 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 		switch frame.T {
 		case "AUTH":
-			// 1. IP Rate Limiting
-			ip := strings.Split(r.RemoteAddr, ":")[0]
-			if !s.rateLimiter.checkAuthRateLimit(ip) {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Too many login attempts. Try again later."}`)})
-				client.conn.Close()
-				return
-			}
-
 			var d struct {
 				Token string `json:"token"`
 			}
 			json.Unmarshal(frame.Data, &d)
+			d.Token = strings.TrimSpace(d.Token)
+
+			if !strings.HasPrefix(d.Token, "sess:") {
+				ip := strings.Split(r.RemoteAddr, ":")[0]
+				if !s.rateLimiter.checkAuthRateLimit(ip) {
+					s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Too many login attempts. Try again later."}`)})
+					client.conn.Close()
+					return
+				}
+			}
 
 			email, sessionToken, err := verifyAuthToken(d.Token)
 			if err != nil {

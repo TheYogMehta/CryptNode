@@ -98,4 +98,16 @@ export class AccountService {
       );
     }
   }
+
+  static async updateToken(email: string, token: string) {
+    const accounts = await this.getAccounts();
+    const idx = accounts.findIndex((a) => a.email === email);
+    if (idx !== -1) {
+      accounts[idx].token = token;
+      await setKeyFromSecureStorage(
+        STORAGE_KEY_ACCOUNTS,
+        JSON.stringify(accounts),
+      );
+    }
+  }
 }
