@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 type Theme = "dark" | "light";
-export type DesignMode = "default" | "modern";
+export type MessageLayout = "bubble" | "modern";
 
 interface ThemeContextType {
   theme: Theme;
-  designMode: DesignMode;
+  messageLayout: MessageLayout;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
-  setDesignMode: (mode: DesignMode) => void;
+  setMessageLayout: (layout: MessageLayout) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -17,7 +17,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [theme, setThemeState] = useState<Theme>("dark");
-  const [designMode, setDesignModeState] = useState<DesignMode>("default");
+  const [messageLayout, setMessageLayoutState] =
+    useState<MessageLayout>("bubble");
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("app-theme") as Theme;
@@ -26,10 +27,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
       document.body.classList.toggle("light-theme", savedTheme === "light");
     }
 
-    const savedDesign = localStorage.getItem("app-design-mode") as DesignMode;
-    if (savedDesign) {
-      setDesignModeState(savedDesign);
-    }
+    const savedMessageLayoutRaw = localStorage.getItem("app-message-layout");
+    const normalizedMessageLayout: MessageLayout =
+      savedMessageLayoutRaw === "modern" || savedMessageLayoutRaw === "discord"
+        ? "modern"
+        : "bubble";
+    setMessageLayoutState(normalizedMessageLayout);
+    localStorage.setItem("app-message-layout", normalizedMessageLayout);
   }, []);
 
   const setTheme = (newTheme: Theme) => {
@@ -38,9 +42,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     document.body.classList.toggle("light-theme", newTheme === "light");
   };
 
-  const setDesignMode = (newMode: DesignMode) => {
-    setDesignModeState(newMode);
-    localStorage.setItem("app-design-mode", newMode);
+  const setMessageLayout = (layout: MessageLayout) => {
+    setMessageLayoutState(layout);
+    localStorage.setItem("app-message-layout", layout);
   };
 
   const toggleTheme = () => {
@@ -49,7 +53,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <ThemeContext.Provider
-      value={{ theme, designMode, toggleTheme, setTheme, setDesignMode }}
+      value={{
+        theme,
+        messageLayout,
+        toggleTheme,
+        setTheme,
+        setMessageLayout,
+      }}
     >
       {children}
     </ThemeContext.Provider>

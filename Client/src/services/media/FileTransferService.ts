@@ -1,5 +1,6 @@
 import { StorageService, CHUNK_SIZE } from "../storage/StorageService";
 import { queryDB, executeDB } from "../storage/sqliteService";
+import { MAX_ENCRYPTED_PAYLOAD_CHARS } from "../core/protocolLimits";
 
 export interface IFileTransferClient {
   sessions: Record<string, any>;
@@ -25,6 +26,18 @@ export class FileTransferService {
 
   constructor(client: IFileTransferClient) {
     this.client = client;
+  }
+
+  private assertPayloadSize(payload: string, context: string): boolean {
+    if (payload.length <= MAX_ENCRYPTED_PAYLOAD_CHARS) return true;
+    console.warn(
+      `[FileTransfer] Blocked ${context}: encrypted payload too large (${payload.length})`,
+    );
+    this.client.emit("notification", {
+      type: "error",
+      message: "Payload too large. Please retry with a smaller file.",
+    });
+    return false;
   }
 
   public async sendFile(
@@ -114,6 +127,7 @@ export class FileTransferService {
       }),
       1,
     );
+    if (!this.assertPayloadSize(encryptedMetadata, "FILE_INFO")) return;
 
     this.client.send({
       t: "MSG",
@@ -254,6 +268,9 @@ export class FileTransferService {
           }),
           2,
         );
+        if (!this.assertPayloadSize(payload, "FILE_CHUNK")) {
+          return;
+        }
         this.client.send({ t: "MSG", sid, data: { payload }, c: false, p: 2 });
 
         if (!isLast) {

@@ -9,7 +9,14 @@ export interface ElectronSafeStorage {
 }
 
 declare global {
+  interface ElectronBridge {
+    getDesktopSources: () => Promise<
+      Array<{ id: string; name: string; thumbnail: string }>
+    >;
+  }
+
   interface Window {
     SafeStorage: ElectronSafeStorage;
+    electron?: ElectronBridge;
   }
 }

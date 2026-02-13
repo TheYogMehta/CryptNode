@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { MAX_WS_FRAME_BYTES } from "./protocolLimits";
 
 class SocketManager extends EventEmitter {
   private static instance: SocketManager;
@@ -37,8 +38,19 @@ class SocketManager extends EventEmitter {
         };
 
         this.ws.onmessage = (e) => {
-          const frame = JSON.parse(e.data);
-          this.emit("message", frame);
+          if (typeof e.data !== "string") {
+            return;
+          }
+          if (e.data.length > MAX_WS_FRAME_BYTES) {
+            console.warn("Dropped oversized incoming WebSocket frame");
+            return;
+          }
+          try {
+            const frame = JSON.parse(e.data);
+            this.emit("message", frame);
+          } catch (err) {
+            console.warn("Dropped malformed WebSocket frame", err);
+          }
         };
 
         this.ws.onclose = (event) => {
@@ -64,7 +76,13 @@ class SocketManager extends EventEmitter {
 
   send(data: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      const serialized = JSON.stringify(data);
+      if (serialized.length > MAX_WS_FRAME_BYTES) {
+        console.warn("Blocked oversized outbound WebSocket frame");
+        this.emit("error", new Error("Outbound frame too large"));
+        return;
+      }
+      this.ws.send(serialized);
     } else {
       console.warn("WebSocket not connected. Retrying...");
       if (this.url && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {

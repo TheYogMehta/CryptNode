@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { LinkPreview } from "../../../../components/LinkPreview";
+import { Avatar } from "../../../../components/ui/Avatar";
 
 import { AudioBubble } from "./bubbles/AudioBubble";
 import { ImageBubble } from "./bubbles/ImageBubble";
@@ -47,6 +48,9 @@ export const MessageBubble = ({
   msg,
   onReply,
   onMediaClick,
+  messageLayout = "bubble",
+  senderName,
+  senderAvatar,
 }: {
   msg: ChatMessage;
   onReply?: (msg: ChatMessage | null) => void;
@@ -55,6 +59,9 @@ export const MessageBubble = ({
     type: "image" | "video",
     description?: string,
   ) => void;
+  messageLayout?: "bubble" | "modern";
+  senderName?: string;
+  senderAvatar?: string;
 }) => {
   const isMe = msg.sender === "me";
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -441,48 +448,31 @@ export const MessageBubble = ({
   const safeDate = new Date(msg.timestamp);
   const timeString = isValidDate(safeDate)
     ? safeDate.toLocaleTimeString([], {
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
-        second: "2-digit",
       })
     : "";
+  const isModernLayout = messageLayout === "modern" && msg.type !== "system";
 
-  return (
-    <BubbleWrapper
-      isMe={isMe}
-      hasReactions={Object.keys(groupedReactions).length > 0}
-      onContextMenu={handleContextMenu}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+  const bubbleNode = (
+    <Bubble
+      isMe={isModernLayout ? false : isMe}
+      style={{
+        transform: `translateX(${swipeOffset}px)`,
+        transition: isSwiping
+          ? "none"
+          : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
+        ...(isModernLayout
+          ? {
+              borderRadius: "8px",
+              backgroundColor: "rgba(255,255,255,0.04)",
+              color: "#e5e7eb",
+              maxWidth: "100%",
+            }
+          : {}),
+      }}
     >
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: "60px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: swipeOffset / 50,
-          transform: `translateX(${swipeOffset - 60}px)`,
-          color: "#6366f1",
-        }}
-      >
-        <Reply size={20} />
-      </div>
-
-      <Bubble
-        isMe={isMe}
-        style={{
-          transform: `translateX(${swipeOffset}px)`,
-          transition: isSwiping
-            ? "none"
-            : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
-        }}
-      >
+      {!isModernLayout && (
         <ReplyButton
           isMe={isMe}
           onClick={(e) => {
@@ -492,283 +482,312 @@ export const MessageBubble = ({
         >
           <Reply size={16} />
         </ReplyButton>
+      )}
 
-        {msg.replyTo && (
-          <ReplyContext>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-                {msg.replyTo.sender}
-              </div>
-              <div
-                style={{
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  opacity: 0.8,
-                }}
-              >
-                {msg.replyTo.type === "text"
-                  ? msg.replyTo.text
-                  : `[${msg.replyTo.type}] ${msg.replyTo.text || ""}`}
-              </div>
+      {msg.replyTo && (
+        <ReplyContext>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+              {msg.replyTo.sender}
             </div>
-            {msg.replyTo.thumbnail && (
-              <img
-                src={
-                  msg.replyTo.thumbnail.startsWith("data:")
-                    ? msg.replyTo.thumbnail
-                    : `data:image/jpeg;base64,${msg.replyTo.thumbnail}`
-                }
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  borderRadius: "4px",
-                  objectFit: "cover",
-                }}
-              />
-            )}
-          </ReplyContext>
-        )}
-
-        {msg.type === "system" ? (
-          <div
-            style={{
-              fontSize: "0.85rem",
-              color: "rgba(255, 255, 255, 0.6)",
-              textAlign: "center",
-              fontStyle: "italic",
-              padding: "4px 0",
-            }}
-          >
-            {msg.text}
-          </div>
-        ) : msg.type === "live share port" ? (
-          <div style={{ padding: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <Globe size={24} />
-              <div>
-                <b style={{ display: "block" }}>Dev Port Shared</b>
-                <code style={{ fontSize: "0.8rem", opacity: 0.8 }}>
-                  Port: {msg.shared?.port}
-                </code>
-              </div>
-            </div>
-            <button
-              onClick={() =>
-                window.open(`http://localhost:${msg.shared?.port}`)
-              }
+            <div
               style={{
-                marginTop: "12px",
-                width: "100%",
-                padding: "8px",
-                borderRadius: "8px",
-                border: "none",
-                backgroundColor: "white",
-                color: "black",
-                fontWeight: "bold",
-                cursor: "pointer",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                opacity: 0.8,
               }}
             >
-              Open Port
-            </button>
+              {msg.replyTo.type === "text"
+                ? msg.replyTo.text
+                : `[${msg.replyTo.type}] ${msg.replyTo.text || ""}`}
+            </div>
           </div>
-        ) : (
-          <>
-            {isEditing ? (
-              <EditInputContainer onClick={(e) => e.stopPropagation()}>
-                <EditInput
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSaveEdit();
-                    } else if (e.key === "Escape") {
-                      handleCancelEdit();
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <EditActionButtons>
-                  <EditButton
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCancelEdit();
-                    }}
-                  >
-                    <X size={14} /> Cancel
-                  </EditButton>
-                  <EditButton
-                    variant="primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSaveEdit();
-                    }}
-                  >
-                    <Check size={14} /> Save
-                  </EditButton>
-                </EditActionButtons>
-              </EditInputContainer>
-            ) : (
-              <>
-                {renderMediaContent() || (
-                  <div
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "break-word",
-                    }}
-                  >
-                    {msg.text &&
-                      msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                        part.match(/https?:\/\//) ? (
-                          <a
-                            key={i}
-                            href={part}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => handleLinkClick(e, part)}
-                            style={{ color: "#60a5fa", cursor: "pointer" }}
-                          >
-                            {part}
-                          </a>
-                        ) : (
-                          part
-                        ),
-                      )}
-                    {/* Link Previews */}
-                    {firstUrl && !msg.mediaFilename && (
-                      <div style={{ marginTop: "8px", maxWidth: "400px" }}>
-                        {isTrustedUrl(firstUrl) &&
-                        /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
-                          new URL(firstUrl).pathname,
-                        ) ? (
-                          <MediaContainer>
-                            <img
-                              src={firstUrl}
-                              alt="preview"
-                              style={{
-                                width: "100%",
-                                height: "auto",
-                                maxHeight: "300px",
-                                borderRadius: "8px",
-                                cursor: "zoom-in",
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                onMediaClick?.(firstUrl, "image", msg.text);
-                              }}
-                            />
-                          </MediaContainer>
-                        ) : (
-                          <LinkPreview url={firstUrl} />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
+          {msg.replyTo.thumbnail && (
+            <img
+              src={
+                msg.replyTo.thumbnail.startsWith("data:")
+                  ? msg.replyTo.thumbnail
+                  : `data:image/jpeg;base64,${msg.replyTo.thumbnail}`
+              }
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "4px",
+                objectFit: "cover",
+              }}
+            />
+          )}
+        </ReplyContext>
+      )}
 
-        {/* Detailed Reaction Chips */}
-        {Object.keys(groupedReactions).length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              gap: "4px",
-              flexWrap: "wrap",
-              marginTop: "8px",
-              marginBottom: "4px",
-              justifyContent: isMe ? "flex-end" : "flex-start",
-            }}
-          >
-            {Object.entries(
-              reactions.reduce((acc: any, r) => {
-                if (!acc[r.emoji]) {
-                  acc[r.emoji] = { count: 0, hasMe: false };
-                }
-                acc[r.emoji].count++;
-                if (
-                  r.senderEmail === "me" ||
-                  r.senderEmail === ChatClient.userEmail
-                ) {
-                  acc[r.emoji].hasMe = true;
-                }
-                return acc;
-              }, {}),
-            )
-              .sort((a: any, b: any) => b[1].count - a[1].count)
-              .slice(0, 5)
-              .map(([emoji, stats]: [string, any]) => (
-                <div
-                  key={emoji}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (msg.sid && msg.id) {
-                      try {
-                        await ChatClient.sendReaction(
-                          msg.sid,
-                          msg.id,
-                          emoji,
-                          stats.hasMe ? "remove" : "add",
-                        );
-                      } catch (err) {
-                        console.error("Failed to send reaction", err);
-                      }
-                    }
-                  }}
-                  style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.2)",
-                    border: stats.hasMe
-                      ? "1px solid #3b82f6"
-                      : "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "12px",
-                    padding: "4px 8px",
-                    fontSize: "0.8rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    cursor: "pointer",
-                    color: "inherit",
-                  }}
-                >
-                  <span>{emoji}</span>
-                  <span style={{ fontWeight: 600, fontSize: "0.75rem" }}>
-                    {stats.count}
-                  </span>
-                </div>
-              ))}
-          </div>
-        )}
-
+      {msg.type === "system" ? (
         <div
           style={{
-            fontSize: "0.65rem",
-            opacity: 0.6,
-            textAlign: "right",
-            marginTop: "4px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "4px",
+            fontSize: "0.85rem",
+            color: "rgba(255, 255, 255, 0.6)",
+            textAlign: "center",
+            fontStyle: "italic",
+            padding: "4px 0",
           }}
         >
-          {timeString}
-          {isMe && (
-            <span style={{ display: "flex" }}>
-              {msg.status === 2 ? (
-                <CheckCheck size={14} strokeWidth={2.5} />
-              ) : (
-                <Check size={14} strokeWidth={2.5} />
+          {msg.text}
+        </div>
+      ) : msg.type === "live share port" ? (
+        <div style={{ padding: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Globe size={24} />
+            <div>
+              <b style={{ display: "block" }}>Dev Port Shared</b>
+              <code style={{ fontSize: "0.8rem", opacity: 0.8 }}>
+                Port: {msg.shared?.port}
+              </code>
+            </div>
+          </div>
+          <button
+            onClick={() => window.open(`http://localhost:${msg.shared?.port}`)}
+            style={{
+              marginTop: "12px",
+              width: "100%",
+              padding: "8px",
+              borderRadius: "8px",
+              border: "none",
+              backgroundColor: "white",
+              color: "black",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            Open Port
+          </button>
+        </div>
+      ) : (
+        <>
+          {isEditing ? (
+            <EditInputContainer onClick={(e) => e.stopPropagation()}>
+              <EditInput
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveEdit();
+                  } else if (e.key === "Escape") {
+                    handleCancelEdit();
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <EditActionButtons>
+                <EditButton
+                  variant="secondary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelEdit();
+                  }}
+                >
+                  <X size={14} /> Cancel
+                </EditButton>
+                <EditButton
+                  variant="primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSaveEdit();
+                  }}
+                >
+                  <Check size={14} /> Save
+                </EditButton>
+              </EditActionButtons>
+            </EditInputContainer>
+          ) : (
+            <>
+              {renderMediaContent() || (
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "break-word",
+                  }}
+                >
+                  {msg.text &&
+                    msg.text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                      part.match(/https?:\/\//) ? (
+                        <a
+                          key={i}
+                          href={part}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => handleLinkClick(e, part)}
+                          style={{ color: "#60a5fa", cursor: "pointer" }}
+                        >
+                          {part}
+                        </a>
+                      ) : (
+                        part
+                      ),
+                    )}
+                  {firstUrl && !msg.mediaFilename && (
+                    <div style={{ marginTop: "8px", maxWidth: "400px" }}>
+                      {isTrustedUrl(firstUrl) &&
+                      /\.(jpeg|jpg|gif|png|webp|svg)$/i.test(
+                        new URL(firstUrl).pathname,
+                      ) ? (
+                        <MediaContainer>
+                          <img
+                            src={firstUrl}
+                            alt="preview"
+                            style={{
+                              width: "100%",
+                              height: "auto",
+                              maxHeight: "300px",
+                              borderRadius: "8px",
+                              cursor: "zoom-in",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              onMediaClick?.(firstUrl, "image", msg.text);
+                            }}
+                          />
+                        </MediaContainer>
+                      ) : (
+                        <LinkPreview url={firstUrl} />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
+            </>
+          )}
+        </>
+      )}
+
+      <div
+        style={{
+          fontSize: "0.65rem",
+          opacity: 0.6,
+          textAlign: "right",
+          marginTop: "4px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: "4px",
+        }}
+      >
+        {!isModernLayout && timeString}
+        {isMe && (
+          <span style={{ display: "flex" }}>
+            {msg.status === 2 ? (
+              <CheckCheck size={14} strokeWidth={2.5} />
+            ) : (
+              <Check size={14} strokeWidth={2.5} />
+            )}
+          </span>
+        )}
+      </div>
+    </Bubble>
+  );
+
+  return (
+    <BubbleWrapper
+      isMe={isModernLayout ? false : isMe}
+      hasReactions={Object.keys(groupedReactions).length > 0}
+      onContextMenu={handleContextMenu}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {!isModernLayout && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: "60px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: swipeOffset / 50,
+            transform: `translateX(${swipeOffset - 60}px)`,
+            color: "#6366f1",
+          }}
+        >
+          <Reply size={20} />
+        </div>
+      )}
+
+      {isModernLayout ? (
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            width: "100%",
+            alignItems: "flex-start",
+          }}
+        >
+          <Avatar
+            size="sm"
+            src={senderAvatar}
+            name={senderName || (isMe ? "You" : "User")}
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+                marginBottom: "4px",
+              }}
+            >
+              <span style={{ fontWeight: 700, color: "#f3f4f6" }}>
+                {senderName || (isMe ? "You" : "User")}
+              </span>
+              <span style={{ fontSize: "12px", color: "#9ca3af" }}>
+                {timeString}
+              </span>
+            </div>
+            {bubbleNode}
+          </div>
+        </div>
+      ) : (
+        bubbleNode
+      )}
+
+      {Object.keys(groupedReactions).length > 0 && (
+        <ReactionBubble
+          isMe={isModernLayout ? false : isMe}
+          style={
+            isModernLayout
+              ? {
+                  left: "42px",
+                  right: "auto",
+                }
+              : undefined
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            handleContextMenu(e);
+          }}
+        >
+          {Object.entries(
+            reactions.reduce((acc: any, r) => {
+              acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+              return acc;
+            }, {}),
+          )
+            .sort((a: any, b: any) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([emoji]) => (
+              <span key={emoji}>{emoji}</span>
+            ))}
+          {reactions.length > 1 && (
+            <span style={{ marginLeft: 2, fontSize: 10, opacity: 0.8 }}>
+              {reactions.length}
             </span>
           )}
-        </div>
-      </Bubble>
+        </ReactionBubble>
+      )}
 
       {contextMenu.visible && (
         <React.Fragment>

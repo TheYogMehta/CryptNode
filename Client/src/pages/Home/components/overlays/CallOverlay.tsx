@@ -191,9 +191,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   const displayName =
     callState?.peerName ||
-    (callState?.remoteSid
-      ? `Peer ${callState.remoteSid.slice(0, 6)}`
-      : "Unknown");
+    "Unknown";
 
   const activeMode =
     isScreenEnabled || callState?.type === "Screen"

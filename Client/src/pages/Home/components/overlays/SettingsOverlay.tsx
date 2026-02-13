@@ -28,9 +28,13 @@ import {
   SidebarHeader,
   SidebarTitle,
   BackButton,
+  MobileCategoryList,
+  MobileCategoryItem,
+  MobileHeader,
+  MobileTitle,
 } from "./Settings.styles";
 import { colors } from "../../../../theme/design-system";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { ProfileSettings } from "../settings/ProfileSettings";
 import { SecuritySettings } from "../settings/SecuritySettings";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
@@ -39,6 +43,7 @@ import { StorageService } from "../../../../services/storage/StorageService";
 interface SettingsOverlayProps {
   onClose: () => void;
   currentUserEmail: string | null;
+  isMobile?: boolean;
 }
 
 type SettingsCategory = "Profile" | "Account" | "Security" | "Appearance";
@@ -46,10 +51,19 @@ type SettingsCategory = "Profile" | "Account" | "Security" | "Appearance";
 export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   onClose,
   currentUserEmail,
+  isMobile,
 }) => {
-  const [activeCategory, setActiveCategory] =
-    useState<SettingsCategory>("Profile");
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
+    isMobile ? null : "Profile",
+  );
   const [accounts, setAccounts] = useState<StoredAccount[]>([]);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  useEffect(() => {
+    if (!isMobile && !activeCategory) {
+      setActiveCategory("Profile");
+    }
+  }, [isMobile, activeCategory]);
 
   useEffect(() => {
     loadAccounts();
@@ -78,6 +92,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   };
 
   const handleDeleteAccount = async () => {
+    if (isDeletingAccount) return;
     if (
       confirm(
         "ARE YOU SURE? This will delete all your chats and keys permanently from this device.",
@@ -85,6 +100,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     ) {
       if (confirm("Really really sure? This cannot be undone.")) {
         if (currentUserEmail) {
+          setIsDeletingAccount(true);
+          let deleteFailed = false;
           try {
             const dbName = await AccountService.getDbName(currentUserEmail);
             const masterKey = await getKeyFromSecureStorage(
@@ -123,16 +140,59 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
             await deleteDatabase(dbName);
             await AccountService.removeAccount(currentUserEmail);
-            await ChatClient.logout();
-            onClose();
           } catch (e) {
+            deleteFailed = true;
             console.error("Delete failed", e);
             alert("Failed to delete account data fully.");
+          } finally {
+            try {
+              await setActiveUser(null);
+              await ChatClient.logout();
+            } catch (logoutErr) {
+              console.warn("Forced logout after delete failed", logoutErr);
+            }
+            setIsDeletingAccount(false);
+            if (!deleteFailed) {
+              onClose();
+            }
           }
         }
       }
     }
   };
+
+  const deletingOverlay = isDeletingAccount ? (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 5000,
+        background: "rgba(5, 10, 22, 0.55)",
+        backdropFilter: "blur(2px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          padding: "18px 22px",
+          borderRadius: "12px",
+          background: "rgba(10, 19, 45, 0.95)",
+          border: "1px solid rgba(255, 255, 255, 0.12)",
+          color: "white",
+          minWidth: "220px",
+          textAlign: "center",
+        }}
+      >
+        <div className="spinner" style={{ margin: "0 auto 12px" }}></div>
+        <div style={{ fontWeight: 600 }}>Deleting account...</div>
+        <div style={{ marginTop: "6px", fontSize: "12px", opacity: 0.85 }}>
+          Please wait and do not close the app.
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const menuItems: { id: SettingsCategory; label: string }[] = [
     { id: "Profile", label: "Profile" },
@@ -193,6 +253,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                   </div>
                   {acc.email !== currentUserEmail && (
                     <button
+                      disabled={isDeletingAccount}
                       onClick={() => handleSwitchAccount(acc.email)}
                       style={{
                         padding: "6px 12px",
@@ -200,7 +261,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         background: colors.primary.main,
                         color: "white",
                         border: "none",
-                        cursor: "pointer",
+                        cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                        opacity: isDeletingAccount ? 0.6 : 1,
                       }}
                     >
                       Switch
@@ -212,9 +274,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
             <h3 style={{ color: "white" }}>Danger Zone</h3>
             <DangerZone>
-              <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
-              <DangerButton onClick={handleDeleteAccount}>
-                Delete Account
+              <SignOutButton disabled={isDeletingAccount} onClick={handleSignOut}>
+                Sign Out
+              </SignOutButton>
+              <DangerButton disabled={isDeletingAccount} onClick={handleDeleteAccount}>
+                {isDeletingAccount ? "Deleting..." : "Delete Account"}
               </DangerButton>
             </DangerZone>
           </div>
@@ -226,13 +290,66 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     }
   };
 
+  // Mobile Logic
+  if (isMobile) {
+    if (!activeCategory) {
+      return (
+        <ModalOverlay>
+          <SettingsContainer>
+            <MobileCategoryList>
+              <SidebarHeader style={{ padding: "16px", marginBottom: 0 }}>
+                <BackButton disabled={isDeletingAccount} onClick={onClose}>
+                  <ArrowLeft size={24} />
+                </BackButton>
+                <SidebarTitle>Settings</SidebarTitle>
+              </SidebarHeader>
+
+              {menuItems.map((item) => (
+                <MobileCategoryItem
+                  key={item.id}
+                  disabled={isDeletingAccount}
+                  onClick={() => setActiveCategory(item.id)}
+                >
+                  {item.label}
+                  <ChevronRight size={20} color={colors.text.tertiary} />
+                </MobileCategoryItem>
+              ))}
+            </MobileCategoryList>
+          </SettingsContainer>
+          {deletingOverlay}
+        </ModalOverlay>
+      );
+    }
+
+    return (
+      <ModalOverlay>
+        <SettingsContainer>
+          <MobileHeader>
+            <BackButton
+              disabled={isDeletingAccount}
+              onClick={() => setActiveCategory(null)}
+            >
+              <ArrowLeft size={24} />
+            </BackButton>
+            <MobileTitle>
+              {menuItems.find((m) => m.id === activeCategory)?.label}
+            </MobileTitle>
+          </MobileHeader>
+          <SettingsContent>{renderContent()}</SettingsContent>
+        </SettingsContainer>
+        {deletingOverlay}
+      </ModalOverlay>
+    );
+  }
+
+  // Desktop Logic
   return (
     <ModalOverlay>
       <SettingsContainer>
         {/* Left Sidebar */}
         <SettingsSidebar>
           <SidebarHeader>
-            <BackButton onClick={onClose}>
+            <BackButton disabled={isDeletingAccount} onClick={onClose}>
               <ArrowLeft size={20} />
             </BackButton>
             <SidebarTitle>Settings</SidebarTitle>
@@ -243,6 +360,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               <CategoryButton
                 key={item.id}
                 isActive={activeCategory === item.id}
+                disabled={isDeletingAccount}
                 onClick={() => setActiveCategory(item.id)}
               >
                 {item.label}
@@ -300,6 +418,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     </div>
                     {acc.email !== currentUserEmail && (
                       <button
+                        disabled={isDeletingAccount}
                         onClick={() => handleSwitchAccount(acc.email)}
                         style={{
                           padding: "6px 12px",
@@ -307,7 +426,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           background: colors.primary.main,
                           color: "white",
                           border: "none",
-                          cursor: "pointer",
+                          cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                          opacity: isDeletingAccount ? 0.6 : 1,
                         }}
                       >
                         Switch
@@ -319,9 +439,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
               <h3 style={{ color: "white" }}>Danger Zone</h3>
               <DangerZone>
-                <SignOutButton onClick={handleSignOut}>Sign Out</SignOutButton>
-                <DangerButton onClick={handleDeleteAccount}>
-                  Delete Account
+                <SignOutButton disabled={isDeletingAccount} onClick={handleSignOut}>
+                  Sign Out
+                </SignOutButton>
+                <DangerButton disabled={isDeletingAccount} onClick={handleDeleteAccount}>
+                  {isDeletingAccount ? "Deleting..." : "Delete Account"}
                 </DangerButton>
               </DangerZone>
             </div>
@@ -332,6 +454,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           )}
         </SettingsContent>
       </SettingsContainer>
+      {deletingOverlay}
     </ModalOverlay>
   );
 };

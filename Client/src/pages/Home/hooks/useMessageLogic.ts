@@ -163,12 +163,24 @@ export const useMessageLogic = ({
       );
     const msgType = isGif ? "gif" : "text";
 
-    await ChatClient.sendMessage(
-      activeChat,
-      currentInput,
-      replyContext,
-      msgType,
-    );
+    try {
+      await ChatClient.sendMessage(
+        activeChat,
+        currentInput,
+        replyContext,
+        msgType,
+      );
+    } catch (e: any) {
+      console.error("[useMessageLogic] sendMessage failed:", e);
+      ChatClient.emit("notification", {
+        type: "error",
+        message:
+          e?.message === "Session not found"
+            ? "Session is unavailable. Please reopen chat or reconnect."
+            : "Failed to send message.",
+      });
+      return;
+    }
 
     const newMsg: ChatMessage = {
       sid: activeChat,

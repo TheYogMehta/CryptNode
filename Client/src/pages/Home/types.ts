@@ -66,6 +66,12 @@ export interface ChatMessage {
 export interface InboundReq {
   sid: string;
   publicKey: string;
+  email?: string;
+  emailHash?: string;
+  name?: string;
+  avatar?: string;
+  nameVersion?: number;
+  avatarVersion?: number;
 }
 
 export type CallStatus = "idle" | "calling" | "ringing" | "connected";

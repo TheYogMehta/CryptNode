@@ -36,8 +36,9 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
     peerEmail,
   } = data;
   const isOnline = online;
+  const peerLabelFromEmail = peerEmail ? peerEmail.split("@")[0] : undefined;
   const displayName =
-    alias_name || peer_name || peerEmail || `Peer ${sid.slice(0, 6)}`;
+    alias_name || peer_name || peerLabelFromEmail || `Peer ${sid.slice(0, 6)}`;
   const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
     undefined,
   );

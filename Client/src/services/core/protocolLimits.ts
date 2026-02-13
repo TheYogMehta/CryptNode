@@ -1,0 +1,3 @@
+export const MAX_WS_FRAME_BYTES = 1024 * 1024;
+export const MAX_ENCRYPTED_PAYLOAD_CHARS = 400 * 1024;
+export const TEXT_CHUNK_SIZE_CHARS = 12000;

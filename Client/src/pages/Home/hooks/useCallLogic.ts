@@ -38,8 +38,12 @@ export const useCallLogic = ({
         );
         if (rows.length > 0) {
           const r = rows[0];
+          const peerLabelFromEmail =
+            typeof r.peer_email === "string" && r.peer_email.includes("@")
+              ? r.peer_email.split("@")[0]
+              : r.peer_email;
           return {
-            peerName: r.alias_name || r.peer_name || r.peer_email || "Unknown",
+            peerName: r.alias_name || r.peer_name || peerLabelFromEmail || "Unknown",
             peerAvatar: r.alias_avatar || r.peer_avatar,
           };
         }

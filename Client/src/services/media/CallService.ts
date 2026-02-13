@@ -1,4 +1,5 @@
 import { IChatClient } from "../core/interfaces";
+import { Capacitor } from "@capacitor/core";
 
 export class CallService {
   private client: IChatClient;
@@ -38,6 +39,75 @@ export class CallService {
 
   constructor(client: IChatClient) {
     this.client = client;
+  }
+
+  private isAndroidPlatform(): boolean {
+    return Capacitor.getPlatform() === "android";
+  }
+
+  private isElectronPlatform(): boolean {
+    return !!(window as any).electron?.getDesktopSources;
+  }
+
+  private async getDisplayStream(): Promise<MediaStream> {
+    const nav = navigator.mediaDevices as any;
+    const getDisplayMedia =
+      typeof nav?.getDisplayMedia === "function"
+        ? nav.getDisplayMedia.bind(nav)
+        : null;
+
+    if (this.isElectronPlatform()) {
+      try {
+        const sources = await (window as any).electron.getDesktopSources();
+        const source = Array.isArray(sources) ? sources[0] : null;
+        if (!source?.id) throw new Error("No desktop source available");
+
+        return await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: "desktop",
+              chromeMediaSourceId: source.id,
+              minWidth: 1280,
+              maxWidth: 1920,
+              minHeight: 720,
+              maxHeight: 1080,
+              maxFrameRate: 30,
+            },
+          },
+        } as any);
+      } catch (e) {
+        console.warn(
+          "[CallService] Electron desktop source capture failed, trying getDisplayMedia fallback",
+          e,
+        );
+      }
+    }
+
+    if (getDisplayMedia) {
+      try {
+        return await getDisplayMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 20, max: 30 },
+          },
+          audio: false,
+        });
+      } catch (e) {
+        console.warn(
+          "[CallService] getDisplayMedia with constraints failed, retrying with minimal constraints",
+          e,
+        );
+        return await getDisplayMedia({ video: true, audio: false });
+      }
+    }
+
+    throw new Error(
+      this.isAndroidPlatform()
+        ? "Screen sharing is not available in this Android runtime. Use a Chromium-based browser build or add native MediaProjection bridge support."
+        : "Screen sharing is not supported on this device.",
+    );
   }
 
   public playRingtone() {
@@ -535,57 +605,12 @@ export class CallService {
           this.client.emit("video_toggled", { enabled: false });
         }
 
-        const isElectron =
-          (window as any).electron &&
-          (window as any).electron.getDesktopSources;
-
-        if (isElectron) {
-          const sources = await (window as any).electron.getDesktopSources();
-          const source = sources[0];
-          if (!source) throw new Error("No screen sources found.");
-
-          if (navigator.mediaDevices?.getDisplayMedia) {
-            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-              video: {
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                frameRate: { ideal: 20, max: 30 },
-              },
-              audio: false,
-            });
-          }
-
-          if (!this.screenStream) {
-            this.screenStream = await navigator.mediaDevices.getUserMedia({
-              audio: false,
-              video: {
-                mandatory: {
-                  chromeMediaSource: "desktop",
-                  chromeMediaSourceId: source.id,
-                  minWidth: 1280,
-                  maxWidth: 1920,
-                  minHeight: 720,
-                  maxHeight: 1080,
-                },
-              },
-            } as any);
-          }
-        } else if (navigator.mediaDevices?.getDisplayMedia) {
-          this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              frameRate: { ideal: 20, max: 30 },
-            },
-            audio: false,
-          });
-        } else {
-          throw new Error(
-            "Screen sharing not supported on this device. On Android WebView, a native MediaProjection bridge is required.",
-          );
-        }
+        this.screenStream = await this.getDisplayStream();
 
         const screenTrack = this.screenStream.getVideoTracks()[0];
+        if (!screenTrack) {
+          throw new Error("No video track found in screen capture stream");
+        }
         if (screenTrack) {
           const transceivers = this.peerConnection.getTransceivers();
           const videoTransceiver = transceivers.find(

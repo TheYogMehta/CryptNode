@@ -24,6 +24,7 @@ import {
 import { GifPicker } from "../../../../components/GifPicker";
 import { ChatMessage, SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
+import { useTheme } from "../../../../theme/ThemeContext";
 import {
   ChatContainer,
   ChatHeader,
@@ -78,6 +79,7 @@ export const ChatWindowDefault = ({
   onLoadMore,
   isRateLimited,
 }: ChatWindowProps) => {
+  const { messageLayout } = useTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -103,7 +105,7 @@ export const ChatWindowDefault = ({
   const headerName =
     session?.alias_name ||
     session?.peer_name ||
-    session?.peerEmail ||
+    (session?.peerEmail ? session.peerEmail.split("@")[0] : undefined) ||
     activeChat ||
     "Chat";
   const avatarToUse = session?.alias_avatar || session?.peer_avatar;
@@ -374,6 +376,18 @@ export const ChatWindowDefault = ({
             msg={msg}
             onReply={setReplyingTo}
             onMediaClick={handleMediaClick}
+            messageLayout={messageLayout}
+            senderName={
+              msg.sender === "me"
+                ? "You"
+                : session?.alias_name ||
+                  session?.peer_name ||
+                  (session?.peerEmail
+                    ? session.peerEmail.split("@")[0]
+                    : undefined) ||
+                  "User"
+            }
+            senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
           />
         ))}
       </MessageList>

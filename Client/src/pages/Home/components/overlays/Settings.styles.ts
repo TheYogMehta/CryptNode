@@ -39,22 +39,7 @@ export const SettingsSidebar = styled.div`
   flex-direction: column;
 
   @media (max-width: 768px) {
-    width: 100%;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    padding: ${spacing[3]};
-    border-right: none;
-    border-bottom: 1px solid ${colors.border.subtle};
-    gap: ${spacing[2]};
-    overflow-x: auto;
-    flex-shrink: 0;
-
-    /* Hide the header text on mobile to save space, or style it differently */
-    & > div:first-of-type {
-      margin-bottom: 0 !important;
-      margin-right: ${spacing[2]};
-    }
+    display: none;
   }
 `;
 
@@ -79,6 +64,12 @@ export const BackButton = styled.button`
   padding: 4px;
   display: flex;
   align-items: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: ${colors.background.tertiary};
+  }
 `;
 
 export const SettingsContent = styled.div`
@@ -89,6 +80,8 @@ export const SettingsContent = styled.div`
 
   @media (max-width: 768px) {
     padding: ${spacing[4]};
+    width: 100%;
+    height: 100%;
   }
 `;
 
@@ -111,12 +104,56 @@ export const CategoryButton = styled.button<{ isActive: boolean }>`
       props.isActive ? colors.primary.hover : colors.background.tertiary};
     color: ${(props) => (props.isActive ? "white" : colors.text.primary)};
   }
+`;
 
-  @media (max-width: 768px) {
-    margin-bottom: 0;
-    white-space: nowrap;
-    padding: ${spacing[2]} ${spacing[3]};
-    font-size: 0.9rem;
+export const MobileCategoryList = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: ${colors.background.primary};
+`;
+
+export const MobileHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${spacing[3]};
+  padding: ${spacing[4]};
+  border-bottom: 1px solid ${colors.border.subtle};
+  background-color: ${colors.background.secondary};
+  position: sticky;
+  top: 0;
+  z-index: 10;
+`;
+
+export const MobileTitle = styled.h2`
+  margin: 0;
+  font-size: 1.25rem;
+  color: ${colors.text.primary};
+  font-weight: 600;
+`;
+
+export const MobileCategoryItem = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: ${spacing[5]} ${spacing[4]};
+  background-color: ${colors.background.secondary};
+  border: none;
+  border-bottom: 1px solid ${colors.border.subtle};
+  color: ${colors.text.primary};
+  font-size: 1.1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: ${colors.background.tertiary};
+  }
+
+  &:active {
+    background-color: ${colors.background.tertiary};
+    opacity: 0.8;
   }
 `;
 
@@ -173,6 +210,11 @@ export const DangerButton = styled.button`
 
   &:hover {
     background-color: #dc2626;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 `;
 
@@ -276,5 +318,10 @@ export const SignOutButton = styled.button`
 
   &:hover {
     background-color: ${colors.background.tertiary}dd;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 `;

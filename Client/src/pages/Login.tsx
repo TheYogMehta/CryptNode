@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { SocialLogin } from "@capgo/capacitor-social-login";
-import { Capacitor } from "@capacitor/core";
+import ChatClient from "../services/core/ChatClient";
 import {
   LoginContainer,
   HeaderSection,
@@ -20,8 +20,19 @@ interface LoginProps {
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin }) => {
+  const hasElectronGoogleLogin =
+    typeof window !== "undefined" &&
+    typeof window.SafeStorage?.googleLogin === "function";
+
   useEffect(() => {
     const initSocialLogin = async () => {
+      if (hasElectronGoogleLogin) {
+        try {
+          localStorage.removeItem("OAUTH_STATE_KEY");
+          localStorage.removeItem("oauth_state");
+        } catch (_e) {}
+        return;
+      }
       await SocialLogin.initialize({
         google: {
           webClientId:
@@ -31,20 +42,33 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       });
     };
     initSocialLogin().catch(console.error);
-  }, []);
+  }, [hasElectronGoogleLogin]);
 
   const [isLoading, setIsLoading] = React.useState(false);
+  const [errorText, setErrorText] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    const onAuthDone = () => setIsLoading(false);
+    ChatClient.on("auth_success", onAuthDone);
+    ChatClient.on("auth_error", onAuthDone);
+    return () => {
+      ChatClient.off("auth_success", onAuthDone);
+      ChatClient.off("auth_error", onAuthDone);
+    };
+  }, []);
 
   const signIn = async () => {
     if (isLoading) return;
+    setErrorText(null);
     setIsLoading(true);
     try {
-      if (Capacitor.getPlatform() === "electron") {
+      if (hasElectronGoogleLogin) {
         const result = await window.SafeStorage.googleLogin();
         if (result && result.idToken) {
-          onLogin(result.idToken);
+          await Promise.resolve(onLogin(result.idToken));
         } else {
           console.error("Electron Login Failed or Cancelled");
+          setErrorText("Google sign-in was cancelled.");
           setIsLoading(false);
         }
       } else {
@@ -60,13 +84,15 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           "idToken" in response.result &&
           response.result.idToken
         ) {
-          onLogin(response.result.idToken);
+          await Promise.resolve(onLogin(response.result.idToken));
         } else {
+          setErrorText("Failed to get Google ID token. Try again.");
           setIsLoading(false);
         }
       }
     } catch (error) {
       console.error("Sign-In Error:", error);
+      setErrorText("Login failed. Please try again.");
       setIsLoading(false);
     }
   };
@@ -121,6 +147,11 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         </GoogleButton>
         {isLoading && (
           <LoadingText>Setting up secure environment...</LoadingText>
+        )}
+        {errorText && (
+          <LoadingText style={{ color: "#ff7f7f", marginTop: "8px" }}>
+            {errorText}
+          </LoadingText>
         )}
       </LoginCard>
     </LoginContainer>

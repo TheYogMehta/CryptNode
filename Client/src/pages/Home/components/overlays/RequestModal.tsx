@@ -49,6 +49,12 @@ export const RequestModal = ({
                 await ChatClient.acceptFriend(
                   inboundReq!.sid,
                   inboundReq!.publicKey,
+                  inboundReq!.email,
+                  inboundReq!.emailHash,
+                  inboundReq!.name,
+                  inboundReq!.avatar,
+                  inboundReq!.nameVersion,
+                  inboundReq!.avatarVersion,
                 );
                 setInboundReq(null);
               }}

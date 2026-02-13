@@ -156,7 +156,7 @@ const Home = () => {
     return () => {
       App.removeAllListeners();
     };
-  }, []); 
+  }, []);
   const checkInitialState = async () => {
     try {
       const accs = await AccountService.getAccounts();
@@ -388,6 +388,7 @@ const Home = () => {
           <SettingsOverlay
             onClose={() => setShowSettings(false)}
             currentUserEmail={state.userEmail}
+            isMobile={isMobile}
           />
         )}
 

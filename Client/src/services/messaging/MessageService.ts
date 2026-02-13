@@ -5,6 +5,7 @@ import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
 import { AuthService } from "../auth/AuthService";
 import { SessionService } from "./SessionService";
+import { TEXT_CHUNK_SIZE_CHARS } from "../core/protocolLimits";
 
 interface IMessageClient {
   authService: AuthService;
@@ -26,10 +27,68 @@ interface IMessageClient {
 
 export class MessageService extends EventEmitter {
   private client: IMessageClient;
+  private textChunkBuffer = new Map<
+    string,
+    {
+      totalChunks: number;
+      parts: string[];
+      chunkType: "TEXT" | "GIF";
+      timestamp: number;
+      replyTo?: any;
+    }
+  >();
 
   constructor(client: IMessageClient) {
     super();
     this.client = client;
+  }
+
+  private splitTextIntoChunks(text: string, chunkSize: number): string[] {
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += chunkSize) {
+      chunks.push(text.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  private chunkKey(sid: string, id: string): string {
+    return `${sid}:${id}`;
+  }
+
+  private async saveAndEmitInboundMessage(
+    sid: string,
+    data: {
+      id: string;
+      type: string;
+      text: string;
+      timestamp: number;
+      replyTo?: any;
+    },
+  ) {
+    try {
+      await executeDB(
+        "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, ?, ?, 2, ?)",
+        [
+          data.id,
+          sid,
+          data.text,
+          data.type.toLowerCase(),
+          data.timestamp,
+          data.replyTo ? JSON.stringify(data.replyTo) : null,
+        ],
+      );
+    } catch (e) {
+      console.error("[MessageService] Failed to save received message:", e);
+    }
+    this.client.emit("message", {
+      sid,
+      text: data.text,
+      sender: "other",
+      type: data.type.toLowerCase(),
+      id: data.id,
+      replyTo: data.replyTo,
+      timestamp: data.timestamp,
+    });
   }
 
   public async sendMessage(
@@ -38,8 +97,15 @@ export class MessageService extends EventEmitter {
     replyTo?: any,
     type: string = "text",
   ) {
-    if (!this.client.sessionService.sessions[sid])
-      throw new Error("Session not found");
+    if (!this.client.sessionService.sessions[sid]) {
+      console.warn(
+        `[MessageService] Session ${sid} not found in memory, reloading sessions...`,
+      );
+      await this.client.sessionService.loadSessions();
+      if (!this.client.sessionService.sessions[sid]) {
+        throw new Error("Session not found");
+      }
+    }
 
     const id = crypto.randomUUID();
     const timestamp = Date.now();
@@ -48,21 +114,55 @@ export class MessageService extends EventEmitter {
         "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
         [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
-      const payload = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({
-          t: "MSG",
-          data: {
-            type: type === "text" ? "TEXT" : type.toUpperCase(),
-            text,
-            id,
-            timestamp: Date.now(),
-            replyTo,
-          },
-        }),
-        1,
-      );
-      this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
+      const normalizedType = type === "text" ? "TEXT" : type.toUpperCase();
+      if (
+        (normalizedType === "TEXT" || normalizedType === "GIF") &&
+        text.length > TEXT_CHUNK_SIZE_CHARS
+      ) {
+        const chunks = this.splitTextIntoChunks(text, TEXT_CHUNK_SIZE_CHARS);
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          const payload = await this.client.encryptForSession(
+            sid,
+            JSON.stringify({
+              t: "MSG",
+              data: {
+                type: "TEXT_CHUNK",
+                id,
+                chunkIndex,
+                totalChunks: chunks.length,
+                chunkType: normalizedType,
+                textChunk: chunks[chunkIndex],
+                timestamp,
+                replyTo,
+              },
+            }),
+            1,
+          );
+          this.client.send({
+            t: "MSG",
+            sid,
+            data: { payload },
+            c: chunkIndex === chunks.length - 1,
+            p: 1,
+          });
+        }
+      } else {
+        const payload = await this.client.encryptForSession(
+          sid,
+          JSON.stringify({
+            t: "MSG",
+            data: {
+              type: normalizedType,
+              text,
+              id,
+              timestamp,
+              replyTo,
+            },
+          }),
+          1,
+        );
+        this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
+      }
     } catch (e) {
       console.error("[MessageService] Failed to save sent message:", e);
     }
@@ -196,32 +296,67 @@ export class MessageService extends EventEmitter {
         case "TEXT":
         case "GIF":
         case "IMAGE":
-          try {
-            await executeDB(
-              "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, ?, ?, 2, ?)",
-              [
-                data.id,
-                sid,
-                data.text,
-                data.type.toLowerCase(),
-                data.timestamp,
-                data.replyTo ? JSON.stringify(data.replyTo) : null,
-              ],
-            );
-          } catch (e) {
-            console.error(
-              "[MessageService] Failed to save received message:",
-              e,
-            );
-          }
-          this.client.emit("message", {
-            sid,
-            text: data.text,
-            sender: "other",
-            type: data.type.toLowerCase(),
+          await this.saveAndEmitInboundMessage(sid, {
             id: data.id,
-            replyTo: data.replyTo,
+            type: data.type,
+            text: data.text,
             timestamp: data.timestamp,
+            replyTo: data.replyTo,
+          });
+          break;
+        case "TEXT_CHUNK":
+          if (
+            !data?.id ||
+            typeof data.chunkIndex !== "number" ||
+            typeof data.totalChunks !== "number" ||
+            data.totalChunks <= 0 ||
+            data.totalChunks > 10000 ||
+            !["TEXT", "GIF"].includes(data.chunkType) ||
+            typeof data.textChunk !== "string"
+          ) {
+            console.warn("[MessageService] Invalid TEXT_CHUNK frame");
+            break;
+          }
+          const key = this.chunkKey(sid, data.id);
+          const existing = this.textChunkBuffer.get(key);
+          if (
+            existing &&
+            (existing.totalChunks !== data.totalChunks ||
+              existing.chunkType !== data.chunkType)
+          ) {
+            this.textChunkBuffer.delete(key);
+          }
+          const buffer =
+            this.textChunkBuffer.get(key) ||
+            ({
+              totalChunks: data.totalChunks,
+              parts: new Array(data.totalChunks),
+              chunkType: data.chunkType,
+              timestamp: data.timestamp || Date.now(),
+              replyTo: data.replyTo,
+            } as {
+              totalChunks: number;
+              parts: string[];
+              chunkType: "TEXT" | "GIF";
+              timestamp: number;
+              replyTo?: any;
+            });
+          if (data.chunkIndex < 0 || data.chunkIndex >= buffer.totalChunks) {
+            console.warn("[MessageService] TEXT_CHUNK index out of range");
+            break;
+          }
+          buffer.parts[data.chunkIndex] = data.textChunk;
+          this.textChunkBuffer.set(key, buffer);
+          if (buffer.parts.some((part) => typeof part !== "string")) {
+            break;
+          }
+          this.textChunkBuffer.delete(key);
+          await this.saveAndEmitInboundMessage(sid, {
+            id: data.id,
+            type: buffer.chunkType,
+            text: buffer.parts.join(""),
+            timestamp: buffer.timestamp,
+            replyTo: buffer.replyTo,
           });
           break;
         case "EDIT":
@@ -621,8 +756,18 @@ export class MessageService extends EventEmitter {
     emoji: string,
     action: "add" | "remove",
   ) {
-    if (!this.client.sessionService.sessions[sid])
-      throw new Error("Session not found");
+    if (!this.client.sessionService.sessions[sid]) {
+      console.warn(
+        `[MessageService] Session ${sid} not found, attempting reload...`,
+      );
+      await this.client.sessionService.loadSessions();
+      if (!this.client.sessionService.sessions[sid]) {
+        console.error(
+          `[MessageService] Session ${sid} STILL not found after reload.`,
+        );
+        throw new Error("Session not found");
+      }
+    }
 
     const payload = await this.client.encryptForSession(
       sid,

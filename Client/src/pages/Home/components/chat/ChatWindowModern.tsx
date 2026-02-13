@@ -11,6 +11,7 @@ import {
 import { MessageBubble } from "./MessageBubble";
 import { colors, spacing } from "../../../../theme/design-system";
 import { ChatMessage, SessionData } from "../../types";
+import { useTheme } from "../../../../theme/ThemeContext";
 import {
   Container,
   Header,
@@ -58,6 +59,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   onLoadMore,
   isRateLimited,
 }) => {
+  const { messageLayout } = useTheme();
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +84,9 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   };
 
   if (!session) return null;
+  const peerLabelFromEmail = session.peerEmail
+    ? session.peerEmail.split("@")[0]
+    : undefined;
 
   return (
     <Container>
@@ -95,10 +100,11 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
           <Avatar>
             {session.alias_avatar ||
               session.peer_name?.[0]?.toUpperCase() ||
+              peerLabelFromEmail?.[0]?.toUpperCase() ||
               "?"}
           </Avatar>
           <div>
-            <Name>{session.alias_name || session.peer_name || "Unknown"}</Name>
+            <Name>{session.alias_name || session.peer_name || peerLabelFromEmail || "Unknown"}</Name>
             {peerOnline ? (
               <Status>Online</Status>
             ) : (
@@ -138,7 +144,17 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
               <MessageBubble
                 msg={msg}
                 onReply={setReplyingTo}
-                onMediaClick={(url, type) => window.open(url, "_blank")} // Simple fallback for now
+                onMediaClick={(url, type) => window.open(url, "_blank")}
+                messageLayout={messageLayout}
+                senderName={
+                  msg.sender === "me"
+                    ? "You"
+                    : session?.alias_name ||
+                      session?.peer_name ||
+                      peerLabelFromEmail ||
+                      "User"
+                }
+                senderAvatar={undefined}
               />
             </React.Fragment>
           );

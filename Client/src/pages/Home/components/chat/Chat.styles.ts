@@ -337,16 +337,13 @@ export const BubbleWrapper = styled.div<{
   position: relative;
   padding-left: ${(props) => (props.isMe ? spacing[12] : "0")};
   padding-right: ${(props) => (props.isMe ? "0" : spacing[12])};
-  margin-bottom: ${(props) =>
-    props.hasReactions ? "22px" : "0"}; // Add space for reaction bubble
+  margin-bottom: ${(props) => (props.hasReactions ? "32px" : "0")};
   transition: margin-bottom 0.2s;
 `;
 
 export const Bubble = styled.div<{ isMe: boolean }>`
   background-color: ${(props) =>
-    props.isMe
-      ? "#005c4b"
-      : colors.background.tertiary}; // WhatsApp-like dark green for me
+    props.isMe ? "#005c4b" : colors.background.tertiary};
   color: ${(props) => (props.isMe ? "#e9edef" : colors.text.primary)};
   padding: ${spacing[2]} ${spacing[3]};
   border-radius: ${(props) =>
@@ -592,17 +589,16 @@ export const AudioTimeInfo = styled.div`
   opacity: 0.7;
   padding: 0 ${spacing[1]};
 `;
-// WhatsApp-style Context Menu
 export const ContextMenuContainer = styled.div<{ x: number; y: number }>`
   position: fixed;
   top: ${(props) => props.y}px;
   left: ${(props) => props.x}px;
-  background-color: #232d36; // WhatsApp dark mode menu bg
+  background-color: #232d36;
   border-radius: 16px;
   padding: 8px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   z-index: 1000;
-  min-width: 220px; // Slightly wider
+  min-width: 220px;
   animation: ${scaleIn} 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
@@ -688,21 +684,22 @@ export const MoreReactionsButton = styled.button`
 
 export const ReactionBubble = styled.div<{ isMe: boolean }>`
   position: absolute;
-  bottom: -16px; // Push further down to avoid overlap
-  ${(props) => (props.isMe ? "right: 10px;" : "left: 10px;")}
-  background-color: #1f2c34; // Darker bubble color
-  border: 1px solid #111b21; // Match chat bg buffer
-  padding: 4px 6px;
-  border-radius: 12px;
+  bottom: -24px;
+  ${(props) => (props.isMe ? "right: 0;" : "left: 0;")}
+  background-color: #232d36;
+  border: 1px solid #111b21;
+  padding: 4px 8px;
+  border-radius: 20px;
   display: flex;
   align-items: center;
   gap: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   font-size: 11px;
   color: #aebac1;
-  z-index: 10; // Ensure it floats above
+  z-index: 10;
   cursor: pointer;
   white-space: nowrap;
+  user-select: none;
 `;
 
 export const EditInputContainer = styled.div`

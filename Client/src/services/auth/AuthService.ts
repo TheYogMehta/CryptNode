@@ -31,6 +31,9 @@ export class AuthService extends EventEmitter {
   }
 
   public async login(token: string) {
+    if (!token || !String(token).trim()) {
+      throw new Error("Missing Google id token");
+    }
     this.authToken = token;
     if (!socket.isConnected()) {
       await socket.connect("wss://socket.cryptnode.theyogmehta.online");
@@ -141,6 +144,27 @@ export class AuthService extends EventEmitter {
     return btoa(String.fromCharCode(...new Uint8Array(raw)));
   }
 
+  private parseGoogleIdTokenClaims(token?: string | null): {
+    name?: string;
+    picture?: string;
+  } {
+    try {
+      if (!token) return {};
+      const parts = token.split(".");
+      if (parts.length < 2) return {};
+      const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+      const json = atob(padded);
+      const claims = JSON.parse(json);
+      return {
+        name: typeof claims?.name === "string" ? claims.name : undefined,
+        picture: typeof claims?.picture === "string" ? claims.picture : undefined,
+      };
+    } catch (_e) {
+      return {};
+    }
+  }
+
   public async handleAuthSuccess(data: any) {
     this.userEmail = data.email;
     if (data.token) {
@@ -152,7 +176,13 @@ export class AuthService extends EventEmitter {
       await setKeyFromSecureStorage(tokenKey, data.token);
       console.log("[AuthService] Session token saved/refreshed");
 
-      await AccountService.addAccount(data.email, data.token);
+      const claims = this.parseGoogleIdTokenClaims(data.token);
+      await AccountService.addAccount(
+        data.email,
+        data.token,
+        claims.name,
+        claims.picture,
+      );
       await setActiveUser(data.email);
 
       let key = await getKeyFromSecureStorage(

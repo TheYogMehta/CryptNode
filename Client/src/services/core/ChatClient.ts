@@ -1,12 +1,14 @@
 import { EventEmitter } from "events";
-import { executeDB } from "../storage/sqliteService";
+import { executeDB, queryDB } from "../storage/sqliteService";
 import socket from "./SocketManager";
 import { MessageQueue } from "../../utils/MessageQueue";
+import { sha256 } from "../../utils/crypto";
 
 interface ServerFrame {
   t: string;
   sid: string;
   data: any;
+  sh?: string;
   c?: boolean;
   p?: number;
 }
@@ -62,6 +64,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
         "[ChatClient] session_created event received from Service:",
         sid,
       );
+      this.broadcastProfileUpdate().catch((e) =>
+        console.warn("[ChatClient] Failed to broadcast profile after session creation", e),
+      );
       this.emit("session_created", sid);
     });
 
@@ -72,6 +77,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
     socket.on("WS_CONNECTED", () => {
       console.log("[ChatClient] WS Connected");
       if (this.authService.hasToken()) {
+        const reattached = this.sessionService.reattachAllSessions();
+        if (reattached > 0) {
+          console.log(`[ChatClient] Reattached ${reattached} session(s)`);
+        }
         this.emit("session_updated");
       }
     });
@@ -118,6 +127,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
   async init() {
     await this.sessionService.loadSessions();
+    if (socket.isConnected()) {
+      this.sessionService.reattachAllSessions();
+    }
     this.emit("session_updated");
   }
 
@@ -125,11 +137,62 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.messageService.syncPendingMessages();
   }
 
+  private normalizeEmail(email?: string | null): string {
+    return (email || "").trim().toLowerCase();
+  }
+
+  private async isValidMessageSenderHash(
+    sid: string,
+    senderHash?: string,
+  ): Promise<boolean> {
+    if (!senderHash) return false;
+    const session = this.sessionService.sessions[sid];
+    if (!session) return false;
+
+    if (session.peerEmailHash) {
+      return session.peerEmailHash.toLowerCase() === senderHash.toLowerCase();
+    }
+
+    const normalizedPeerEmail = this.normalizeEmail(session.peerEmail);
+    if (normalizedPeerEmail) {
+      const computed = await sha256(normalizedPeerEmail);
+      session.peerEmailHash = computed;
+      return computed.toLowerCase() === senderHash.toLowerCase();
+    }
+
+    const rows = await queryDB(
+      "SELECT peer_hash, peer_email FROM sessions WHERE sid = ? LIMIT 1",
+      [sid],
+    );
+    const row = rows?.[0];
+    if (row?.peer_hash) {
+      session.peerEmailHash = String(row.peer_hash);
+      return session.peerEmailHash.toLowerCase() === senderHash.toLowerCase();
+    }
+    if (row?.peer_email) {
+      const email = this.normalizeEmail(row.peer_email);
+      const computed = await sha256(email);
+      session.peerEmail = email;
+      session.peerEmailHash = computed;
+      await executeDB("UPDATE sessions SET peer_hash = ? WHERE sid = ?", [
+        computed,
+        sid,
+      ]);
+      return computed.toLowerCase() === senderHash.toLowerCase();
+    }
+
+    return false;
+  }
+
   private async handleFrame(frame: ServerFrame) {
-    const { t, sid, data } = frame;
+    const { t, sid, data, sh } = frame;
     switch (t) {
       case "ERROR":
-        console.error("[Client] Server Error:", data);
+        console.error(
+          "[Client] Server Error:",
+          data,
+          typeof data === "object" ? JSON.stringify(data) : "",
+        );
         if (data.message && data.message.includes("Rate limit")) {
           this.emit("rate_limit_exceeded");
           return;
@@ -148,16 +211,38 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "AUTH_SUCCESS":
         await this.authService.handleAuthSuccess(data);
+        {
+          const reattached = this.sessionService.reattachAllSessions();
+          if (reattached > 0) {
+            console.log(
+              `[ChatClient] Reattached ${reattached} session(s) after auth`,
+            );
+          }
+        }
         break;
       case "JOIN_REQUEST":
         this.emit("inbound_request", {
           sid,
           publicKey: data.publicKey,
           email: data.email,
+          emailHash: data.emailHash,
+          name: data.name,
+          avatar: data.avatar,
+          nameVersion: data.nameVersion,
+          avatarVersion: data.avatarVersion,
         });
         break;
       case "JOIN_ACCEPT":
-        await this.sessionService.finalizeSession(sid, data.publicKey);
+        await this.sessionService.finalizeSession(
+          sid,
+          data.publicKey,
+          data.email,
+          data.emailHash,
+          data.name,
+          data.avatar,
+          data.nameVersion,
+          data.avatarVersion,
+        );
         this.emit("joined_success", sid);
         break;
       case "TURN_CREDS":
@@ -168,6 +253,14 @@ export class ChatClient extends EventEmitter implements IChatClient {
       case "RTC_ANSWER":
       case "RTC_ICE":
       case "MSG":
+        if (t === "MSG" && !(await this.isValidMessageSenderHash(sid, sh))) {
+          console.warn(`[ChatClient] Dropped MSG for ${sid}: sender hash mismatch`);
+          this.emit("notification", {
+            type: "warning",
+            message: "Dropped an untrusted message.",
+          });
+          return;
+        }
         this.messageQueue.enqueue(
           "HANDLE_MSG",
           { sid, payload: data.payload, priority: frame.p ?? 1 },
@@ -275,8 +368,26 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.sessionService.connectToPeer(targetEmail);
   }
 
-  public async acceptFriend(sid: string, remotePub: string) {
-    return this.sessionService.acceptFriend(sid, remotePub);
+  public async acceptFriend(
+    sid: string,
+    remotePub: string,
+    peerEmail?: string,
+    peerEmailHash?: string,
+    peerName?: string,
+    peerAvatar?: string,
+    peerNameVer?: number,
+    peerAvatarVer?: number,
+  ) {
+    return this.sessionService.acceptFriend(
+      sid,
+      remotePub,
+      peerEmail,
+      peerEmailHash,
+      peerName,
+      peerAvatar,
+      peerNameVer,
+      peerAvatarVer,
+    );
   }
 
   public denyFriend(sid: string) {

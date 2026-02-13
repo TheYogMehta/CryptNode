@@ -1,6 +1,11 @@
 import React from "react";
 import { useTheme } from "../../../../theme/ThemeContext";
-import { Moon, Sun, Layout, Smartphone } from "lucide-react";
+import {
+  Moon,
+  Sun,
+  MessageSquareText,
+  AlignLeft,
+} from "lucide-react";
 import {
   Container,
   Section,
@@ -11,7 +16,7 @@ import {
 } from "./AppearanceSettings.styles";
 
 export const AppearanceSettings: React.FC = () => {
-  const { theme, setTheme, designMode, setDesignMode } = useTheme();
+  const { theme, setTheme, messageLayout, setMessageLayout } = useTheme();
 
   return (
     <Container>
@@ -39,17 +44,17 @@ export const AppearanceSettings: React.FC = () => {
         <SectionTitle>Interface Design</SectionTitle>
         <OptionGrid>
           <OptionCard
-            active={designMode === "default"}
-            onClick={() => setDesignMode("default")}
+            active={messageLayout === "bubble"}
+            onClick={() => setMessageLayout("bubble")}
           >
-            <Layout size={24} />
+            <MessageSquareText size={24} />
             <Label>Classic</Label>
           </OptionCard>
           <OptionCard
-            active={designMode === "modern"}
-            onClick={() => setDesignMode("modern")}
+            active={messageLayout === "modern"}
+            onClick={() => setMessageLayout("modern")}
           >
-            <Smartphone size={24} />
+            <AlignLeft size={24} />
             <Label>Modern</Label>
           </OptionCard>
         </OptionGrid>
