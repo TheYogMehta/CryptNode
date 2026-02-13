@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com",
+          "client_id": "588653192623-3lkl6bqaa77lk1g3l89uideuqf083g1o.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.cryptnode",
-            "certificate_hash": "75ad956fb37fbe345753c8a4d489057016dec4ce"
+            "certificate_hash": "af94ef7a145baefb5e817425056f10cdfe0fd97a"
           }
         },
         {

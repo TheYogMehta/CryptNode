@@ -41,7 +41,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       await SocialLogin.initialize({
         google: {
           webClientId:
-            "588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com",
+            "588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com",
           mode: "online",
         },
       });

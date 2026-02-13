@@ -148,7 +148,8 @@ func verifyGoogleToken(token string) (string, error) {
 
 	validClients := map[string]bool{
 		"588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com": true, // Web/Electron
-		"588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com": true, // Android
+		"588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com": true, // Old Android
+		"588653192623-3lkl6bqaa77lk1g3l89uideuqf083g1o.apps.googleusercontent.com": true, // New Android (CryptNode)
 	}
 
 	if !validClients[claims.Aud] {
