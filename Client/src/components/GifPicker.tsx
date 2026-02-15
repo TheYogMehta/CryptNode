@@ -334,7 +334,7 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
         const rawItems = Array.isArray(data) ? data : data?.gifs || [];
 
         results = rawItems
-          .filters((i: any) => i?.gif_src)
+          .filter((i: any) => i?.gif_src)
           .map((g: any) => ({
             url: g.gif_src,
             preview: g.gif_src,

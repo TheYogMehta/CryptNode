@@ -14,6 +14,8 @@ import {
 } from "./Sidebar.styles";
 import { Button } from "../../../../components/ui/Button";
 
+import { useAIStatus } from "../../hooks/useAIStatus";
+
 export const Sidebar = React.memo(
   ({
     sessions,
@@ -27,6 +29,7 @@ export const Sidebar = React.memo(
     onSettings,
     onRename,
     onOpenVault,
+    onGlobalSummary,
   }: {
     sessions: SessionData[];
     activeChat: string | null;
@@ -39,66 +42,88 @@ export const Sidebar = React.memo(
     onSettings: () => void;
     onRename: (sid: string, currentName: string) => void;
     onOpenVault: () => void;
-  }) => (
-    <>
-      {isOpen && isMobile && <MobileOverlay onClick={onClose} />}
+    onGlobalSummary: () => void;
+  }) => {
+    const { isLoaded } = useAIStatus();
 
-      <SidebarContainer isOpen={isOpen} isMobile={isMobile}>
-        <SidebarHeader>
-          <Logo onClick={onLogoClick}>
-            Crypt<span>Node</span>
-          </Logo>
-          {isMobile && <CloseButton onClick={onClose}>✕</CloseButton>}
-        </SidebarHeader>
+    return (
+      <>
+        {isOpen && isMobile && <MobileOverlay onClick={onClose} />}
 
-        <SessionList>
-          <SectionLabel>PINNED</SectionLabel>
-          <SidebarItem
-            key="secure-chat"
-            data={{
-              sid: "secure-vault",
-              alias_name: "Secure Vault",
-              alias_avatar: "",
-              peer_name: "Secure Vault",
-              peer_avatar: "",
-              peerEmail: "vault@local",
-              lastMsg: "Encrypted Storage",
-              lastMsgType: "text",
-              lastTs: Date.now(),
-              unread: 0,
-              online: true,
-            }}
-            isActive={activeChat === "secure-vault"}
-            onSelect={() => onOpenVault()}
-            onRename={() => {}}
-          />
+        <SidebarContainer isOpen={isOpen} isMobile={isMobile}>
+          <SidebarHeader>
+            <Logo onClick={onLogoClick}>
+              Crypt<span>Node</span>
+            </Logo>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              {isLoaded && (
+                <button
+                  title="Catch Up"
+                  onClick={onGlobalSummary}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "1.2rem",
+                    padding: "0 5px",
+                  }}
+                >
+                  ✨
+                </button>
+              )}
+              {isMobile && <CloseButton onClick={onClose}>✕</CloseButton>}
+            </div>
+          </SidebarHeader>
 
-          <SectionLabel>SECURE SESSIONS</SectionLabel>
+          <SessionList>
+            <SectionLabel>PINNED</SectionLabel>
+            <SidebarItem
+              key="secure-chat"
+              data={{
+                sid: "secure-vault",
+                alias_name: "Secure Vault",
+                alias_avatar: "",
+                peer_name: "Secure Vault",
+                peer_avatar: "",
+                peerEmail: "vault@local",
+                lastMsg: "Encrypted Storage",
+                lastMsgType: "text",
+                lastTs: Date.now(),
+                unread: 0,
+                online: true,
+              }}
+              isActive={activeChat === "secure-vault"}
+              onSelect={() => onOpenVault()}
+              onRename={() => {}}
+            />
 
-          {sessions.length === 0 ? (
-            <EmptyText>No active links</EmptyText>
-          ) : (
-            sessions.map((session) => (
-              <SidebarItem
-                key={session.sid}
-                data={session}
-                isActive={activeChat === session.sid}
-                onSelect={onSelect}
-                onRename={onRename}
-              />
-            ))
-          )}
-        </SessionList>
+            <SectionLabel>SECURE SESSIONS</SectionLabel>
 
-        <SidebarFooter>
-          <Button onClick={onAddPeer} fullWidth variant="primary">
-            + Connect
-          </Button>
-          <Button onClick={onSettings} fullWidth variant="secondary">
-            ⚙ Settings
-          </Button>
-        </SidebarFooter>
-      </SidebarContainer>
-    </>
-  ),
+            {sessions.length === 0 ? (
+              <EmptyText>No active links</EmptyText>
+            ) : (
+              sessions.map((session) => (
+                <SidebarItem
+                  key={session.sid}
+                  data={session}
+                  isActive={activeChat === session.sid}
+                  onSelect={onSelect}
+                  onRename={onRename}
+                />
+              ))
+            )}
+          </SessionList>
+
+          <SidebarFooter>
+            <Button onClick={onAddPeer} fullWidth variant="primary">
+              + Connect
+            </Button>
+            <Button onClick={onSettings} fullWidth variant="secondary">
+              ⚙ Settings
+            </Button>
+          </SidebarFooter>
+        </SidebarContainer>
+      </>
+    );
+  },
 );

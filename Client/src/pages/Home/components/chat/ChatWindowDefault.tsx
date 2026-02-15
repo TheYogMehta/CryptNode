@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { StorageService } from "../../../../services/storage/StorageService";
 import ChatClient from "../../../../services/core/ChatClient";
 import { MessageBubble } from "./MessageBubble";
@@ -24,6 +25,7 @@ import {
   Search,
   Edit2,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import { ChatMessage, SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
@@ -52,6 +54,8 @@ import {
   ReplyText,
 } from "./Chat.styles";
 import { IconButton } from "../../../../components/ui/IconButton";
+import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { useAIStatus } from "../../hooks/useAIStatus";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -95,7 +99,8 @@ export const ChatWindowDefault = ({
   const canScreenShare = ChatClient.canScreenShare;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
+  const { isLoaded: isAiLoaded } = useAIStatus();
+  const virtuosoRef = useRef<VirtuosoHandle>(null); // Replacement for scrollRef logic
   const [input, setInput] = useState("");
 
   const [showMenu, setShowMenu] = useState(false);
@@ -107,6 +112,7 @@ export const ChatWindowDefault = ({
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAiSuggestions, setShowAiSuggestions] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
@@ -116,9 +122,6 @@ export const ChatWindowDefault = ({
     description?: string;
   } | null>(null);
 
-  const prevHeightRef = useRef(0);
-  const prevFirstMsgIdRef = useRef<string | null>(null);
-  const prevActiveChatRef = useRef<string | null>(null);
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
 
   const headerName =
@@ -131,6 +134,25 @@ export const ChatWindowDefault = ({
   const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
     undefined,
   );
+
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    setShowSummary(true);
+    if (summary && !isSummarizing) return;
+    setIsSummarizing(true);
+    try {
+      const result = await qwenLocalService.summarize(messages, 5);
+      setSummary(result);
+    } catch (e) {
+      console.error("Summarization failed", e);
+      setSummary("Failed to generate summary.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -147,52 +169,6 @@ export const ChatWindowDefault = ({
       active = false;
     };
   }, [avatarToUse]);
-
-  useLayoutEffect(() => {
-    if (!scrollRef.current) return;
-    const scrollContainer = scrollRef.current;
-    const currentHeight = scrollContainer.scrollHeight;
-    const newFirstMsgId = messages.length > 0 ? messages[0].id || null : null;
-
-    // Detect Chat Switch
-    if (activeChat !== prevActiveChatRef.current) {
-      scrollContainer.scrollTop = currentHeight;
-      prevActiveChatRef.current = activeChat;
-      prevHeightRef.current = currentHeight;
-      prevFirstMsgIdRef.current = newFirstMsgId;
-      return;
-    }
-
-    // Detect History Load (Prepend)
-    // We check if height increased AND the first message ID changed (meaning older messages added)
-    if (
-      prevHeightRef.current > 0 &&
-      currentHeight > prevHeightRef.current &&
-      newFirstMsgId !== prevFirstMsgIdRef.current
-    ) {
-      const heightDifference = currentHeight - prevHeightRef.current;
-      scrollContainer.scrollTop = heightDifference;
-    }
-    // Detect New Message (Append) - Auto-scroll if near bottom
-    else if (currentHeight > prevHeightRef.current) {
-      const isNearBottom =
-        scrollContainer.scrollTop + scrollContainer.clientHeight >=
-        prevHeightRef.current - 50;
-      if (isNearBottom) {
-        scrollContainer.scrollTop = currentHeight;
-      }
-    }
-
-    prevHeightRef.current = currentHeight;
-    prevFirstMsgIdRef.current = newFirstMsgId;
-  }, [messages, activeChat]);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    if (target.scrollTop === 0 && onLoadMore) {
-      onLoadMore();
-    }
-  };
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -393,7 +369,10 @@ export const ChatWindowDefault = ({
     });
   };
 
-  const handlePendingAttachmentDescription = (id: string, description: string) => {
+  const handlePendingAttachmentDescription = (
+    id: string,
+    description: string,
+  ) => {
     setPendingAttachments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, description } : a)),
     );
@@ -443,6 +422,28 @@ export const ChatWindowDefault = ({
       return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
     });
   }, [messages, normalizedSearch]);
+
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+
+  const generateQuickReplies = async () => {
+    if (isGeneratingReplies) return;
+
+    setIsGeneratingReplies(true);
+    try {
+      const items = await qwenLocalService.quickReplies(messages, input, 3);
+      setQuickReplies(items);
+    } catch (e) {
+      console.error("Failed to generate replies", e);
+    } finally {
+      setIsGeneratingReplies(false);
+    }
+  };
+
+  useEffect(() => {
+    if (quickReplies.length > 0 && input.trim().length === 0) {
+    }
+  }, [input]);
 
   return (
     <ChatContainer>
@@ -498,6 +499,20 @@ export const ChatWindowDefault = ({
           >
             <Video size={20} />
           </IconButton>
+          {isAiLoaded && (
+            <IconButton
+              variant="ghost"
+              size="md"
+              onClick={handleSummarize}
+              title="Summarize Chat"
+              disabled={isSummarizing}
+            >
+              <Sparkles
+                size={20}
+                color={isSummarizing ? "#eda515" : undefined}
+              />
+            </IconButton>
+          )}
           {canScreenShare && (
             <IconButton
               variant="ghost"
@@ -510,6 +525,77 @@ export const ChatWindowDefault = ({
           )}
         </HeaderActions>
       </ChatHeader>
+
+      {showSummary && (
+        <div
+          style={{
+            position: "absolute",
+            top: "70px",
+            right: "20px",
+            width: "300px",
+            backgroundColor: "rgba(20, 20, 30, 0.95)",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            borderRadius: "12px",
+            padding: "16px",
+            zIndex: 100,
+            backdropFilter: "blur(10px)",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "12px",
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: "14px",
+                fontWeight: 600,
+                color: "#fff",
+              }}
+            >
+              {" "}
+              ✨ Chat Summary
+            </h3>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSummary(false)}
+            >
+              <X size={16} />
+            </IconButton>
+          </div>
+          {isSummarizing ? (
+            <div
+              style={{
+                color: "rgba(255,255,255,0.7)",
+                fontSize: "13px",
+                textAlign: "center",
+                padding: "20px",
+              }}
+            >
+              Generating summary...
+            </div>
+          ) : (
+            <div
+              style={{
+                color: "rgba(255,255,255,0.9)",
+                fontSize: "13px",
+                whiteSpace: "pre-wrap",
+                lineHeight: "1.5",
+                maxHeight: "400px",
+                overflowY: "auto",
+              }}
+            >
+              {summary}
+            </div>
+          )}
+        </div>
+      )}
       {showSearch && (
         <div
           style={{
@@ -544,29 +630,42 @@ export const ChatWindowDefault = ({
         onChange={handleFileSelect}
       />
 
-      <MessageList ref={scrollRef} onScroll={handleScroll}>
-        {filteredMessages.length > 0 ? (
-          filteredMessages.map((msg, i) => (
-            <MessageBubble
-              key={i}
-              msg={msg}
-              onReply={setReplyingTo}
-              onMediaClick={handleMediaClick}
-              messageLayout={messageLayout}
-              senderName={
-                msg.sender === "me"
-                  ? "You"
-                  : session?.alias_name ||
-                    session?.peer_name ||
-                    (session?.peerEmail
-                      ? session.peerEmail.split("@")[0]
-                      : undefined) ||
-                    "User"
-              }
-              senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
-            />
-          ))
-        ) : (
+      <MessageList>
+        <Virtuoso
+          ref={virtuosoRef}
+          style={{ height: "100%" }}
+          data={filteredMessages}
+          totalCount={filteredMessages.length}
+          initialTopMostItemIndex={filteredMessages.length - 1}
+          followOutput="auto"
+          alignToBottom
+          atTopStateChange={(atTop: boolean) => {
+            if (atTop && onLoadMore) onLoadMore();
+          }}
+          itemContent={(index: number, msg: ChatMessage) => (
+            <div style={{ marginBottom: 4 }}>
+              <MessageBubble
+                key={msg.id || index}
+                msg={msg}
+                onReply={setReplyingTo}
+                onMediaClick={handleMediaClick}
+                messageLayout={messageLayout}
+                senderName={
+                  msg.sender === "me"
+                    ? "You"
+                    : session?.alias_name ||
+                      session?.peer_name ||
+                      (session?.peerEmail
+                        ? session.peerEmail.split("@")[0]
+                        : undefined) ||
+                      "User"
+                }
+                senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
+              />
+            </div>
+          )}
+        />
+        {filteredMessages.length === 0 && (
           <div
             style={{
               textAlign: "center",
@@ -723,12 +822,20 @@ export const ChatWindowDefault = ({
                   <img
                     src={item.previewUrl}
                     alt={item.name}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
                   />
                 ) : item.mediaType === "video" && item.previewUrl ? (
                   <video
                     src={item.previewUrl}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
                     muted
                   />
                 ) : (
@@ -774,6 +881,90 @@ export const ChatWindowDefault = ({
       )}
 
       <InputContainer>
+        {!showAiSuggestions && !isRecording && (
+          <div style={{ padding: "0 8px 8px 8px" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAiSuggestions(true);
+              }}
+              style={{
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 14,
+                color: "#fff",
+                background: "rgba(255,255,255,0.06)",
+                padding: "5px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Show AI suggestions
+            </button>
+          </div>
+        )}
+        {showAiSuggestions && quickReplies.length > 0 && !isRecording && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              padding: "0 8px 8px 8px",
+            }}
+          >
+            {quickReplies.map((reply) => (
+              <button
+                key={reply}
+                type="button"
+                onClick={() => setInput(reply)}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: 14,
+                  color: "#fff",
+                  background: "rgba(255,255,255,0.06)",
+                  padding: "5px 10px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {reply}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                setShowAiSuggestions(false);
+              }}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "rgba(255,255,255,0.65)",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Hide AI suggestions
+            </button>
+            {isAiLoaded && (
+              <button
+                onClick={handleSummarize}
+                disabled={isSummarizing}
+                title="Summarize Chat"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#ccc",
+                  marginRight: 10,
+                }}
+              >
+                <Sparkles
+                  size={20}
+                  color={isSummarizing ? "#eda515" : undefined}
+                />
+              </button>
+            )}
+          </div>
+        )}
         <AttachmentButton
           active={showMenu}
           onClick={() => setShowMenu(!showMenu)}
@@ -813,6 +1004,21 @@ export const ChatWindowDefault = ({
           >
             GIF
           </IconButton>
+          {isAiLoaded && (
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                if (!input.trim()) return;
+                const rewritten = await qwenLocalService.smartCompose(input);
+                if (rewritten) setInput(rewritten);
+              }}
+              title="Smart Rewrite"
+              style={{ color: "#8b5cf6" }}
+            >
+              <Sparkles size={18} />
+            </IconButton>
+          )}
           <IconButton
             variant="ghost"
             size="sm"
@@ -828,9 +1034,7 @@ export const ChatWindowDefault = ({
         </InputWrapper>
 
         {input.trim().length > 0 || pendingAttachments.length > 0 ? (
-          <SendButton
-            onClick={handleSendMessage}
-          >
+          <SendButton onClick={handleSendMessage}>
             <Send size={20} />
           </SendButton>
         ) : (

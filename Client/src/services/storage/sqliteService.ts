@@ -1,6 +1,10 @@
 import { CapacitorSQLite } from "@capacitor-community/sqlite";
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
+import {
+  getKeyFromSecureStorage,
+  setKeyFromSecureStorage,
+} from "./SafeStorage";
 
 let dbReady: Promise<void> | null = null;
 let currentDbName = "cryptnode";
@@ -47,7 +51,11 @@ const SCHEMA = {
       reply_to TEXT,
       FOREIGN KEY(sid) REFERENCES sessions(sid) ON DELETE CASCADE
     `,
-    indices: ["CREATE INDEX IF NOT EXISTS idx_msg_sid ON messages(sid);"],
+    indices: [
+      "CREATE INDEX IF NOT EXISTS idx_msg_sid ON messages(sid);",
+      "CREATE INDEX IF NOT EXISTS idx_msg_sid_timestamp ON messages(sid, timestamp DESC);",
+      "CREATE INDEX IF NOT EXISTS idx_msg_sid_read ON messages(sid, is_read);",
+    ],
   },
   media: {
     columns: `
@@ -132,7 +140,7 @@ export const switchDatabase = async (dbName: string, key?: string) => {
 export const dbInit = () => {
   if (dbReady) return dbReady;
   dbReady = (async () => {
-    const key = currentKey;
+    let key = currentKey;
     if (key && lastSecretSet !== key) {
       try {
         await CapacitorSQLite.setEncryptionSecret({ passphrase: key });
@@ -153,19 +161,77 @@ export const dbInit = () => {
       }
     }
 
-    const useEncryption = Boolean(key);
+    if (!key) {
+      console.warn(
+        "[sqlite] No encryption key provided. Checking for auto-generated default key...",
+      );
+      try {
+        const defaultKeyName = "DEFAULT_DB_KEY";
+        let storedDefault = await getKeyFromSecureStorage(defaultKeyName);
+        if (!storedDefault) {
+          console.warn(
+            "[sqlite] No default key found. Generating new secure default key...",
+          );
+          const array = new Uint8Array(32);
+          crypto.getRandomValues(array);
+          const newKey = Array.from(array)
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+          await setKeyFromSecureStorage(defaultKeyName, newKey);
+          storedDefault = newKey;
+        }
+        key = storedDefault;
+        currentKey = key;
+      } catch (err) {
+        console.error(
+          "[sqlite] Failed to auto-generate/retrieve default key:",
+          err,
+        );
+      }
+    }
+
+    if (!key) {
+      throw new Error(
+        "Database encryption key is required. Unencrypted mode is disabled.",
+      );
+    }
+
     try {
       await CapacitorSQLite.createConnection({
         database: currentDbName,
-        encrypted: useEncryption,
-        mode: useEncryption ? "secret" : "no-encryption",
+        encrypted: true,
+        mode: "secret",
         version: 1,
       });
     } catch (e) {
       // Ignore
     }
 
-    await CapacitorSQLite.open({ database: currentDbName });
+    try {
+      await CapacitorSQLite.open({ database: currentDbName });
+    } catch (e: any) {
+      const msg = e.message || String(e);
+      if (msg.includes("file is not a database")) {
+        console.error(
+          "[sqlite] Database corruption detected 'file is not a database'. Resetting database...",
+          msg,
+        );
+        await deleteDatabase(currentDbName);
+        try {
+          await CapacitorSQLite.createConnection({
+            database: currentDbName,
+            encrypted: true,
+            mode: "secret",
+            version: 1,
+          });
+        } catch (retryConnErr) {
+          // Ignore
+        }
+        await CapacitorSQLite.open({ database: currentDbName });
+      } else {
+        throw e;
+      }
+    }
 
     await CapacitorSQLite.execute({
       database: currentDbName,

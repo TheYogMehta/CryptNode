@@ -1,5 +1,15 @@
 [
   {
+    "version": "v2.0.0",
+    "date": "2026-02-13",
+    "notes": "MFA and security upgrades, modern chat UI with GIF/emoji and media improvements, better call reliability and WebSocket stability, plus CryptNode branding and docs updates.",
+    "files": {
+      "windows": "CryptNode.exe",
+      "linux": "CryptNode.appimage",
+      "android": "CryptNode.apk"
+    }
+  },
+  {
     "version": "v1.0.0",
     "date": "2024-01-01",
     "notes": "Initial release with secure chat, calls, and vault.",

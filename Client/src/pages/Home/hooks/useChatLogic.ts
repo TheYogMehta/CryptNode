@@ -4,8 +4,8 @@ import { useMessageLogic } from "./useMessageLogic";
 import { useCallLogic } from "./useCallLogic";
 import { ChatMessage } from "../types";
 
-export const useChatLogic = () => {
-  const sessionLogic = useSessionLogic();
+export const useChatLogic = (shouldInit: boolean = true) => {
+  const sessionLogic = useSessionLogic(shouldInit);
 
   const messageLogic = useMessageLogic({
     activeChat: sessionLogic.state.activeChat,

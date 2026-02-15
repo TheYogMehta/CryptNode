@@ -4,7 +4,7 @@ import ChatClient from "../../../services/core/ChatClient";
 import { queryDB, executeDB } from "../../../services/storage/sqliteService";
 import { SessionData, InboundReq } from "../types";
 
-export const useSessionLogic = () => {
+export const useSessionLogic = (shouldInit: boolean = true) => {
   const [view, setView] = useState<"chat" | "add" | "welcome">("welcome");
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -19,7 +19,9 @@ export const useSessionLogic = () => {
     type: string;
     message: string;
   } | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(
+    ChatClient.userEmail,
+  );
   const [isLoading, setIsLoading] = useState(true);
 
   const activeChatRef = useRef<string | null>(null);
@@ -27,6 +29,7 @@ export const useSessionLogic = () => {
 
   const loadSessions = useCallback(
     debounce(async () => {
+      if (!shouldInit) return;
       if (!ChatClient.userEmail) return;
 
       const rows = await queryDB(`
@@ -54,7 +57,7 @@ export const useSessionLogic = () => {
       }));
       setSessions(formatted);
     }, 500),
-    [],
+    [shouldInit],
   );
 
   useEffect(() => {
@@ -72,6 +75,15 @@ export const useSessionLogic = () => {
   }, [activeChat, loadSessions]);
 
   useEffect(() => {
+    if (!shouldInit) {
+      setIsLoading(false);
+      return;
+    }
+    if (ChatClient.userEmail) {
+      setUserEmail(ChatClient.userEmail);
+      setIsLoading(false);
+    }
+
     const client = ChatClient;
     client
       .init()

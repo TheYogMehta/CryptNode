@@ -143,12 +143,11 @@ For issues, questions, or feature requests, please open an issue on the reposito
 ## 🗺️ Roadmap
 
 - [ ] App Vault Tagging System & One Time Otp With google authenticator
-- [ ] Search in Vault & Chats
-- [ ] Dev Share
 - [ ] Add Users With QR Code
 - [ ] Add Users With Bluetooth
 - [ ] Add Users With NFC
 - [ ] Backup & Restore
+- [ ] Custom Quick Response
 
 ## 📖 Additional Resources
 

@@ -27,6 +27,8 @@ import {
   ErrorToast,
 } from "./Home.styles";
 import { Menu } from "lucide-react";
+import { useGlobalSummary } from "./hooks/useGlobalSummary";
+import { qwenLocalService } from "../../services/ai/qwenLocal.service";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -57,21 +59,32 @@ class ErrorBoundary extends React.Component<
 
 const Home = () => {
   const history = useHistory();
-  const { state, actions } = useChatLogic();
+  const [isLocked, setIsLocked] = useState(true);
+  const { state, actions } = useChatLogic(!isLocked);
+
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileSetup, setShowProfileSetup] = useState(true);
-  const [isLocked, setIsLocked] = useState(true);
   const [storedAccounts, setStoredAccounts] = useState<any[]>([]);
   const [renameTarget, setRenameTarget] = useState<{
     sid: string;
     name: string;
   } | null>(null);
+  const {
+    isSummarizing,
+    globalSummary,
+    showSummaryModal,
+    generateGlobalSummary,
+    closeSummary,
+  } = useGlobalSummary(state.sessions);
 
   useEffect(() => {
     checkInitialState();
+    qwenLocalService
+      .init()
+      .catch((err) => console.error("AI Init failed", err));
   }, []);
 
   const contextRef = useRef({
@@ -166,7 +179,9 @@ const Home = () => {
       if (accs.length === 0) {
         console.log("[Home] No accounts found, setting isLocked=false");
         setIsLocked(false);
-      } else if (!accs.some((a) => Boolean(a?.token && String(a.token).trim()))) {
+      } else if (
+        !accs.some((a) => Boolean(a?.token && String(a.token).trim()))
+      ) {
         console.log(
           "[Home] Accounts found but no valid session token, showing login",
         );
@@ -181,22 +196,25 @@ const Home = () => {
     }
   };
 
-  const handleUnlock = useCallback(async (email: string) => {
-    try {
-      await ChatClient.switchAccount(email);
-      setIsLocked(false);
-    } catch (e) {
-      console.error("Unlock failed", e);
-      const msg = e instanceof Error ? e.message : String(e || "");
-      if (
-        msg.includes("Session expired") ||
-        msg.includes("Authentication failed")
-      ) {
+  const handleUnlock = useCallback(
+    async (email: string) => {
+      try {
+        await ChatClient.switchAccount(email);
         setIsLocked(false);
-        history.push("/login");
+      } catch (e) {
+        console.error("Unlock failed", e);
+        const msg = e instanceof Error ? e.message : String(e || "");
+        if (
+          msg.includes("Session expired") ||
+          msg.includes("Authentication failed")
+        ) {
+          setIsLocked(false);
+          history.push("/login");
+        }
       }
-    }
-  }, [history]);
+    },
+    [history],
+  );
 
   useEffect(() => {
     console.log("[Home] Render state:", {
@@ -297,14 +315,98 @@ const Home = () => {
   }
 
   if (!state.userEmail) {
-    console.log("[Home] Rendering Login");
     return <Login onLogin={actions.login} />;
   }
-
-  console.log("[Home] Rendering Main UI");
-
   return (
     <ErrorBoundary>
+      {showSummaryModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            zIndex: 9999,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#1E1E2E",
+              padding: "24px",
+              borderRadius: "16px",
+              width: "90%",
+              maxWidth: "500px",
+              border: "1px solid #3B3B4F",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: "16px",
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                }}
+              >
+                <span style={{ fontSize: "1.5rem" }}>✨</span> Daily Digest
+              </h2>
+              <button
+                onClick={closeSummary}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#ccc",
+                  fontSize: "1.5rem",
+                  cursor: "pointer",
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {isSummarizing ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "40px 0",
+                  color: "#ccc",
+                }}
+              >
+                <div className="spinner" style={{ marginBottom: "10px" }}>
+                  Generating...
+                </div>
+                <p>Analyzing your chats...</p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  maxHeight: "60vh",
+                  overflowY: "auto",
+                  color: "#ddd",
+                  lineHeight: "1.6",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {globalSummary || "No updates found."}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <AppContainer
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -331,8 +433,9 @@ const Home = () => {
           onSettings={onOpenSettings}
           onRename={onRename}
           onOpenVault={onOpenVault}
+          onGlobalSummary={generateGlobalSummary}
         />
-
+        
         <MainContent>
           {isMobile && state.view !== "chat" && (
             <MobileHeader>
@@ -346,6 +449,7 @@ const Home = () => {
               </div>
             </MobileHeader>
           )}
+
           {state.view === "chat" && state.activeChat === "secure-vault" ? (
             <SecureChatWindow
               onBack={() => {
