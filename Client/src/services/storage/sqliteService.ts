@@ -207,31 +207,7 @@ export const dbInit = () => {
       // Ignore
     }
 
-    try {
-      await CapacitorSQLite.open({ database: currentDbName });
-    } catch (e: any) {
-      const msg = e.message || String(e);
-      if (msg.includes("file is not a database")) {
-        console.error(
-          "[sqlite] Database corruption detected 'file is not a database'. Resetting database...",
-          msg,
-        );
-        await deleteDatabase(currentDbName);
-        try {
-          await CapacitorSQLite.createConnection({
-            database: currentDbName,
-            encrypted: true,
-            mode: "secret",
-            version: 1,
-          });
-        } catch (retryConnErr) {
-          // Ignore
-        }
-        await CapacitorSQLite.open({ database: currentDbName });
-      } else {
-        throw e;
-      }
-    }
+    await CapacitorSQLite.open({ database: currentDbName });
 
     await CapacitorSQLite.execute({
       database: currentDbName,
@@ -371,41 +347,45 @@ export const getMediaFilenames = async (): Promise<string[]> => {
 export const deleteDatabase = async (databaseName: string = currentDbName) => {
   try {
     try {
-      await CapacitorSQLite.createConnection({
+      await CapacitorSQLite.closeConnection({
         database: databaseName,
-        encrypted: true,
-        mode: "secret",
-        version: 1,
+        readonly: false,
       });
-    } catch (e: any) {}
+    } catch (ignore) {
+      // ignore
+    }
 
-    console.log(`[sqlite] Deleting database using plugin: ${databaseName}`);
-    await CapacitorSQLite.deleteDatabase({ database: databaseName });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const targets = [
+      `${databaseName}SQLite.db`,
+      `${databaseName}SQLite.db-journal`,
+      `${databaseName}SQLite.db-wal`,
+      `${databaseName}SQLite.db-shm`,
+    ];
 
-    try {
-      const stillExists = await CapacitorSQLite.isDatabase({
-        database: databaseName,
-      });
-
-      if (!stillExists.result) {
-        if (databaseName === currentDbName) {
-          dbReady = null;
-        }
-        console.log(`[sqlite] Database successfully deleted: ${databaseName}`);
-      } else {
-        console.error(
-          `[sqlite] Failed to delete database ${databaseName} (isDatabase returned true)`,
-        );
+    let filesDeleted = 0;
+    for (const file of targets) {
+      try {
+        await Filesystem.deleteFile({
+          path: file,
+          directory: Directory.Data,
+        });
+        filesDeleted++;
+        console.log(`[sqlite] Deleted file via FS: ${file}`);
+      } catch (err) {
+        // Ignored
       }
-    } catch (checkErr) {
-      console.log(
-        `[sqlite] Database deletion likely successful (verification check failed: ${checkErr})`,
-      );
+    }
+
+    if (filesDeleted > 0) {
+      if (databaseName === currentDbName) {
+        dbReady = null;
+      }
+      console.log(`[sqlite] Deleted database files via filesystem.`);
+    } else {
+      console.error(`[sqlite] Failed to delete database ${databaseName}`);
     }
   } catch (e) {
-    console.error(
-      `[sqlite] Exception during deleteDatabase ${databaseName}`,
-      e,
-    );
+    console.error(`[sqlite] Failed to delete database ${databaseName}`, e);
   }
 };
