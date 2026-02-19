@@ -611,3 +611,25 @@
     transform: translateY(0);
   }
 }
+/* Glass Modal Styles */
+.glass-modal {
+  --background: rgba(18, 18, 18, 0.85);
+  --backdrop-opacity: 0.6;
+}
+
+.glass-modal::part(content) {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.secure-chat-modal-toolbar {
+  --background: transparent;
+  --color: white;
+}
+
+.secure-chat-modal-content {
+  --color: white;
+}

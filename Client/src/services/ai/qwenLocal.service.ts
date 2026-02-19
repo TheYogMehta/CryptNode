@@ -45,42 +45,54 @@ function parseBulletList(text: string, limit: number): string[] {
   return Array.from(new Set(lines)).slice(0, limit);
 }
 
-import {
-  pipeline,
-  env,
-  Pipeline,
-  TextGenerationPipeline,
-} from "@xenova/transformers";
+// Worker instance
+let worker: Worker | null = null;
+const pendingRequests: Record<
+  string,
+  {
+    resolve: (data: any) => void;
+    reject: (err: any) => void;
+    onToken?: (token: string) => void;
+  }
+> = {};
 
-env.allowLocalModels = true;
-env.allowRemoteModels = false;
-env.useBrowserCache = false;
-env.localModelPath = "/models";
+function getWorker(): Worker {
+  if (!worker) {
+    console.log("[QwenLocalService] Initializing worker...");
+    worker = new Worker(
+      new URL("../../workers/qwen.worker.ts", import.meta.url),
+      {
+        type: "module",
+      },
+    );
 
-let pipelinePromise: Promise<TextGenerationPipeline | Pipeline> | null = null;
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === "init_result") {
+        console.log("[QwenLocalService] Worker initialized");
+      } else if (msg.type === "generate_result") {
+        const req = pendingRequests[msg.id];
+        if (req) {
+          req.resolve(msg.output);
+          delete pendingRequests[msg.id];
+        }
+      } else if (msg.type === "token") {
+        const req = pendingRequests[msg.id];
+        if (req && req.onToken) {
+          req.onToken(msg.token);
+        }
+      } else if (msg.type === "error") {
+        const req = pendingRequests[msg.id];
+        if (req) {
+          req.reject(new Error(msg.error));
+          delete pendingRequests[msg.id];
+        }
+      }
+    };
 
-function getPipeline(): Promise<TextGenerationPipeline | Pipeline> {
-  if (pipelinePromise) return pipelinePromise;
-
-  console.log("[QwenLocalService] Initializing model...");
-  pipelinePromise = pipeline("text-generation", MODEL_ID, {
-    device: "webgpu",
-  } as any)
-    .then((p) => {
-      console.log("[QwenLocalService] Model loaded successfully (WebGPU)");
-      return p;
-    })
-    .catch(async (e) => {
-      console.warn(
-        "[QwenLocalService] WebGPU failed, falling back to WASM/CPU",
-        e,
-      );
-      return pipeline("text-generation", MODEL_ID, {
-        device: "wasm",
-      } as any);
-    });
-
-  return pipelinePromise;
+    worker.postMessage({ type: "init" });
+  }
+  return worker;
 }
 
 export class QwenLocalService {
@@ -113,16 +125,19 @@ export class QwenLocalService {
     this._isLoading = true;
     this.notify();
     try {
-      await getPipeline();
+      getWorker();
+      // Wait for a brief moment to allow worker init start, but actual loading is async in worker
+      await new Promise((resolve) => setTimeout(resolve, 100));
       this._isLoaded = true;
     } catch (e) {
-      console.error("[QwenLocalService] Failed to load model", e);
+      console.error("[QwenLocalService] Failed to load model worker", e);
       this.failed = true;
     } finally {
       this._isLoading = false;
       this.notify();
     }
   }
+
   async generate(
     messages: { role: string; content: string }[],
     options: QwenGenerationOptions & { onToken?: (token: string) => void } = {},
@@ -130,48 +145,41 @@ export class QwenLocalService {
     if (this.failed) return "";
     this._isLoading = true;
     this.notify();
-    try {
-      const generator = await getPipeline();
-      this._isLoaded = true;
-      if (!generator) return "";
-      const prompt =
-        messages
-          .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>`)
-          .join("\n") + "\n<|im_start|>assistant\n";
 
-      // Cast options to any to avoid type error with callback_function
-      const generationOptions: any = {
-        max_new_tokens: options.maxNewTokens ?? 128,
-        temperature: options.temperature ?? 0.2,
-        top_p: options.topP ?? 0.9,
-        do_sample: true,
-        return_full_text: false,
-        callback_function: (beams: any) => {
-          if (options.onToken) {
-            try {
-              const tokenizer = generator.tokenizer;
-              const tokenIds = beams[0].output_token_ids;
-              const decoded = tokenizer.decode(tokenIds, {
-                skip_special_tokens: true,
-              });
-              options.onToken(decoded);
-            } catch (err) {
-              // ignore
-            }
-          }
+    const worker = getWorker();
+    const id = Math.random().toString(36).substring(7);
+
+    const prompt =
+      messages
+        .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>`)
+        .join("\n") + "\n<|im_start|>assistant\n";
+
+    return new Promise<string>((resolve, reject) => {
+      pendingRequests[id] = {
+        resolve: (output: any) => {
+          console.log("[QwenLocalService] Raw output:", output);
+          resolve(extractText(output).trim());
         },
+        reject,
+        onToken: options.onToken,
       };
 
-      const out = await generator(prompt, generationOptions);
-
-      console.log("[QwenLocalService] Raw output:", out);
-      return extractText(out).trim();
-    } catch (e) {
-      console.error("[QwenLocalService] Generate failed", e);
-      return "";
-    } finally {
+      worker.postMessage({
+        type: "generate",
+        id,
+        prompt,
+        options: {
+          max_new_tokens: options.maxNewTokens ?? 128,
+          temperature: options.temperature ?? 0.2,
+          top_p: options.topP ?? 0.9,
+          do_sample: true,
+          return_full_text: false,
+        },
+      });
+    }).finally(() => {
       this._isLoading = false;
-    }
+      this.notify();
+    });
   }
 
   async quickReplies(

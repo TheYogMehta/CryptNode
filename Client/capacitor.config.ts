@@ -26,9 +26,13 @@ const config: CapacitorConfig = {
       google: true,
       facebook: false,
       apple: false,
-      twitter: false
+      twitter: false,
     },
-
+    Keyboard: {
+      resize: "body",
+      style: "dark",
+      resizeOnFullScreen: true,
+    },
   },
   server: {
     androidScheme: "http",

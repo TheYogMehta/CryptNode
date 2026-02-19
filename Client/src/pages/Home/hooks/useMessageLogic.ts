@@ -202,7 +202,7 @@ export const useMessageLogic = ({
     if (!activeChat) return;
 
     let fileToSend = file;
-    if (file.type.startsWith("image/")) {
+    if (file.type.startsWith("image/") && file.type !== "image/gif") {
       try {
         const { compressImage } = await import("../../../utils/imageUtils");
         console.log(

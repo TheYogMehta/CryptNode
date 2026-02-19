@@ -24,6 +24,7 @@ import {
   paperPlaneOutline,
   searchOutline,
 } from "ionicons/icons";
+import { FileUploadPreview } from "../Home/components/overlays/FileUploadPreview";
 import { useSecureChat } from "./hooks/useSecureChat";
 import SavePasswordModal from "./SavePasswordModal";
 import { colors } from "../../theme/design-system";
@@ -35,7 +36,9 @@ interface SecureChatWindowProps {
   onBack?: () => void;
 }
 
-export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) => {
+export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
+  onBack,
+}) => {
   const {
     isUnlocked,
     isSetup,
@@ -95,29 +98,47 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
     }
 
     setAutoOpenTriggered(true);
-    platformLaunchService.openOtpAuthUri(mfaOnboarding.otpAuthUri).catch(() => {});
+    platformLaunchService
+      .openOtpAuthUri(mfaOnboarding.otpAuthUri)
+      .catch(() => {});
   }, [autoOpenTriggered, canOpenOtpLink, mfaOnboarding]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [previewFiles, setPreviewFiles] = useState<File[]>([]);
+
+  // ... (inside component)
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
+      const newFiles = Array.from(e.target.files);
+      setPreviewFiles((prev) => [...prev, ...newFiles]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleVaultFileSend = async (
+    files: { file: File; caption: string }[],
+  ) => {
+    for (const { file, caption } of files) {
       const reader = new FileReader();
       reader.onload = async () => {
         const arrayBuffer = reader.result as ArrayBuffer;
         const uint8 = new Uint8Array(arrayBuffer);
+        // Use caption as filename if provided, else file.name
+        const filename = caption.trim() || file.name;
         await addItem("file", uint8, {
-          filename: file.name,
+          filename: filename,
           size: file.size,
           type: file.type,
         });
       };
       reader.readAsArrayBuffer(file);
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setPreviewFiles([]);
   };
+
+  // ... (render)
 
   const handleViewItem = async (item: any) => {
     try {
@@ -219,7 +240,9 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((item) => (searchContentById[item.id] || "").includes(q));
+    return items.filter((item) =>
+      (searchContentById[item.id] || "").includes(q),
+    );
   }, [items, searchQuery, searchContentById]);
 
   const themeVars = {
@@ -250,26 +273,26 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
             Back
           </button>
           <h2 className="sc-title">Two-Factor Verification</h2>
-          <p className="sc-subtitle">
-            Enter your 6-digit authenticator code.
-          </p>
+          <p className="sc-subtitle">Enter your 6-digit authenticator code.</p>
 
           {(Capacitor.getPlatform() === "android" || canOpenOtpLink) &&
             mfaOnboarding?.otpAuthUri && (
-            <button
-              onClick={async () => {
-                const opened = await platformLaunchService.openOtpAuthUri(
-                  mfaOnboarding.otpAuthUri,
-                );
-                if (!opened) {
-                  alert("Could not open authenticator app. Use QR/manual setup.");
-                }
-              }}
-              className="secure-chat-primary-btn"
-            >
-              Open Authenticator App
-            </button>
-          )}
+              <button
+                onClick={async () => {
+                  const opened = await platformLaunchService.openOtpAuthUri(
+                    mfaOnboarding.otpAuthUri,
+                  );
+                  if (!opened) {
+                    alert(
+                      "Could not open authenticator app. Use QR/manual setup.",
+                    );
+                  }
+                }}
+                className="secure-chat-primary-btn"
+              >
+                Open Authenticator App
+              </button>
+            )}
 
           {mfaOnboarding && (
             <>
@@ -283,9 +306,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
                 </div>
               )}
               <div className="secure-chat-card">
-                <div className="secure-chat-secret-label">
-                  Secret (Base32)
-                </div>
+                <div className="secure-chat-secret-label">Secret (Base32)</div>
                 <div className="secure-chat-secret-row">
                   <code className="secure-chat-secret-code">
                     {mfaOnboarding.secret}
@@ -293,7 +314,9 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
                   <button
                     onClick={async () => {
                       try {
-                        await navigator.clipboard.writeText(mfaOnboarding.secret);
+                        await navigator.clipboard.writeText(
+                          mfaOnboarding.secret,
+                        );
                       } catch {
                         // no-op
                       }
@@ -310,7 +333,9 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
 
           <input
             value={mfaToken}
-            onChange={(e) => setMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) =>
+              setMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))
+            }
             placeholder="Enter 6-digit code"
             inputMode="numeric"
             className="secure-chat-otp-input"
@@ -335,9 +360,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
           >
             Verify & Unlock
           </button>
-          {vaultError && (
-            <p className="secure-chat-error">{vaultError}</p>
-          )}
+          {vaultError && <p className="secure-chat-error">{vaultError}</p>}
         </div>
       );
     }
@@ -354,15 +377,14 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
               : "Set up authenticator to secure your vault."}
           </p>
           <div className="secure-chat-row">
-            <button
-              onClick={handleBack}
-              className="secure-chat-btn-secondary"
-            >
+            <button onClick={handleBack} className="secure-chat-btn-secondary">
               Back
             </button>
             <button
               onClick={() => {
-                const task = isSetup ? unlock("", undefined, true) : setupVault("");
+                const task = isSetup
+                  ? unlock("", undefined, true)
+                  : setupVault("");
                 task.then((result) => {
                   if (result.requiresMfa) {
                     setPendingPin(MFA_SETUP_SENTINEL);
@@ -404,12 +426,8 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
             />
           </div>
           <div>
-            <h2 className="secure-chat-title">
-              Secure Vault
-            </h2>
-            <p className="secure-chat-caption">
-              Encrypted & Local
-            </p>
+            <h2 className="secure-chat-title">Secure Vault</h2>
+            <p className="secure-chat-caption">Encrypted & Local</p>
           </div>
         </div>
         <button
@@ -425,7 +443,6 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
         >
           <IonIcon icon={searchOutline} className="icon-18" />
         </button>
-
       </div>
       {showSearch && (
         <div className="secure-chat-search-wrap">
@@ -481,7 +498,11 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
                   }`}
                 >
                   <IonIcon
-                    icon={item.type === "password" ? keyOutline : documentTextOutline}
+                    icon={
+                      item.type === "password"
+                        ? keyOutline
+                        : documentTextOutline
+                    }
                     className={`secure-chat-item-type-icon ${
                       item.type === "password"
                         ? "type-password"
@@ -615,105 +636,139 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({ onBack }) =>
         </IonHeader>
 
         <IonContent className="ion-padding secure-chat-modal-content">
-          {viewingItem && viewingItem.type === "password" && viewingItem.content && (
-            <div className="secure-chat-modal-stack">
-              <div className="secure-chat-modal-card">
-                <IonLabel className="secure-chat-modal-label">
-                  Website URL
-                </IonLabel>
-                <IonInput
-                  readonly
-                  value={viewingItem.content.url}
-                  className="secure-chat-modal-input"
-                />
-              </div>
-
-              <div className="secure-chat-modal-card-row">
-                <div className="secure-chat-modal-grow">
+          {viewingItem &&
+            viewingItem.type === "password" &&
+            viewingItem.content && (
+              <div className="secure-chat-modal-stack">
+                <div className="secure-chat-modal-card">
                   <IonLabel className="secure-chat-modal-label">
-                    Username
+                    Website URL
                   </IonLabel>
                   <IonInput
                     readonly
-                    value={viewingItem.content.username}
+                    value={viewingItem.content.url}
                     className="secure-chat-modal-input"
                   />
                 </div>
+
+                <div className="secure-chat-modal-card-row">
+                  <div className="secure-chat-modal-grow">
+                    <IonLabel className="secure-chat-modal-label">
+                      Username
+                    </IonLabel>
+                    <IonInput
+                      readonly
+                      value={viewingItem.content.username}
+                      className="secure-chat-modal-input"
+                    />
+                  </div>
+                  <IonButton
+                    fill="clear"
+                    onClick={() =>
+                      navigator.clipboard.writeText(
+                        viewingItem.content.username || "",
+                      )
+                    }
+                  >
+                    <IonIcon
+                      icon={copyOutline}
+                      slot="icon-only"
+                      color="primary"
+                    />
+                  </IonButton>
+                </div>
+
+                <div className="secure-chat-modal-card-row">
+                  <div className="secure-chat-modal-grow">
+                    <IonLabel className="secure-chat-modal-label">
+                      Password
+                    </IonLabel>
+                    <IonInput
+                      readonly
+                      value={viewingItem.content.password}
+                      className="secure-chat-modal-input"
+                    />
+                  </div>
+                  <IonButton
+                    fill="clear"
+                    onClick={() =>
+                      navigator.clipboard.writeText(
+                        viewingItem.content.password || "",
+                      )
+                    }
+                  >
+                    <IonIcon
+                      icon={copyOutline}
+                      slot="icon-only"
+                      color="warning"
+                    />
+                  </IonButton>
+                </div>
+              </div>
+            )}
+
+          {viewingItem &&
+            viewingItem.type === "file" &&
+            viewingItem.contentUrl && (
+              <div className="secure-chat-file-preview">
+                {viewingItem.mimeType?.startsWith("image/") ? (
+                  <img
+                    src={viewingItem.contentUrl}
+                    alt="preview"
+                    className="secure-chat-media-preview"
+                  />
+                ) : viewingItem.mimeType?.startsWith("video/") ? (
+                  <video
+                    controls
+                    src={viewingItem.contentUrl}
+                    className="secure-chat-media-preview"
+                  />
+                ) : viewingItem.mimeType?.startsWith("audio/") ? (
+                  <audio
+                    controls
+                    src={viewingItem.contentUrl}
+                    className="secure-chat-audio-preview"
+                  />
+                ) : (
+                  <div className="secure-chat-file-fallback">
+                    <IonIcon
+                      icon={documentTextOutline}
+                      className="secure-chat-file-fallback-icon"
+                    />
+                    <p className="secure-chat-file-fallback-name">
+                      {viewingItem.metadata.filename}
+                    </p>
+                  </div>
+                )}
+
                 <IonButton
-                  fill="clear"
-                  onClick={() => navigator.clipboard.writeText(viewingItem.content.username || "")}
+                  href={viewingItem.contentUrl}
+                  download={viewingItem.metadata.filename}
+                  expand="block"
+                  className="secure-chat-download-btn"
                 >
-                  <IonIcon icon={copyOutline} slot="icon-only" color="primary" />
+                  Download File
                 </IonButton>
               </div>
+            )}
 
-              <div className="secure-chat-modal-card-row">
-                <div className="secure-chat-modal-grow">
-                  <IonLabel className="secure-chat-modal-label">
-                    Password
-                  </IonLabel>
-                  <IonInput
-                    readonly
-                    value={viewingItem.content.password}
-                    className="secure-chat-modal-input"
-                  />
-                </div>
-                <IonButton
-                  fill="clear"
-                  onClick={() => navigator.clipboard.writeText(viewingItem.content.password || "")}
-                >
-                  <IonIcon icon={copyOutline} slot="icon-only" color="warning" />
-                </IonButton>
+          {viewingItem &&
+            viewingItem.type === "text" &&
+            typeof viewingItem.content === "string" && (
+              <div className="secure-chat-text-preview">
+                {viewingItem.content}
               </div>
-            </div>
-          )}
-
-          {viewingItem && viewingItem.type === "file" && viewingItem.contentUrl && (
-            <div className="secure-chat-file-preview">
-              {viewingItem.mimeType?.startsWith("image/") ? (
-                <img
-                  src={viewingItem.contentUrl}
-                  alt="preview"
-                  className="secure-chat-media-preview"
-                />
-              ) : viewingItem.mimeType?.startsWith("video/") ? (
-                <video
-                  controls
-                  src={viewingItem.contentUrl}
-                  className="secure-chat-media-preview"
-                />
-              ) : viewingItem.mimeType?.startsWith("audio/") ? (
-                <audio controls src={viewingItem.contentUrl} className="secure-chat-audio-preview" />
-              ) : (
-                <div className="secure-chat-file-fallback">
-                  <IonIcon
-                    icon={documentTextOutline}
-                    className="secure-chat-file-fallback-icon"
-                  />
-                  <p className="secure-chat-file-fallback-name">
-                    {viewingItem.metadata.filename}
-                  </p>
-                </div>
-              )}
-
-              <IonButton
-                href={viewingItem.contentUrl}
-                download={viewingItem.metadata.filename}
-                expand="block"
-                className="secure-chat-download-btn"
-              >
-                Download File
-              </IonButton>
-            </div>
-          )}
-
-          {viewingItem && viewingItem.type === "text" && typeof viewingItem.content === "string" && (
-            <div className="secure-chat-text-preview">
-              {viewingItem.content}
-            </div>
-          )}
+            )}
         </IonContent>
       </IonModal>
+      {previewFiles.length > 0 && (
+        <FileUploadPreview
+          files={previewFiles}
+          onClose={() => setPreviewFiles([])}
+          onSend={handleVaultFileSend}
+          onAddMore={() => fileInputRef.current?.click()}
+        />
+      )}
     </div>
   );
 };

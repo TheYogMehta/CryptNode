@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { Capacitor } from "@capacitor/core";
 import { StorageService } from "../../../../services/storage/StorageService";
 import ChatClient from "../../../../services/core/ChatClient";
 import { MessageBubble } from "./MessageBubble";
 import { PortShareModal } from "./PortShareModal";
 import { MediaModal } from "./MediaModal";
+import { FileUploadPreview } from "../overlays/FileUploadPreview";
 import { GifPicker } from "../../../../components/GifPicker";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
@@ -13,7 +15,7 @@ import {
   Monitor,
   Plus,
   Image as ImageIcon,
-  Camera,
+  Camera as CameraIcon,
   FileText,
   MapPin,
   Globe,
@@ -27,6 +29,7 @@ import {
   Trash2,
   Sparkles,
 } from "lucide-react";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { ChatMessage, SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
 import { useTheme } from "../../../../theme/ThemeContext";
@@ -110,6 +113,7 @@ export const ChatWindowDefault = ({
   const [mediaModalOpen, setMediaModalOpen] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAiSuggestions, setShowAiSuggestions] = useState(true);
@@ -215,9 +219,58 @@ export const ChatWindowDefault = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0 && activeChat) {
-      addFilesToPending(Array.from(e.target.files));
+      // addFilesToPending(Array.from(e.target.files)); // Disabled for now to use new preview
+      setSelectedFiles((prev) => [
+        ...prev,
+        ...Array.from(e.target.files || []),
+      ]);
     }
     e.target.value = "";
+  };
+
+  const handlePreviewSend = (
+    processedFiles: { file: File; caption: string }[],
+  ) => {
+    // Process files one by one (or add to pending if we want to support that flow, but user wants send)
+    // For now, let's treat them as "sent" immediately like the old flow, but with captions.
+
+    // We can re-use addFilesToPending if we want them to queue up,
+    // OR just send immediately.
+    // The previous flow was: onFileSelect -> send immediately.
+    // Let's stick to that but handle caption.
+
+    processedFiles.forEach(({ file, caption }) => {
+      onFileSelect(file);
+      if (caption.trim()) {
+        // Send caption as separate text for now
+        onSend(caption);
+      }
+    });
+    setSelectedFiles([]);
+  };
+
+  const handleCamera = async () => {
+    try {
+      const image = await Camera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Camera,
+      });
+
+      if (image.webPath) {
+        // Fetch to blob to make it a File object for consistent handling
+        const response = await fetch(image.webPath);
+        const blob = await response.blob();
+        const file = new File([blob], `photo_${Date.now()}.jpeg`, {
+          type: "image/jpeg",
+        });
+        setSelectedFiles((prev) => [...prev, file]);
+        setShowMenu(false);
+      }
+    } catch (e) {
+      console.error("Camera error:", e);
+    }
   };
 
   const attachments = [
@@ -229,8 +282,9 @@ export const ChatWindowDefault = ({
     },
     {
       label: "Camera",
-      icon: <Camera size={24} />,
+      icon: <CameraIcon size={24} />,
       color: "#ff8906",
+      onClick: handleCamera,
     },
     {
       label: "Gallery",
@@ -981,6 +1035,18 @@ export const ChatWindowDefault = ({
             onPaste={handlePaste}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
+              // Allow Undo/Redo to work by stopping propagation if needed
+              if (
+                (e.ctrlKey || e.metaKey) &&
+                (e.key === "z" ||
+                  e.key === "Z" ||
+                  e.key === "y" ||
+                  e.key === "Y")
+              ) {
+                e.stopPropagation();
+                return;
+              }
+
               if (
                 e.key === "Enter" &&
                 !e.shiftKey &&
@@ -992,19 +1058,52 @@ export const ChatWindowDefault = ({
             }}
             placeholder={isRecording ? "" : "Message..."}
           />
-          <IconButton
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setShowGifPicker(!showGifPicker);
-              setShowEmojiPicker(false);
-            }}
-            title="GIF"
-            style={{ color: "#f59e0b", fontSize: "11px", fontWeight: 700 }}
-          >
-            GIF
-          </IconButton>
-          {isAiLoaded && (
+          {Capacitor.getPlatform() === "web" && (
+            <>
+              <IconButton
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowGifPicker(!showGifPicker);
+                  setShowEmojiPicker(false);
+                }}
+                title="GIF"
+                style={{ color: "#f59e0b", fontSize: "11px", fontWeight: 700 }}
+              >
+                GIF
+              </IconButton>
+              {isAiLoaded && (
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    if (!input.trim()) return;
+                    const rewritten = await qwenLocalService.smartCompose(
+                      input,
+                    );
+                    if (rewritten) setInput(rewritten);
+                  }}
+                  title="Smart Rewrite"
+                  style={{ color: "#8b5cf6" }}
+                >
+                  <Sparkles size={18} />
+                </IconButton>
+              )}
+              <IconButton
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowEmojiPicker(!showEmojiPicker);
+                  setShowGifPicker(false);
+                }}
+                title="Emoji"
+                style={{ color: "#fbbf24" }}
+              >
+                <Smile size={24} />
+              </IconButton>
+            </>
+          )}
+          {Capacitor.getPlatform() !== "web" && isAiLoaded && (
             <IconButton
               variant="ghost"
               size="sm"
@@ -1019,18 +1118,6 @@ export const ChatWindowDefault = ({
               <Sparkles size={18} />
             </IconButton>
           )}
-          <IconButton
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setShowEmojiPicker(!showEmojiPicker);
-              setShowGifPicker(false);
-            }}
-            title="Emoji"
-            style={{ color: "#fbbf24" }}
-          >
-            <Smile size={24} />
-          </IconButton>
         </InputWrapper>
 
         {input.trim().length > 0 || pendingAttachments.length > 0 ? (
@@ -1110,6 +1197,15 @@ export const ChatWindowDefault = ({
         onClose={() => setMediaModalOpen(false)}
         media={selectedMedia}
       />
+
+      {selectedFiles.length > 0 && (
+        <FileUploadPreview
+          files={selectedFiles}
+          onClose={() => setSelectedFiles([])}
+          onSend={handlePreviewSend}
+          onAddMore={() => fileInputRef.current?.click()}
+        />
+      )}
     </ChatContainer>
   );
 };

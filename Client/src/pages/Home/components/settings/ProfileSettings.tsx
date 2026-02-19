@@ -56,39 +56,30 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        if (ev.target?.result) {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            let width = img.width;
-            let height = img.height;
-            const maxDim = 500;
 
-            if (width > height) {
-              if (width > maxDim) {
-                height *= maxDim / width;
-                width = maxDim;
+      // Use compressImage utility for consistent behavior with sharing logic
+      import("../../../../utils/imageUtils").then(({ compressImage }) => {
+        compressImage(file, 0.8, 1024, 1024)
+          .then((compressedFile) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              if (ev.target?.result) {
+                setEditAvatar(ev.target.result as string);
               }
-            } else {
-              if (height > maxDim) {
-                width *= maxDim / height;
-                height = maxDim;
+            };
+            reader.readAsDataURL(compressedFile);
+          })
+          .catch((err) => {
+            console.error("Compression failed, using original", err);
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              if (ev.target?.result) {
+                setEditAvatar(ev.target.result as string);
               }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx?.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-            setEditAvatar(dataUrl);
-          };
-          img.src = ev.target.result as string;
-        }
-      };
-      reader.readAsDataURL(file);
+            };
+            reader.readAsDataURL(file);
+          });
+      });
     }
   };
 

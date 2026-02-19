@@ -65,11 +65,19 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   useEffect(() => {
     const onAuthDone = () => setIsLoading(false);
+    const onRateLimited = () => {
+      setIsLoading(false);
+      setErrorText("Login rate limited. Please try again in a few seconds.");
+    };
+
     ChatClient.on("auth_success", onAuthDone);
     ChatClient.on("auth_error", onAuthDone);
+    ChatClient.on("rate_limit_exceeded", onRateLimited);
+
     return () => {
       ChatClient.off("auth_success", onAuthDone);
       ChatClient.off("auth_error", onAuthDone);
+      ChatClient.off("rate_limit_exceeded", onRateLimited);
     };
   }, []);
 
@@ -121,11 +129,14 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           setIsLoading(false);
         }
       }
+      setIsLoading(false);
     } catch (error) {
       console.error("Sign-In Error:", error);
       const msg = extractMessage(error);
       if (msg.includes("No credentials available")) {
         setErrorText("No Google account credential found. Please try again.");
+      } else if (msg.includes("canceled") || msg.includes("cancelled")) {
+        setErrorText("Sign-in cancelled.");
       } else {
         setErrorText("Login failed. Please try again.");
       }

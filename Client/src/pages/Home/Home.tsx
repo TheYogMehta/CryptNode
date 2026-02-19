@@ -128,7 +128,7 @@ const Home = () => {
           console.log("[Home] Back button pressed. State:", ctx);
 
           if (ctx.isLocked || ctx.showProfileSetup) {
-            App.exitApp();
+            App.minimizeApp();
             return;
           }
 
@@ -157,7 +157,7 @@ const Home = () => {
             return;
           }
 
-          App.exitApp();
+          App.minimizeApp();
         });
       } catch (e) {
         console.error("Error adding back button listener:", e);
@@ -435,7 +435,7 @@ const Home = () => {
           onOpenVault={onOpenVault}
           onGlobalSummary={generateGlobalSummary}
         />
-        
+
         <MainContent>
           {isMobile && state.view !== "chat" && (
             <MobileHeader>

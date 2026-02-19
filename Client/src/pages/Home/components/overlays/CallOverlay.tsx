@@ -190,9 +190,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     await client.toggleScreenShare(!isScreenEnabled);
   };
 
-  const displayName =
-    callState?.peerName ||
-    "Unknown";
+  const displayName = callState?.peerName || "Unknown";
 
   const activeMode =
     isScreenEnabled || callState?.type === "Screen"
@@ -209,7 +207,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   if (!callState || callState.status === "idle") return null;
 
-  if (callState.status === "ringing" || callState.status === "outgoing") {
+  if (
+    callState.status === "ringing" ||
+    callState.status === "outgoing" ||
+    callState.status === "connecting"
+  ) {
     const isIncoming = callState.status === "ringing";
     return (
       <OverlayContainer>
@@ -232,7 +234,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           <CallerInfo>
             <CallerName>{displayName}</CallerName>
             <CallStatus>
-              {isIncoming ? "Incoming Call..." : "Ringing..."}
+              {callState.status === "connecting"
+                ? "Connecting..."
+                : isIncoming
+                ? "Incoming Call..."
+                : "Ringing..."}
             </CallStatus>
           </CallerInfo>
 
@@ -246,6 +252,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   <PhoneOff size={32} />
                 </IconButton>
               </>
+            ) : callState.status === "connecting" ? (
+              <div style={{ color: "#94a3b8", fontSize: "14px" }}>
+                Establishing connection...
+              </div>
             ) : (
               <IconButton variant="danger" size="xl" onClick={onHangup}>
                 <PhoneOff size={32} />
@@ -369,7 +379,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               size="sm"
               onClick={toggleScreen}
             >
-              {isScreenEnabled ? <MonitorOff size={16} /> : <Monitor size={16} />}
+              {isScreenEnabled ? (
+                <MonitorOff size={16} />
+              ) : (
+                <Monitor size={16} />
+              )}
             </IconButton>
           )}
 

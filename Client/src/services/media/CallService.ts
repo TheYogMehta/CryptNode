@@ -52,8 +52,7 @@ export class CallService {
   public canUseScreenShare(): boolean {
     const nav = navigator.mediaDevices as any;
     return (
-      this.isElectronPlatform() ||
-      typeof nav?.getDisplayMedia === "function"
+      this.isElectronPlatform() || typeof nav?.getDisplayMedia === "function"
     );
   }
 
@@ -520,14 +519,25 @@ export class CallService {
           this.client.emit("screen_toggled", { enabled: false });
         }
 
-        this.cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 15 },
-          },
-          audio: false,
-        });
+        try {
+          this.cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 15 },
+            },
+            audio: false,
+          });
+        } catch (err) {
+          console.warn(
+            "[CallService] High quality video failed, trying fallback constraints",
+            err,
+          );
+          this.cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
 
         const videoTrack = this.cameraStream.getVideoTracks()[0];
         if (videoTrack) {
@@ -697,6 +707,13 @@ export class CallService {
     this.currentCallSid = sid;
     this.stopRingtone();
 
+    // Immediate UI feedback
+    this.client.emit("call_started", {
+      sid,
+      status: "connecting",
+      remoteSid: sid,
+    });
+
     if (this._pendingOffer && this._pendingOffer.sid === sid) {
       console.log("[CallService] Processing the stashed offer now.");
       const offerToProcess = this._pendingOffer.offer;
@@ -716,19 +733,23 @@ export class CallService {
     const targetSid = sid || this.currentCallSid;
     if (!targetSid) return;
 
-    const payload = await this.client.encryptForSession(
-      targetSid,
-      JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
-      0,
-    );
+    try {
+      const payload = await this.client.encryptForSession(
+        targetSid,
+        JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
+        0,
+      );
 
-    this.client.send({
-      t: "MSG",
-      sid: targetSid,
-      data: { payload },
-      c: true,
-      p: 0,
-    });
+      this.client.send({
+        t: "MSG",
+        sid: targetSid,
+        data: { payload },
+        c: true,
+        p: 0,
+      });
+    } catch (e) {
+      console.warn("[CallService] Failed to send CALL_END message", e);
+    }
     const wasConnected = this.isCallConnected;
     this.cleanupCall();
     const duration = this.callStartTime ? Date.now() - this.callStartTime : 0;
