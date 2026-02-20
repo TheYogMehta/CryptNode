@@ -82,10 +82,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
       if (this.authService.hasToken()) {
         try {
           await this.sessionService.loadSessions();
-          const reattached = this.sessionService.reattachAllSessions();
-          if (reattached > 0) {
-            console.log(`[ChatClient] Reattached ${reattached} session(s)`);
-          }
+          await this.sessionService.loadSessions();
         } catch (e) {
           console.error("[ChatClient] Failed to load/reattach sessions", e);
         }
@@ -135,9 +132,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
   async init() {
     await this.sessionService.loadSessions();
-    if (socket.isConnected()) {
-      this.sessionService.reattachAllSessions();
-    }
     this.emit("session_updated");
   }
 
@@ -221,42 +215,43 @@ export class ChatClient extends EventEmitter implements IChatClient {
         await this.authService.handleAuthSuccess(data);
         {
           await this.sessionService.loadSessions();
-          const reattached = this.sessionService.reattachAllSessions();
-          if (reattached > 0) {
-            console.log(
-              `[ChatClient] Reattached ${reattached} session(s) after auth`,
-            );
+          await this.sessionService.loadSessions();
+        }
+        this.emit("auth_success", this.authService.userEmail);
+        break;
+      case "FRIEND_REQUEST":
+        try {
+          const req = await this.sessionService.decryptFriendRequest(
+            data.encryptedPacket,
+            data.publicKey,
+          );
+          if (req) {
+            const myEmail = this.normalizeEmail(this.authService.userEmail);
+            const otherEmail = this.normalizeEmail(req.email);
+            const [u1, u2] = [myEmail, otherEmail].sort();
+            const computedSid = await sha256(u1 + ":" + u2);
+
+            this.emit("inbound_request", {
+              ...req,
+              publicKey: data.publicKey,
+              sid: computedSid,
+            });
           }
+        } catch (e) {
+          console.error("Failed to decrypt friend request", e);
         }
         break;
-      case "JOIN_REQUEST":
-        this.emit("inbound_request", {
-          sid,
-          publicKey: data.publicKey,
-          email: data.email,
-          emailHash: data.emailHash,
-          name: data.name,
-          avatar: data.avatar,
-          nameVersion: data.nameVersion,
-          avatarVersion: data.avatarVersion,
-        });
+      case "FRIEND_ACCEPT":
+        await this.sessionService.handleFriendAccept(data);
+        this.emit("session_updated");
         break;
-      case "JOIN_ACCEPT":
-        await this.sessionService.finalizeSession(
-          sid,
-          data.publicKey,
-          data.email,
-          data.emailHash,
-          data.name,
-          data.avatar,
-          data.nameVersion,
-          data.avatarVersion,
-        );
-        this.emit("joined_success", sid);
+      case "FRIEND_DENY":
+        await this.sessionService.handleFriendDeny(data);
+        this.emit("session_updated");
         break;
-      case "TURN_CREDS":
-        console.log("[ChatClient] Received TURN credentials");
-        this.callService.resolveTurnCreds(data);
+      case "PROFILE_UPDATE":
+        await this.sessionService.handleProfileUpdate(sid, data);
+        this.emit("session_updated");
         break;
       case "RTC_OFFER":
       case "RTC_ANSWER":
@@ -277,6 +272,19 @@ export class ChatClient extends EventEmitter implements IChatClient {
           { sid, payload: data.payload, priority: frame.p ?? 1 },
           frame.p ?? 1,
         );
+        break;
+      case "PENDING_REQUESTS":
+        this.emit("pending_requests_list", data);
+        break;
+
+      case "FRIEND_ACCEPTED_ACK":
+        this.emit("notification", {
+          type: "success",
+          message: "Friend request accepted.",
+        });
+        break;
+      case "SESSION_LIST":
+        this.sessionService.handleSessionList(data);
         break;
       case "PEER_ONLINE":
         this.sessionService.setPeerOnline(sid, true);
@@ -340,6 +348,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.authService.logout();
   }
 
+  public async deleteAccount() {
+    socket.send({ t: "DELETE_ACCOUNT" });
+  }
+
   public async switchAccount(email: string) {
     return this.authService.switchAccount(email);
   }
@@ -349,30 +361,28 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.sessionService.connectToPeer(targetEmail);
   }
 
-  public async acceptFriend(
-    sid: string,
-    remotePub: string,
-    peerEmail?: string,
-    peerEmailHash?: string,
-    peerName?: string,
-    peerAvatar?: string,
-    peerNameVer?: number,
-    peerAvatarVer?: number,
-  ) {
-    return this.sessionService.acceptFriend(
-      sid,
-      remotePub,
-      peerEmail,
-      peerEmailHash,
-      peerName,
-      peerAvatar,
-      peerNameVer,
-      peerAvatarVer,
-    );
+  public getPendingRequests() {
+    socket.send({
+      t: "GET_PENDING_REQUESTS",
+      c: true,
+      p: 0,
+    });
   }
 
-  public denyFriend(sid: string) {
-    return this.sessionService.denyFriend(sid);
+  public async acceptFriend(
+    targetEmail: string,
+    remotePub: string,
+    senderHash: string,
+  ) {
+    return this.sessionService.acceptFriend(targetEmail, remotePub, senderHash);
+  }
+
+  public denyFriend(targetEmail: string) {
+    return this.sessionService.denyFriend(targetEmail);
+  }
+
+  public blockUser(targetEmail: string) {
+    return this.sessionService.blockUser(targetEmail);
   }
 
   public async sendMessage(

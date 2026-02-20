@@ -143,6 +143,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               await setKeyFromSecureStorage(scopedKey, "");
             }
 
+            await ChatClient.deleteAccount();
+
             await deleteDatabase(dbName);
             await AccountService.removeAccount(currentUserEmail);
           } catch (e) {
@@ -221,7 +223,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       case "Account":
         return (
           <div>
-            <h3 style={{ marginTop: 0, color: colors.text.primary }}>Manage Accounts</h3>
+            <h3 style={{ marginTop: 0, color: colors.text.primary }}>
+              Manage Accounts
+            </h3>
             <div style={{ marginBottom: "30px" }}>
               {accounts.map((acc) => (
                 <AccountItem
@@ -241,7 +245,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       size={32}
                       style={{ background: colors.background.tertiary }}
                     />
-                    <span style={{ color: colors.text.primary }}>{acc.email}</span>
+                    <span style={{ color: colors.text.primary }}>
+                      {acc.email}
+                    </span>
                     {acc.email === currentUserEmail && (
                       <span
                         style={{
@@ -279,10 +285,16 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
             <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
             <DangerZone>
-              <SignOutButton disabled={isDeletingAccount} onClick={handleSignOut}>
+              <SignOutButton
+                disabled={isDeletingAccount}
+                onClick={handleSignOut}
+              >
                 Sign Out
               </SignOutButton>
-              <DangerButton disabled={isDeletingAccount} onClick={handleDeleteAccount}>
+              <DangerButton
+                disabled={isDeletingAccount}
+                onClick={handleDeleteAccount}
+              >
                 {isDeletingAccount ? "Deleting..." : "Delete Account"}
               </DangerButton>
             </DangerZone>
@@ -386,7 +398,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           )}
           {activeCategory === "Account" && (
             <div>
-              <h3 style={{ marginTop: 0, color: colors.text.primary }}>Manage Accounts</h3>
+              <h3 style={{ marginTop: 0, color: colors.text.primary }}>
+                Manage Accounts
+              </h3>
               <div style={{ marginBottom: "30px" }}>
                 {accounts.map((acc) => (
                   <AccountItem
@@ -406,7 +420,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         size={32}
                         style={{ background: colors.background.tertiary }}
                       />
-                      <span style={{ color: colors.text.primary }}>{acc.email}</span>
+                      <span style={{ color: colors.text.primary }}>
+                        {acc.email}
+                      </span>
                       {acc.email === currentUserEmail && (
                         <span
                           style={{
@@ -444,10 +460,16 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
               <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
               <DangerZone>
-                <SignOutButton disabled={isDeletingAccount} onClick={handleSignOut}>
+                <SignOutButton
+                  disabled={isDeletingAccount}
+                  onClick={handleSignOut}
+                >
                   Sign Out
                 </SignOutButton>
-                <DangerButton disabled={isDeletingAccount} onClick={handleDeleteAccount}>
+                <DangerButton
+                  disabled={isDeletingAccount}
+                  onClick={handleDeleteAccount}
+                >
                   {isDeletingAccount ? "Deleting..." : "Delete Account"}
                 </DangerButton>
               </DangerZone>

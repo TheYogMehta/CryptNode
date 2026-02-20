@@ -54,6 +54,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
         lastTs: r.lastTs || 0,
         unread: r.sid === activeChatRef.current ? 0 : r.unread || 0,
         online: ChatClient.sessions[r.sid]?.online || false,
+        isConnected: ChatClient.sessions[r.sid]?.isConnected ?? false,
       }));
       setSessions(formatted);
     }, 500),

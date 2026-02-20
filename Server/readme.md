@@ -13,8 +13,8 @@ The server is a lightweight Go application.
    ```bash
    go mod init socket
    go get github.com/gorilla/websocket
-   go get github.com/joho/
    go get github.com/joho/godotenv
+   go get github.com/mattn/go-sqlite3
    ```
 
 2. generate ssl certificates

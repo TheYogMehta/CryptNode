@@ -17,7 +17,6 @@ import {
   Image as ImageIcon,
   Camera as CameraIcon,
   FileText,
-  MapPin,
   Globe,
   Phone,
   ArrowLeft,
@@ -27,7 +26,9 @@ import {
   Search,
   Edit2,
   Trash2,
-  Sparkles,
+  Lightbulb,
+  Wand2,
+  MoreVertical,
 } from "lucide-react";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { ChatMessage, SessionData } from "../../types";
@@ -143,6 +144,24 @@ export const ChatWindowDefault = ({
   const [summary, setSummary] = useState("");
   const [isSummarizing, setIsSummarizing] = useState(false);
 
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        optionsMenuRef.current &&
+        !optionsMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowOptionsMenu(false);
+      }
+    };
+    if (showOptionsMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showOptionsMenu]);
+
   const handleSummarize = async () => {
     setShowSummary(true);
     if (summary && !isSummarizing) return;
@@ -256,6 +275,7 @@ export const ChatWindowDefault = ({
         allowEditing: false,
         resultType: CameraResultType.Uri,
         source: CameraSource.Camera,
+        correctOrientation: true,
       });
 
       if (image.webPath) {
@@ -293,29 +313,19 @@ export const ChatWindowDefault = ({
       onClick: () => fileInputRef.current?.click(),
     },
     {
-      label: isRecording ? "Stop Voice" : "Voice Message",
-      icon: <Mic size={24} />,
-      color: "#2cb67d",
-      onClick: () => {
-        handleRecord();
-        setShowMenu(false);
-      },
-    },
-    {
       label: "Live Share",
       icon: <Globe size={24} />,
       color: "#3b82f6",
       onClick: () => setShowPortModal(true),
     },
-    {
-      label: "Location",
-      icon: <MapPin size={24} />,
-      color: "#f25f5c",
-    },
   ];
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [pendingAudio, setPendingAudio] = useState<{
+    url: string;
+    blob: Blob;
+  } | null>(null);
 
   const handleRecord = async () => {
     if (!isRecording) {
@@ -341,15 +351,9 @@ export const ChatWindowDefault = ({
           console.log(
             `[ChatWindow] Recording stopped. Total size: ${audioBlob.size} bytes`,
           );
-          const audioFile = new File(
-            [audioBlob],
-            `voice-note-${Date.now()}.webm`,
-            { type: "audio/webm" },
-          );
 
-          if (onFileSelect) {
-            onFileSelect(audioFile);
-          }
+          const url = URL.createObjectURL(audioBlob);
+          setPendingAudio({ url, blob: audioBlob });
 
           stream.getTracks().forEach((track) => track.stop());
         };
@@ -537,46 +541,163 @@ export const ChatWindowDefault = ({
           >
             <Search size={20} />
           </IconButton>
-          <IconButton
-            variant="success"
-            size="md"
-            onClick={() => onStartCall("Audio")}
-            title="Voice Call"
-          >
-            <Phone size={20} />
-          </IconButton>
-          <IconButton
-            variant="primary"
-            size="md"
-            onClick={() => onStartCall("Video")}
-            title="Video Call"
-          >
-            <Video size={20} />
-          </IconButton>
-          {isAiLoaded && (
+          <div style={{ position: "relative" }} ref={optionsMenuRef}>
             <IconButton
               variant="ghost"
               size="md"
-              onClick={handleSummarize}
-              title="Summarize Chat"
-              disabled={isSummarizing}
+              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+              title="More Options"
             >
-              <Sparkles
-                size={20}
-                color={isSummarizing ? "#eda515" : undefined}
-              />
+              <MoreVertical size={20} />
             </IconButton>
-          )}
-          {canScreenShare && (
-            <IconButton
-              variant="ghost"
-              size="md"
-              onClick={() => onStartCall("Screen")}
-              title="Screen Share"
-            >
-              <Monitor size={20} />
-            </IconButton>
-          )}
+
+            {showOptionsMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  marginTop: "8px",
+                  backgroundColor: "rgba(20, 20, 30, 0.95)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: "8px",
+                  padding: "8px",
+                  zIndex: 200,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                  minWidth: "180px",
+                  backdropFilter: "blur(10px)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    onStartCall("Audio");
+                    setShowOptionsMenu(false);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "10px 12px",
+                    background: "transparent",
+                    border: "none",
+                    color: "#fff",
+                    cursor: "pointer",
+                    borderRadius: "4px",
+                    textAlign: "left",
+                    fontSize: "14px",
+                    transition: "background 0.2s",
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+                  }
+                  onMouseOut={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <Phone size={18} /> Voice Call
+                </button>
+                <button
+                  onClick={() => {
+                    onStartCall("Video");
+                    setShowOptionsMenu(false);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "10px 12px",
+                    background: "transparent",
+                    border: "none",
+                    color: "#fff",
+                    cursor: "pointer",
+                    borderRadius: "4px",
+                    textAlign: "left",
+                    fontSize: "14px",
+                    transition: "background 0.2s",
+                  }}
+                  onMouseOver={(e) =>
+                    (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+                  }
+                  onMouseOut={(e) =>
+                    (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  <Video size={18} /> Video Call
+                </button>
+                {isAiLoaded && (
+                  <button
+                    onClick={() => {
+                      handleSummarize();
+                      setShowOptionsMenu(false);
+                    }}
+                    disabled={isSummarizing}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "10px 12px",
+                      background: "transparent",
+                      border: "none",
+                      color: isSummarizing ? "rgba(255,255,255,0.5)" : "#ccc",
+                      cursor: isSummarizing ? "not-allowed" : "pointer",
+                      borderRadius: "4px",
+                      textAlign: "left",
+                      fontSize: "14px",
+                      transition: "background 0.2s",
+                    }}
+                    onMouseOver={(e) => {
+                      if (!isSummarizing)
+                        e.currentTarget.style.background =
+                          "rgba(255,255,255,0.1)";
+                    }}
+                    onMouseOut={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
+                  >
+                    <FileText
+                      size={18}
+                      color={isSummarizing ? "#eda515" : undefined}
+                    />{" "}
+                    {isSummarizing ? "Summarizing..." : "Summarize Chat"}
+                  </button>
+                )}
+                {canScreenShare && (
+                  <button
+                    onClick={() => {
+                      onStartCall("Screen");
+                      setShowOptionsMenu(false);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "10px 12px",
+                      background: "transparent",
+                      border: "none",
+                      color: "#fff",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      textAlign: "left",
+                      fontSize: "14px",
+                      transition: "background 0.2s",
+                    }}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.1)")
+                    }
+                    onMouseOut={(e) =>
+                      (e.currentTarget.style.background = "transparent")
+                    }
+                  >
+                    <Monitor size={18} /> Screen Share
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </HeaderActions>
       </ChatHeader>
 
@@ -934,42 +1055,70 @@ export const ChatWindowDefault = ({
         </div>
       )}
 
-      <InputContainer>
-        {!showAiSuggestions && !isRecording && (
-          <div style={{ padding: "0 8px 8px 8px" }}>
-            <button
-              type="button"
-              onClick={() => {
-                setShowAiSuggestions(true);
-              }}
-              style={{
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 14,
-                color: "#fff",
-                background: "rgba(255,255,255,0.06)",
-                padding: "5px 10px",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              Show AI suggestions
-            </button>
-          </div>
-        )}
-        {showAiSuggestions && quickReplies.length > 0 && !isRecording && (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              padding: "0 8px 8px 8px",
+      {pendingAudio && (
+        <div
+          style={{
+            padding: "10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: "rgba(20, 20, 25, 0.95)",
+            borderTop: "1px solid rgba(255,255,255,0.1)",
+            zIndex: 10,
+          }}
+        >
+          <audio
+            src={pendingAudio.url}
+            controls
+            style={{ flex: 1, height: "40px" }}
+          />
+          <IconButton
+            variant="ghost"
+            onClick={() => {
+              const file = new File(
+                [pendingAudio.blob],
+                `voice-note-${Date.now()}.webm`,
+                { type: "audio/webm" },
+              );
+              onFileSelect(file);
+              setPendingAudio(null);
             }}
+            title="Send voice note"
           >
-            {quickReplies.map((reply) => (
+            <Send size={20} />
+          </IconButton>
+          <IconButton
+            variant="ghost"
+            onClick={() => setPendingAudio(null)}
+            title="Delete voice note"
+            style={{ color: "#ef4444" }}
+          >
+            <Trash2 size={20} />
+          </IconButton>
+        </div>
+      )}
+
+      {session?.isConnected === false ? (
+        <InputContainer
+          style={{
+            justifyContent: "center",
+            padding: "16px",
+            color: "rgba(255,255,255,0.5)",
+            fontSize: "14px",
+            fontStyle: "italic",
+          }}
+        >
+          You cannot send messages to this user because you are not connected.
+        </InputContainer>
+      ) : (
+        <InputContainer>
+          {!showAiSuggestions && !input.trim() && isAiLoaded && (
+            <div style={{ padding: "0 8px 8px 8px" }}>
               <button
-                key={reply}
                 type="button"
-                onClick={() => setInput(reply)}
+                onClick={() => {
+                  setShowAiSuggestions(true);
+                }}
                 style={{
                   border: "1px solid rgba(255,255,255,0.2)",
                   borderRadius: 14,
@@ -978,158 +1127,185 @@ export const ChatWindowDefault = ({
                   padding: "5px 10px",
                   fontSize: 12,
                   cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
                 }}
               >
-                {reply}
+                <Lightbulb size={16} />
+                Catch Up
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                setShowAiSuggestions(false);
-              }}
+            </div>
+          )}
+          {showAiSuggestions && quickReplies.length > 0 && !isRecording && (
+            <div
               style={{
-                border: "none",
-                background: "transparent",
-                color: "rgba(255,255,255,0.65)",
-                fontSize: 12,
-                cursor: "pointer",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                padding: "0 8px 8px 8px",
               }}
             >
-              Hide AI suggestions
-            </button>
-            {isAiLoaded && (
-              <button
-                onClick={handleSummarize}
-                disabled={isSummarizing}
-                title="Summarize Chat"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "#ccc",
-                  marginRight: 10,
-                }}
-              >
-                <Sparkles
-                  size={20}
-                  color={isSummarizing ? "#eda515" : undefined}
-                />
-              </button>
-            )}
-          </div>
-        )}
-        <AttachmentButton
-          active={showMenu}
-          onClick={() => setShowMenu(!showMenu)}
-        >
-          <Plus size={24} />
-        </AttachmentButton>
-
-        <InputWrapper isRateLimited={isRateLimited}>
-          <ChatInput
-            ref={textareaRef}
-            rows={1}
-            value={isRecording ? "Recording..." : input}
-            readOnly={isRecording}
-            onPaste={handlePaste}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              // Allow Undo/Redo to work by stopping propagation if needed
-              if (
-                (e.ctrlKey || e.metaKey) &&
-                (e.key === "z" ||
-                  e.key === "Z" ||
-                  e.key === "y" ||
-                  e.key === "Y")
-              ) {
-                e.stopPropagation();
-                return;
-              }
-
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                (input.trim() || pendingAttachments.length > 0)
-              ) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            placeholder={isRecording ? "" : "Message..."}
-          />
-          {Capacitor.getPlatform() === "web" && (
-            <>
-              <IconButton
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowGifPicker(!showGifPicker);
-                  setShowEmojiPicker(false);
-                }}
-                title="GIF"
-                style={{ color: "#f59e0b", fontSize: "11px", fontWeight: 700 }}
-              >
-                GIF
-              </IconButton>
-              {isAiLoaded && (
-                <IconButton
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (!input.trim()) return;
-                    const rewritten = await qwenLocalService.smartCompose(
-                      input,
-                    );
-                    if (rewritten) setInput(rewritten);
+              {quickReplies.map((reply) => (
+                <button
+                  key={reply}
+                  type="button"
+                  onClick={() => setInput(reply)}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    borderRadius: 14,
+                    color: "#fff",
+                    background: "rgba(255,255,255,0.06)",
+                    padding: "5px 10px",
+                    fontSize: 12,
+                    cursor: "pointer",
                   }}
-                  title="Smart Rewrite"
-                  style={{ color: "#8b5cf6" }}
                 >
-                  <Sparkles size={18} />
-                </IconButton>
-              )}
-              <IconButton
-                variant="ghost"
-                size="sm"
+                  {reply}
+                </button>
+              ))}
+              <button
+                type="button"
                 onClick={() => {
-                  setShowEmojiPicker(!showEmojiPicker);
-                  setShowGifPicker(false);
+                  setShowAiSuggestions(false);
                 }}
-                title="Emoji"
-                style={{ color: "#fbbf24" }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.65)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
               >
-                <Smile size={24} />
-              </IconButton>
-            </>
+                Hide
+              </button>
+              {isAiLoaded && (
+                <button
+                  onClick={handleSummarize}
+                  disabled={isSummarizing}
+                  title="Summarize Chat"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#ccc",
+                    marginRight: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  <FileText
+                    size={18}
+                    color={isSummarizing ? "#eda515" : undefined}
+                  />
+                  <span style={{ fontSize: 12 }}>Summarize Chat</span>
+                </button>
+              )}
+            </div>
           )}
-          {Capacitor.getPlatform() !== "web" && isAiLoaded && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                if (!input.trim()) return;
-                const rewritten = await qwenLocalService.smartCompose(input);
-                if (rewritten) setInput(rewritten);
-              }}
-              title="Smart Rewrite"
-              style={{ color: "#8b5cf6" }}
-            >
-              <Sparkles size={18} />
-            </IconButton>
-          )}
-        </InputWrapper>
+          <AttachmentButton
+            active={showMenu}
+            onClick={() => setShowMenu(!showMenu)}
+          >
+            <Plus size={24} />
+          </AttachmentButton>
 
-        {input.trim().length > 0 || pendingAttachments.length > 0 ? (
-          <SendButton onClick={handleSendMessage}>
-            <Send size={20} />
-          </SendButton>
-        ) : (
-          <SendButton isRecording={isRecording} onClick={handleRecord}>
-            <Mic size={20} />
-          </SendButton>
-        )}
-      </InputContainer>
+          <InputWrapper isRateLimited={isRateLimited}>
+            <ChatInput
+              ref={textareaRef}
+              rows={1}
+              value={isRecording ? "Recording..." : input}
+              readOnly={isRecording}
+              onPaste={handlePaste}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Allow Undo/Redo to work by stopping propagation if needed
+                if (
+                  (e.ctrlKey || e.metaKey) &&
+                  (e.key === "z" ||
+                    e.key === "Z" ||
+                    e.key === "y" ||
+                    e.key === "Y")
+                ) {
+                  e.stopPropagation();
+                  return;
+                }
+
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  (input.trim() || pendingAttachments.length > 0)
+                ) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              placeholder={isRecording ? "" : "Message..."}
+            />
+            {Capacitor.getPlatform() !== "android" &&
+              Capacitor.getPlatform() !== "ios" && (
+                <>
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowGifPicker(!showGifPicker);
+                      setShowEmojiPicker(false);
+                    }}
+                    title="GIF"
+                    style={{
+                      color: "#f59e0b",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    GIF
+                  </IconButton>
+                  {isAiLoaded && (
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        if (!input.trim()) return;
+                        const rewritten = await qwenLocalService.smartCompose(
+                          input,
+                        );
+                        if (rewritten) setInput(rewritten);
+                      }}
+                      title="Rephrase"
+                      style={{ color: "#8b5cf6" }}
+                    >
+                      <Wand2 size={16} />
+                    </IconButton>
+                  )}
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowEmojiPicker(!showEmojiPicker);
+                      setShowGifPicker(false);
+                    }}
+                    title="Emoji"
+                    style={{ color: "#fbbf24" }}
+                  >
+                    <Smile size={24} />
+                  </IconButton>
+                </>
+              )}
+          </InputWrapper>
+
+          {input.trim().length > 0 || pendingAttachments.length > 0 ? (
+            <SendButton onClick={handleSendMessage}>
+              <Send size={20} />
+            </SendButton>
+          ) : (
+            <SendButton isRecording={isRecording} onClick={handleRecord}>
+              <Mic size={20} />
+            </SendButton>
+          )}
+        </InputContainer>
+      )}
 
       {showEmojiPicker && (
         <div

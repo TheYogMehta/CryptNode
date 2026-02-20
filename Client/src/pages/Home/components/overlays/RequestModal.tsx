@@ -47,14 +47,9 @@ export const RequestModal = ({
             <PrimaryButton
               onClick={async () => {
                 await ChatClient.acceptFriend(
-                  inboundReq!.sid,
-                  inboundReq!.publicKey,
                   inboundReq!.email,
-                  inboundReq!.emailHash,
-                  inboundReq!.name,
-                  inboundReq!.avatar,
-                  inboundReq!.nameVersion,
-                  inboundReq!.avatarVersion,
+                  inboundReq!.publicKey,
+                  "",
                 );
                 setInboundReq(null);
               }}
@@ -63,7 +58,7 @@ export const RequestModal = ({
             </PrimaryButton>
             <CancelButton
               onClick={() => {
-                ChatClient.denyFriend(inboundReq!.sid);
+                ChatClient.denyFriend(inboundReq!.email);
                 setInboundReq(null);
               }}
             >

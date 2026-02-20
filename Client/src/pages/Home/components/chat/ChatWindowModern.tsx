@@ -8,6 +8,7 @@ import {
   Paperclip,
   Smile,
   ArrowLeft,
+  Lightbulb,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { colors, spacing } from "../../../../theme/design-system";
@@ -71,6 +72,24 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
 
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        optionsMenuRef.current &&
+        !optionsMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowOptionsMenu(false);
+      }
+    };
+    if (showOptionsMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showOptionsMenu]);
 
   const generateQuickReplies = async () => {
     if (isGeneratingReplies) return;
@@ -142,16 +161,92 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
             )}
           </div>
         </HeaderInfo>
-        <div style={{ display: "flex", gap: spacing[2] }}>
-          <ActionButton onClick={() => onStartCall("Audio")}>
-            <Phone size={20} />
-          </ActionButton>
-          <ActionButton onClick={() => onStartCall("Video")}>
-            <Video size={20} />
-          </ActionButton>
-          <ActionButton>
+        <div
+          style={{ display: "flex", gap: spacing[2], position: "relative" }}
+          ref={optionsMenuRef}
+        >
+          <ActionButton onClick={() => setShowOptionsMenu(!showOptionsMenu)}>
             <MoreVertical size={20} />
           </ActionButton>
+
+          {showOptionsMenu && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: "8px",
+                backgroundColor: "rgba(20, 20, 30, 0.95)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+                padding: "8px",
+                zIndex: 200,
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                minWidth: "160px",
+                backdropFilter: "blur(10px)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+              }}
+            >
+              <button
+                onClick={() => {
+                  onStartCall("Audio");
+                  setShowOptionsMenu(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 12px",
+                  background: "transparent",
+                  border: "none",
+                  color: "#fff",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  textAlign: "left",
+                  fontSize: "14px",
+                  transition: "background 0.2s",
+                }}
+                onMouseOver={(e) =>
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+                }
+                onMouseOut={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <Phone size={18} /> Voice Call
+              </button>
+              <button
+                onClick={() => {
+                  onStartCall("Video");
+                  setShowOptionsMenu(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 12px",
+                  background: "transparent",
+                  border: "none",
+                  color: "#fff",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  textAlign: "left",
+                  fontSize: "14px",
+                  transition: "background 0.2s",
+                }}
+                onMouseOver={(e) =>
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+                }
+                onMouseOut={(e) =>
+                  (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <Video size={18} /> Video Call
+              </button>
+            </div>
+          )}
         </div>
       </Header>
 
@@ -205,124 +300,141 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
         />
       </MessagesArea>
 
-      <InputArea>
-        {replyingTo && (
-          <ReplyContainer>
-            <span>
-              Replying to: {(replyingTo.text || "").substring(0, 50)}...
-            </span>
-            <CloseReplyButton onClick={() => setReplyingTo(null)}>
-              ✕
-            </CloseReplyButton>
-          </ReplyContainer>
-        )}{" "}
-        {!showAiSuggestions && !inputText.trim() && isAiLoaded && (
-          <div style={{ marginBottom: 8 }}>
-            <button
-              type="button"
-              onClick={() => {
-                setShowAiSuggestions(true);
-                generateQuickReplies();
-              }}
-              disabled={isGeneratingReplies}
-              style={{
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 14,
-                color: "#fff",
-                background: "rgba(255,255,255,0.06)",
-                padding: "5px 10px",
-                fontSize: 12,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-            >
-              {isGeneratingReplies ? "Generating..." : "AI Suggestions"}
-            </button>
-          </div>
-        )}
-        {showAiSuggestions &&
-          (quickReplies.length > 0 || isGeneratingReplies) &&
-          !inputText.trim() && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
-              {isGeneratingReplies && quickReplies.length === 0 && (
-                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
-                  Thinking...
-                </span>
-              )}
-              {quickReplies.map((reply) => (
+      {session?.isConnected === false ? (
+        <InputArea
+          style={{
+            justifyContent: "center",
+            padding: "16px",
+            color: "rgba(255,255,255,0.5)",
+            fontSize: "14px",
+            fontStyle: "italic",
+          }}
+        >
+          You cannot send messages to this user because you are not connected.
+        </InputArea>
+      ) : (
+        <InputArea>
+          {replyingTo && (
+            <ReplyContainer>
+              <span>
+                Replying to: {(replyingTo.text || "").substring(0, 50)}...
+              </span>
+              <CloseReplyButton onClick={() => setReplyingTo(null)}>
+                ✕
+              </CloseReplyButton>
+            </ReplyContainer>
+          )}{" "}
+          {!showAiSuggestions && !inputText.trim() && isAiLoaded && (
+            <div style={{ marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAiSuggestions(true);
+                  generateQuickReplies();
+                }}
+                disabled={isGeneratingReplies}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: 14,
+                  color: "#fff",
+                  background: "rgba(255,255,255,0.06)",
+                  padding: "5px 10px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <Lightbulb size={16} />
+                {isGeneratingReplies ? "Catching up..." : "Catch Up"}
+              </button>
+            </div>
+          )}
+          {showAiSuggestions &&
+            (quickReplies.length > 0 || isGeneratingReplies) &&
+            !inputText.trim() && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  marginBottom: 8,
+                }}
+              >
+                {isGeneratingReplies && quickReplies.length === 0 && (
+                  <span
+                    style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}
+                  >
+                    Thinking...
+                  </span>
+                )}
+                {quickReplies.map((reply) => (
+                  <button
+                    key={reply}
+                    type="button"
+                    onClick={() => setInputText(reply)}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: 14,
+                      color: "#fff",
+                      background: "rgba(255,255,255,0.06)",
+                      padding: "5px 10px",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {reply}
+                  </button>
+                ))}
                 <button
-                  key={reply}
                   type="button"
-                  onClick={() => setInputText(reply)}
+                  onClick={() => {
+                    setShowAiSuggestions(false);
+                  }}
                   style={{
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: 14,
-                    color: "#fff",
-                    background: "rgba(255,255,255,0.06)",
-                    padding: "5px 10px",
+                    border: "none",
+                    background: "transparent",
+                    color: "rgba(255,255,255,0.65)",
                     fontSize: 12,
                     cursor: "pointer",
                   }}
                 >
-                  {reply}
+                  Hide
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAiSuggestions(false);
-                }}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.65)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Hide AI suggestions
-              </button>
-            </div>
-          )}
-        <InputWrapper>
-          <ActionButton onClick={() => fileInputRef.current?.click()}>
-            <Paperclip size={20} />
-          </ActionButton>
-          <input
-            type="file"
-            ref={fileInputRef}
-            style={{ display: "none" }}
-            onChange={(e) => {
-              if (e.target.files?.[0]) onFileSelect(e.target.files[0]);
-            }}
-          />
-          <Input
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="Type a message..."
-            disabled={isRateLimited}
-          />
-          <ActionButton>
-            <Smile size={20} />
-          </ActionButton>
-          <SendButton
-            onClick={handleSend}
-            disabled={isRateLimited || !inputText.trim()}
-          >
-            <Send size={18} />
-          </SendButton>
-        </InputWrapper>
-      </InputArea>
+              </div>
+            )}
+          <InputWrapper>
+            <ActionButton onClick={() => fileInputRef.current?.click()}>
+              <Paperclip size={20} />
+            </ActionButton>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files?.[0]) onFileSelect(e.target.files[0]);
+              }}
+            />
+            <Input
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="Type a message..."
+              disabled={isRateLimited}
+            />
+            <ActionButton>
+              <Smile size={20} />
+            </ActionButton>
+            <SendButton
+              onClick={handleSend}
+              disabled={isRateLimited || !inputText.trim()}
+            >
+              <Send size={18} />
+            </SendButton>
+          </InputWrapper>
+        </InputArea>
+      )}
     </Container>
   );
 };

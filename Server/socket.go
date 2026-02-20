@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+	_ "github.com/mattn/go-sqlite3"
 
 	crand "crypto/rand"
 )
@@ -59,6 +61,7 @@ type Server struct {
 	mu              sync.Mutex
 	logger          *log.Logger
 	rateLimiter     *RateLimiter
+	db              *sql.DB
 }
 
 var upgrader = websocket.Upgrader{
@@ -147,9 +150,8 @@ func verifyGoogleToken(token string) (string, error) {
 	}
 
 	validClients := map[string]bool{
-		"588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com": true, // Web/Electron
-		"588653192623-d7tehqbc6ghd7uim7kd90fdner7hmhf5.apps.googleusercontent.com": true, // Old Android
-		"588653192623-3lkl6bqaa77lk1g3l89uideuqf083g1o.apps.googleusercontent.com": true, // New Android (CryptNode)
+		"588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com": true, // Electron
+		"588653192623-3lkl6bqaa77lk1g3l89uideuqf083g1o.apps.googleusercontent.com": true, // Android
 	}
 
 	if !validClients[claims.Aud] {
@@ -279,7 +281,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// CLient Disconnect
+	// Client Disconnect
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, client.id)
@@ -288,6 +290,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 
+		if client.email != "" {
+			s.db.Exec("DELETE FROM sockets WHERE socket_id = ?", client.id)
+			// TODO: Notify friends that user is offline?
+			// For now, we rely on polling or specific checks, or existing session logic.
+		}
+
+		// Clean up legacy sessions (optional, keeping for now to avoid breaking existing calls immediately)
 		for _, sess := range s.sessions {
 			sess.mu.Lock()
 			_, wasMember := sess.clients[client.id]
@@ -317,7 +326,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		switch frame.T {
 		case "AUTH":
 			var d struct {
-				Token string `json:"token"`
+				Token     string `json:"token"`
+				PublicKey string `json:"publicKey"`
 			}
 			json.Unmarshal(frame.Data, &d)
 			d.Token = strings.TrimSpace(d.Token)
@@ -340,16 +350,17 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			client.email = email
 			client.mu.Unlock()
 
-			s.mu.Lock()
-			if oldClientID, exists := s.emailToClientId[email]; exists {
-				if _, ok := s.clients[oldClientID]; ok {
-					s.mu.Unlock()
-					s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Already logged in on another device"}`)})
-					client.conn.Close()
-					return
-				}
+			eh := emailHash(email)
+			// Upsert user
+			s.db.Exec("INSERT OR IGNORE INTO users (email_hash, public_key) VALUES (?, ?)", eh, d.PublicKey)
+			if d.PublicKey != "" {
+				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, eh)
 			}
-			s.emailToClientId[email] = client.id
+			// Register socket
+			s.db.Exec("INSERT INTO sockets (email_hash, socket_id) VALUES (?, ?)", eh, client.id)
+
+			s.mu.Lock()
+			s.emailToClientId[email] = client.id // Legacy support
 			s.mu.Unlock()
 
 			resp := map[string]string{
@@ -359,70 +370,323 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			respBytes, _ := json.Marshal(resp)
 			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
 
-		case "CONNECT_REQ":
+			// ---------------------------------------------------------
+			// Server-Side Session Hydration
+			// ---------------------------------------------------------
+			go func() {
+				// Query friends with SID
+				rows, err := s.db.Query(`
+					SELECT sid, user1_hash, user2_hash 
+					FROM friends 
+					WHERE (user1_hash = ? OR user2_hash = ?) AND sid IS NOT NULL
+				`, eh, eh)
+				if err != nil {
+					log.Printf("Error querying sessions for %s: %v", email, err)
+					return
+				}
+				defer rows.Close()
+
+				var sessions []map[string]any
+
+				for rows.Next() {
+					var sid, u1, u2 string
+					if err := rows.Scan(&sid, &u1, &u2); err != nil {
+						continue
+					}
+
+					// Identify peer hash
+					peerHash := u1
+					if peerHash == eh {
+						peerHash = u2
+					}
+
+					// Check if peer is online
+					isOnline := false
+					// Quick check in sockets table or memory
+					// In memory is faster:
+					s.mu.Lock()
+					// But we only have emailToClientId...
+					// And we have peerHash.
+					// We can check sockets table for peerHash
+					// Or maintain hashToClientId map.
+					// Let's check DB for sockets for this peerHash
+					// (nested query inside loop is meh, but okay for MVP)
+					// Better: check if we have any client for this hash.
+					// We don't have a direct map from Hash -> Client, but we can query DB or existing sessions?
+					// Let's use the DB 'sockets' table which maps hash -> socket_id
+					s.mu.Unlock()
+
+					// Check online status
+					var onlineCount int
+					s.db.QueryRow("SELECT COUNT(*) FROM sockets WHERE email_hash = ?", peerHash).Scan(&onlineCount)
+					isOnline = onlineCount > 0
+
+					// Add to session list
+					sessions = append(sessions, map[string]any{
+						"sid":    sid,
+						"online": isOnline,
+						"peerHash": peerHash,
+					})
+					
+					// Auto-join server session
+					s.mu.Lock()
+					sess, ok := s.sessions[sid]
+					if !ok {
+						sess = &Session{
+							id:      sid,
+							clients: map[string]*Client{client.id: client},
+						}
+						s.sessions[sid] = sess
+					} else {
+						sess.mu.Lock()
+						sess.clients[client.id] = client
+						sess.mu.Unlock()
+					}
+					s.mu.Unlock()
+				}
+				
+				if sessions == nil {
+					sessions = make([]map[string]any, 0)
+				}
+				listData, _ := json.Marshal(sessions)
+				s.send(client, Frame{T: "SESSION_LIST", Data: json.RawMessage(listData)})
+			}()
+			// ---------------------------------------------------------
+
+		case "UPDATE_PUBKEY":
 			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
 				continue
 			}
-			client.mu.Lock()
-
-			if time.Since(client.lastConnect) < 5*time.Second {
-				client.mu.Unlock()
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Rate limit exceeded: Wait 5s between connection requests"}`)})
-				continue
-			}
-
-			client.lastConnect = time.Now()
-			client.mu.Unlock()
-
 			var d struct {
-				TargetEmail     string `json:"targetEmail"`
-				PublicKey       string `json:"publicKey"`
-				SenderEmail     string `json:"senderEmail"`
-				SenderEmailHash string `json:"senderEmailHash"`
-				SenderName      string `json:"senderName"`
-				SenderAvatar    string `json:"senderAvatar"`
-				SenderNameVer   int    `json:"senderNameVer"`
-				SenderAvatarVer int    `json:"senderAvatarVer"`
+				PublicKey string `json:"publicKey"`
 			}
 			json.Unmarshal(frame.Data, &d)
-			d.TargetEmail = normalizeEmail(d.TargetEmail)
+			if d.PublicKey != "" {
+				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, emailHash(client.email))
+			}
 
-			s.logConnection(client.email, d.TargetEmail)
-
-			s.mu.Lock()
-			targetClientId, ok := s.emailToClientId[d.TargetEmail]
-			if !ok {
-				s.mu.Unlock()
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"User not online"}`)})
+		case "GET_PUBLIC_KEY":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
 				continue
 			}
-			targetClient := s.clients[targetClientId]
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			targetEmail := normalizeEmail(d.TargetEmail)
+			targetHash := emailHash(targetEmail)
 
-			sid := s.newID()
-
-			s.sessions[sid] = &Session{id: sid, clients: map[string]*Client{client.id: client}}
-			s.mu.Unlock()
-
-			if targetClient != nil {
-				joinReqData, _ := json.Marshal(map[string]any{
-					"publicKey":     d.PublicKey,
-					"email":         normalizeEmail(client.email),
-					"emailHash":     emailHash(client.email),
-					"name":          d.SenderName,
-					"avatar":        d.SenderAvatar,
-					"nameVersion":   d.SenderNameVer,
-					"avatarVersion": d.SenderAvatarVer,
+			var pubKey string
+			err := s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", targetHash).Scan(&pubKey)
+			if err != nil {
+				// Not found
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"User not found"}`)})
+			} else {
+				resp, _ := json.Marshal(map[string]string{
+					"targetEmail": targetEmail,
+					"targetHash":  targetHash,
+					"publicKey":   pubKey,
 				})
-				s.send(targetClient, Frame{
-					T:    "JOIN_REQUEST",
-					SID:  sid,
-					Data: json.RawMessage(joinReqData),
+				s.send(client, Frame{T: "PUBLIC_KEY", Data: json.RawMessage(resp)})
+			}
+
+		case "FRIEND_REQUEST":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				TargetEmail     string `json:"targetEmail"`
+				EncryptedPacket string `json:"encryptedPacket"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			
+			targetEmail := normalizeEmail(d.TargetEmail)
+			targetHash := emailHash(targetEmail)
+			senderHash := emailHash(client.email)
+
+			// Check Blocked
+			var blocked int
+			s.db.QueryRow("SELECT COUNT(*) FROM blocked WHERE blocker_hash = ? AND blocked_hash = ?", targetHash, senderHash).Scan(&blocked)
+			if blocked > 0 {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"You are blocked by this user"}`)})
+				continue
+			}
+
+			// Store Request
+			_, err := s.db.Exec(`INSERT OR REPLACE INTO requests (sender_hash, target_hash, encrypted_packet, timestamp) 
+				VALUES (?, ?, ?, ?)`, senderHash, targetHash, d.EncryptedPacket, time.Now())
+			if err != nil {
+				s.logger.Printf("Error storing request: %v", err)
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to store request"}`)})
+				continue
+			}
+
+			// Fetch sender public key
+			var senderPub string
+			s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", senderHash).Scan(&senderPub)
+
+			// Notify Target if Online
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			defer rows.Close()
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					reqData, _ := json.Marshal(map[string]string{
+						"senderHash": senderHash,
+						"encryptedPacket": d.EncryptedPacket,
+						"publicKey": senderPub,
+					})
+					s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
+				}
+				s.mu.Unlock()
+			}
+			
+			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(`{"success":true}`)})
+
+		case "CONNECT_REQ_LEGACY": // Renaming old CONNECT_REQ to avoid conflict if I didn't delete it fully, but I will delete it.
+
+			client.mu.Lock()
+			if time.Since(client.lastConnect) < 1*time.Second {
+				client.mu.Unlock()
+				// Rate limit silent for legacys
+			}
+			client.mu.Unlock()
+			// End Legacy logic placeholder
+
+		case "FRIEND_ACCEPT":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`),})
+				continue
+			}
+			var d struct {
+				TargetEmail     string `json:"targetEmail"`
+				EncryptedPacket string `json:"encryptedPacket"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			
+			targetEmail := normalizeEmail(d.TargetEmail)
+			targetHash := emailHash(targetEmail)
+			senderHash := emailHash(client.email)
+
+			// Add to friends (lexicographical order)
+			u1, u2 := senderHash, targetHash
+			if u1 > u2 {
+				u1, u2 = u2, u1
+			}
+			
+			// Calculate SID
+			e1, e2 := client.email, targetEmail
+			if e1 > e2 {
+				e1, e2 = e2, e1
+			}
+			sidSum := sha256.Sum256([]byte(e1 + ":" + e2))
+			sid := hex.EncodeToString(sidSum[:])
+
+			_, err = s.db.Exec("INSERT OR IGNORE INTO friends (user1_hash, user2_hash, since, sid) VALUES (?, ?, ?, ?)", u1, u2, time.Now(), sid)
+			if err != nil {
+				s.logger.Printf("Error adding friend: %v", err)
+			}
+
+			// Delete request
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
+
+			// Fetch my public key (User B)
+			var myPub string
+			s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", senderHash).Scan(&myPub)
+
+			// Notify Target
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					respData, _ := json.Marshal(map[string]string{
+						"senderHash": senderHash,
+						"encryptedPacket": d.EncryptedPacket,
+						"publicKey": myPub,
+					})
+					s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
+				}
+				s.mu.Unlock()
+			}
+			rows.Close()
+			
+			// Ack to me
+			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"`+targetEmail+`"}`)})
+
+		case "FRIEND_DENY":
+			if client.email == "" { continue }
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+			senderHash := emailHash(client.email)
+			
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
+			// Notify target they were denied? User said "if they get a success or deny they get that message too".
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+					s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+				}
+				s.mu.Unlock()
+			}
+			rows.Close()
+
+		case "BLOCK_USER":
+			if client.email == "" { continue }
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+			senderHash := emailHash(client.email)
+			
+			s.db.Exec("INSERT OR IGNORE INTO blocked (blocker_hash, blocked_hash) VALUES (?, ?)", senderHash, targetHash)
+			// Also remove friend requests?
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
+			
+			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true}`)})
+
+		case "GET_PENDING_REQUESTS":
+			if client.email == "" { continue }
+			myHash := emailHash(client.email)
+			rows, err := s.db.Query(`
+				SELECT r.sender_hash, r.encrypted_packet, r.timestamp, u.public_key 
+				FROM requests r 
+				JOIN users u ON r.sender_hash = u.email_hash 
+				WHERE r.target_hash = ?`, myHash)
+			if err != nil {
+				continue
+			}
+			var pending []map[string]any
+			for rows.Next() {
+				var senderHash, packet, pubKey string
+				var ts time.Time
+				rows.Scan(&senderHash, &packet, &ts, &pubKey)
+				pending = append(pending, map[string]any{
+					"senderHash": senderHash,
+					"encryptedPacket": packet,
+					"timestamp": ts,
+					"publicKey": pubKey,
 				})
 			}
+			rows.Close()
+			respBytes, _ := json.Marshal(pending)
+			s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
+
 
 		case "JOIN_ACCEPT":
 			if client.email == "" {
@@ -487,6 +751,48 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				sess.mu.Unlock()
 			}
 			s.mu.Unlock()
+
+		case "DELETE_ACCOUNT":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Authentication required"}`)})
+				continue
+			}
+			eh := emailHash(client.email)
+
+			s.db.Exec("DELETE FROM public_keys WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
+
+			rows, err := s.db.Query("SELECT sid FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
+			if err == nil {
+				var sids []string
+				for rows.Next() {
+					var sid string
+					if err := rows.Scan(&sid); err == nil {
+						sids = append(sids, sid)
+					}
+				}
+				rows.Close()
+
+				s.mu.Lock()
+				for _, sid := range sids {
+					sess, ok := s.sessions[sid]
+					if ok {
+						sess.mu.Lock()
+						for _, c := range sess.clients {
+							if c.id != client.id {
+								s.send(c, Frame{T: "PEER_OFFLINE", SID: sid})
+							}
+						}
+						sess.mu.Unlock()
+					}
+				}
+				s.mu.Unlock()
+
+				s.db.Exec("DELETE FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
+			}
+			
+			log.Printf("[Server] Deleted account for %s", client.email)
+			client.conn.Close()
 
 		case "REATTACH":
 			if client.email == "" {
@@ -568,6 +874,19 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
+
+			// Verify if users are actually connected (friends)
+			var friendCount int
+			senderHash := emailHash(client.email)
+			s.db.QueryRow("SELECT COUNT(*) FROM friends WHERE sid = ? AND (user1_hash = ? OR user2_hash = ?)", frame.SID, senderHash, senderHash).Scan(&friendCount)
+			if friendCount == 0 {
+				s.send(client, Frame{
+					T:    "ERROR",
+					Data: json.RawMessage(`{"message":"You cannot send messages to this user because you are not connected."}`),
+				})
+				continue
+			}
+
 			delivered := false
 			s.mu.Lock()
 
@@ -737,6 +1056,64 @@ func htmlUnescape(s string) string {
 	return s
 }
 
+func (s *Server) initDB() error {
+	var err error
+	s.db, err = sql.Open("sqlite3", "./server.db")
+	if err != nil {
+		return err
+	}
+
+	// Create tables
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			email_hash TEXT PRIMARY KEY,
+			public_key TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS requests (
+			sender_hash TEXT,
+			target_hash TEXT,
+			encrypted_packet TEXT,
+			timestamp DATETIME,
+			PRIMARY KEY (sender_hash, target_hash)
+		);`,
+		`CREATE TABLE IF NOT EXISTS friends (
+			user1_hash TEXT,
+			user2_hash TEXT,
+			since DATETIME,
+			sid TEXT,
+			PRIMARY KEY (user1_hash, user2_hash)
+		);`,
+		`CREATE TABLE IF NOT EXISTS blocked (
+			blocker_hash TEXT,
+			blocked_hash TEXT,
+			PRIMARY KEY (blocker_hash, blocked_hash)
+		);`,
+		`CREATE TABLE IF NOT EXISTS sockets (
+			email_hash TEXT,
+			socket_id TEXT,
+			PRIMARY KEY (email_hash, socket_id)
+		);`,
+	}
+
+	for _, query := range queries {
+		if _, err := s.db.Exec(query); err != nil {
+			return fmt.Errorf("error creating table: %v (query: %s)", err, query)
+		}
+	}
+
+	// Clean up phantom sockets on startup
+	_, _ = s.db.Exec("DELETE FROM sockets")
+
+	// Migration: Add sid column if not exists
+	var sidColCount int
+	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('friends') WHERE name='sid'").Scan(&sidColCount)
+	if sidColCount == 0 {
+		s.db.Exec("ALTER TABLE friends ADD COLUMN sid TEXT")
+	}
+
+	return nil
+}
+
 func main() {
 	f, err := os.OpenFile("connections.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -753,6 +1130,12 @@ func main() {
 			ipAttempts: make(map[string][]time.Time),
 		},
 	}
+
+	if err := s.initDB(); err != nil {
+		log.Fatalf("❌ Failed to initialize database: %v", err)
+	}
+	defer s.db.Close()
+
 	http.HandleFunc("/", s.handle)
 
 	log.Println("✅ Secure E2E Relay Server running on :9000")

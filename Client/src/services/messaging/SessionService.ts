@@ -16,11 +16,13 @@ export interface ChatSession {
   peerAvatar?: string;
   peer_name_ver?: number;
   peer_avatar_ver?: number;
+  isConnected?: boolean;
 }
 
 export class SessionService extends EventEmitter {
   private authService: AuthService;
   public sessions: Record<string, ChatSession> = {};
+  public connectedSids: Set<string> = new Set();
   private static readonly MAX_HANDSHAKE_AVATAR_B64 = 160 * 1024;
 
   constructor(authService: AuthService) {
@@ -80,6 +82,7 @@ export class SessionService extends EventEmitter {
           peerAvatar: row.peer_avatar || undefined,
           peer_name_ver: row.peer_name_ver || 0,
           peer_avatar_ver: row.peer_avatar_ver || 0,
+          isConnected: this.connectedSids.has(row.sid),
         };
         const jwk = JSON.parse(row.keyJWK);
         await WorkerManager.getInstance().initSession(row.sid, jwk);
@@ -102,7 +105,10 @@ export class SessionService extends EventEmitter {
 
     let avatarData: string | undefined = undefined;
     if (me.public_avatar) {
-      if (typeof me.public_avatar === "string" && me.public_avatar.startsWith("data:")) {
+      if (
+        typeof me.public_avatar === "string" &&
+        me.public_avatar.startsWith("data:")
+      ) {
         avatarData = me.public_avatar;
       } else if (
         typeof me.public_avatar === "string" &&
@@ -124,7 +130,9 @@ export class SessionService extends EventEmitter {
     let displayName = me.public_name || undefined;
     if (!displayName || !avatarData) {
       try {
-        const currentEmail = this.normalizeEmail(this.authService.userEmail || "");
+        const currentEmail = this.normalizeEmail(
+          this.authService.userEmail || "",
+        );
         const accounts = await AccountService.getAccounts();
         const account = accounts.find(
           (acc) => this.normalizeEmail(acc.email) === currentEmail,
@@ -150,7 +158,10 @@ export class SessionService extends EventEmitter {
       } catch (_e) {}
     }
 
-    if (avatarData && avatarData.length > SessionService.MAX_HANDSHAKE_AVATAR_B64) {
+    if (
+      avatarData &&
+      avatarData.length > SessionService.MAX_HANDSHAKE_AVATAR_B64
+    ) {
       avatarData = undefined;
     }
 
@@ -175,7 +186,8 @@ export class SessionService extends EventEmitter {
     const sharedKey = await this.deriveSharedKey(remotePubB64);
     const normalizedPeerEmail = this.normalizeEmail(peerEmail);
     const resolvedPeerEmailHash =
-      peerEmailHash || (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
+      peerEmailHash ||
+      (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
 
     let peerAvatarFile: string | undefined = undefined;
     if (peerAvatar) {
@@ -185,7 +197,10 @@ export class SessionService extends EventEmitter {
       }
       if (avatarBase64.length > 256) {
         try {
-          peerAvatarFile = await StorageService.saveProfileImage(avatarBase64, sid);
+          peerAvatarFile = await StorageService.saveProfileImage(
+            avatarBase64,
+            sid,
+          );
         } catch (_e) {
           peerAvatarFile = undefined;
         }
@@ -195,7 +210,9 @@ export class SessionService extends EventEmitter {
     }
 
     const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
-    const resolvedPeerAvatarVer = peerAvatarFile ? Number(peerAvatarVer || 0) : 0;
+    const resolvedPeerAvatarVer = peerAvatarFile
+      ? Number(peerAvatarVer || 0)
+      : 0;
 
     this.sessions[sid] = {
       cryptoKey: sharedKey,
@@ -206,6 +223,7 @@ export class SessionService extends EventEmitter {
       peerAvatar: peerAvatarFile || undefined,
       peer_name_ver: resolvedPeerNameVer,
       peer_avatar_ver: resolvedPeerAvatarVer,
+      isConnected: true,
     };
     const jwk = await crypto.subtle.exportKey("jwk", sharedKey);
     await WorkerManager.getInstance().initSession(sid, jwk);
@@ -270,87 +288,244 @@ export class SessionService extends EventEmitter {
     if (!this.authService.userEmail) {
       throw new Error("Must be logged in to connect");
     }
-    const pub = await this.authService.exportPub();
-    const profile = await this.getLocalProfileForHandshake();
-    const senderEmail = this.normalizeEmail(this.authService.userEmail);
-    const senderEmailHash = await sha256(senderEmail);
+    // Step 1: Get Public Key
     socket.send({
-      t: "CONNECT_REQ",
+      t: "GET_PUBLIC_KEY",
       data: {
         targetEmail: this.normalizeEmail(targetEmail),
-        publicKey: pub,
-        senderEmail,
-        senderEmailHash,
-        senderName: profile.name,
-        senderAvatar: profile.avatar,
-        senderNameVer: profile.nameVersion,
-        senderAvatarVer: profile.avatarVersion,
       },
       c: true,
       p: 0,
     });
+  }
+
+  public async sendFriendRequest(targetEmail: string, remotePubB64: string) {
+    try {
+      if (!this.authService.userEmail) throw new Error("Not logged in");
+
+      const sharedKey = await this.deriveSharedKey(remotePubB64);
+      const profile = await this.getLocalProfileForHandshake();
+
+      const packetData = JSON.stringify({
+        email: this.normalizeEmail(this.authService.userEmail),
+        name: profile.name,
+        avatar: profile.avatar,
+        nameVersion: profile.nameVersion,
+        avatarVersion: profile.avatarVersion,
+        timestamp: Date.now(),
+      });
+
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        sharedKey,
+        new TextEncoder().encode(packetData),
+      );
+
+      // Format: Base64(IV) + "." + Base64(Cipher)
+      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
+      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+      const encryptedPacket = `${ivB64}.${cipherB64}`;
+
+      socket.send({
+        t: "FRIEND_REQUEST",
+        data: {
+          targetEmail: this.normalizeEmail(targetEmail),
+          encryptedPacket,
+        },
+        c: true,
+        p: 0,
+      });
+      return true;
+    } catch (e) {
+      console.error("Failed to send friend request", e);
+      throw e;
+    }
   }
 
   public async acceptFriend(
-    sid: string,
-    remotePub: string,
-    peerEmail?: string,
-    peerEmailHash?: string,
-    peerName?: string,
-    peerAvatar?: string,
-    peerNameVer?: number,
-    peerAvatarVer?: number,
+    targetEmail: string,
+    remotePubB64: string,
+    senderHash: string,
   ) {
-    const pub = await this.authService.exportPub();
-    const profile = await this.getLocalProfileForHandshake();
-    const senderEmail = this.normalizeEmail(this.authService.userEmail || "");
-    const senderEmailHash = senderEmail ? await sha256(senderEmail) : undefined;
+    try {
+      const sharedKey = await this.deriveSharedKey(remotePubB64);
+      const profile = await this.getLocalProfileForHandshake();
+
+      const packetData = JSON.stringify({
+        email: this.normalizeEmail(this.authService.userEmail),
+        name: profile.name,
+        avatar: profile.avatar,
+        nameVersion: profile.nameVersion,
+        avatarVersion: profile.avatarVersion,
+        timestamp: Date.now(),
+      });
+
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        sharedKey,
+        new TextEncoder().encode(packetData),
+      );
+
+      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
+      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+      const encryptedPacket = `${ivB64}.${cipherB64}`;
+
+      // Derive SID deterministically
+      const myEmail = this.normalizeEmail(this.authService.userEmail);
+      const otherEmail = this.normalizeEmail(targetEmail);
+      const [u1, u2] = [myEmail, otherEmail].sort();
+      const sid = await sha256(u1 + ":" + u2);
+
+      await this.finalizeSession(
+        sid,
+        remotePubB64,
+        targetEmail,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      socket.send({
+        t: "FRIEND_ACCEPT",
+        data: {
+          targetEmail,
+          encryptedPacket,
+        },
+        c: true,
+        p: 0,
+      });
+
+      return sid;
+    } catch (e) {
+      console.error("Failed to accept friend", e);
+      throw e;
+    }
+  }
+
+  public denyFriend(targetEmail: string) {
     socket.send({
-      t: "JOIN_ACCEPT",
-      sid,
-      data: {
-        publicKey: pub,
-        senderEmail,
-        senderEmailHash,
-        senderName: profile.name,
-        senderAvatar: profile.avatar,
-        senderNameVer: profile.nameVersion,
-        senderAvatarVer: profile.avatarVersion,
-      },
+      t: "FRIEND_DENY",
+      data: { targetEmail },
       c: true,
       p: 0,
     });
-    await this.finalizeSession(
-      sid,
-      remotePub,
-      peerEmail,
-      peerEmailHash,
-      peerName,
-      peerAvatar,
-      peerNameVer,
-      peerAvatarVer,
-    );
   }
 
-  public denyFriend(sid: string) {
-    socket.send({ t: "JOIN_DENY", sid, c: true, p: 0 });
+  public blockUser(targetEmail: string) {
+    socket.send({
+      t: "BLOCK_USER",
+      data: { targetEmail },
+      c: true,
+      p: 0,
+    });
   }
 
   public getSession(sid: string) {
     return this.sessions[sid];
   }
 
-  public setPeerOnline(sid: string, online: boolean) {
-    if (this.sessions[sid]) {
-      this.sessions[sid].online = online;
+  public async decryptFriendRequest(
+    encryptedPacket: string,
+    remotePubB64: string,
+  ) {
+    try {
+      const sharedKey = await this.deriveSharedKey(remotePubB64);
+      const [ivB64, cipherB64] = encryptedPacket.split(".");
+      if (!ivB64 || !cipherB64) throw new Error("Invalid packet format");
+
+      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+      const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
+
+      const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        sharedKey,
+        cipher,
+      );
+
+      const jsonStr = new TextDecoder().decode(decrypted);
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error("Decryption failed", e);
+      return null;
     }
   }
 
-  public reattachAllSessions() {
-    const sids = Object.keys(this.sessions);
-    for (const sid of sids) {
-      socket.send({ t: "REATTACH", sid, c: true, p: 0 });
+  public async handleFriendAccept(data: {
+    publicKey: string;
+    encryptedPacket: string;
+  }) {
+    const profile = await this.decryptFriendRequest(
+      data.encryptedPacket,
+      data.publicKey,
+    );
+    if (!profile) throw new Error("Failed to decrypt accept packet");
+
+    const myEmail = this.normalizeEmail(this.authService.userEmail);
+    const otherEmail = this.normalizeEmail(profile.email);
+    const [u1, u2] = [myEmail, otherEmail].sort();
+    const sid = await sha256(u1 + ":" + u2);
+
+    await this.finalizeSession(
+      sid,
+      data.publicKey,
+      profile.email,
+      undefined,
+      profile.name,
+      profile.avatar,
+      profile.nameVersion,
+      profile.avatarVersion,
+    );
+    return sid;
+  }
+
+  public async handleFriendDeny(data: any) {
+    console.log("Friend request denied by", data.targetEmail);
+  }
+
+  public async handleProfileUpdate(sid: string, data: any) {
+    console.log("Profile update received", sid, data);
+  }
+
+  public setPeerOnline(sid: string, isOnline: boolean) {
+    if (this.sessions[sid]) {
+      this.sessions[sid].online = isOnline;
+      this.emit("session_updated");
     }
-    return sids.length;
+  }
+
+  public handleSessionList(
+    list: { sid: string; online: boolean; peerHash: string }[],
+  ) {
+    let changed = false;
+    this.connectedSids = new Set(list.map((item) => item.sid));
+    for (const sid of Object.keys(this.sessions)) {
+      const isConnected = this.connectedSids.has(sid);
+      if (this.sessions[sid].isConnected !== isConnected) {
+        this.sessions[sid].isConnected = isConnected;
+        changed = true;
+      }
+    }
+
+    for (const item of list) {
+      if (this.sessions[item.sid]) {
+        if (this.sessions[item.sid].online !== item.online) {
+          this.sessions[item.sid].online = item.online;
+          changed = true;
+        }
+        if (!this.sessions[item.sid].peerEmailHash && item.peerHash) {
+          this.sessions[item.sid].peerEmailHash = item.peerHash;
+        }
+      } else {
+        console.warn(
+          "[SessionService] Server has session not found locally:",
+          item.sid,
+        );
+      }
+    }
+    if (changed) {
+      this.emit("session_updated");
+    }
   }
 }

@@ -10,3 +10,5 @@ Server/website/releases/*
 
 # Large model file - removed to avoid git push error
 Client/public/models/Xenova/Qwen1.5-0.5B-Chat/onnx/decoder_model_merged_quantized.onnx
+Server/socket
+Server/server.db
