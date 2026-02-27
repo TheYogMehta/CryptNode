@@ -12,7 +12,6 @@ import {
   BrowserWindow,
   shell,
 } from "electron";
-import { randomBytes } from "crypto";
 import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import keytar from "keytar";
@@ -132,18 +131,13 @@ app.on("activate", async function () {
 // Google Login
 // ============================================================================
 ipcMain.handle("GoogleLogin", async () => {
-  return new Promise((resolve) => {
-    const state = randomBytes(16).toString("hex");
-    const nonce = randomBytes(16).toString("hex");
+  return new Promise((resolve, reject) => {
     const googleLoginUrl =
       "https://accounts.google.com/o/oauth2/v2/auth?" +
       "scope=openid%20email%20profile&" +
       "response_type=id_token%20token&" +
       "nonce=" +
-      encodeURIComponent(nonce) +
-      "&" +
-      "state=" +
-      encodeURIComponent(state) +
+      Math.random().toString(36).substring(7) +
       "&" +
       "redirect_uri=http://localhost:5173&" +
       "client_id=588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com";
@@ -168,68 +162,20 @@ ipcMain.handle("GoogleLogin", async () => {
       handleNavigation(url);
     });
 
-    const parseParams = (
-      rawUrl: string,
-    ): {
-      state?: string;
-      access_token?: string;
-      id_token?: string;
-    } | null => {
-      try {
-        const parsed = new URL(rawUrl);
-        if (
-          parsed.protocol !== "http:" ||
-          parsed.hostname !== "localhost" ||
-          parsed.port !== "5173"
-        ) {
-          return null;
-        }
-        const out: Record<string, string> = {};
-        for (const [k, v] of parsed.searchParams.entries()) out[k] = v;
-        if (parsed.hash.startsWith("#")) {
-          const hash = new URLSearchParams(parsed.hash.slice(1));
-          for (const [k, v] of hash.entries()) out[k] = v;
-        }
-        return out;
-      } catch {
-        return null;
-      }
-    };
-
-    const getJwtNonce = (jwt?: string | null): string | null => {
-      if (!jwt) return null;
-      try {
-        const parts = jwt.split(".");
-        if (parts.length < 2) return null;
-        const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-        const padded = base64.padEnd(
-          base64.length + ((4 - (base64.length % 4)) % 4),
-          "=",
-        );
-        const claims = JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-        return typeof claims?.nonce === "string" ? claims.nonce : null;
-      } catch {
-        return null;
-      }
-    };
-
     function handleNavigation(url: string) {
-      const parsed = parseParams(url);
-      if (!parsed || (!parsed.access_token && !parsed.id_token)) return;
-      if (parsed.state !== state) {
-        resolve(null);
-        authWindow.close();
-        return;
-      }
-      const idToken = parsed.id_token || null;
-      if (idToken && getJwtNonce(idToken) !== nonce) {
-        resolve(null);
-        authWindow.close();
-        return;
-      }
+      if (url.includes("access_token=") || url.includes("id_token=")) {
+        const rawCode = /access_token=([^&]*)/.exec(url) || null;
+        const accessToken = rawCode && rawCode.length > 1 ? rawCode[1] : null;
 
-      resolve({ accessToken: parsed.access_token || null, idToken });
-      authWindow.close();
+        const rawIdToken = /id_token=([^&]*)/.exec(url) || null;
+        const idToken =
+          rawIdToken && rawIdToken.length > 1 ? rawIdToken[1] : null;
+
+        if (accessToken || idToken) {
+          resolve({ accessToken, idToken });
+          authWindow.close();
+        }
+      }
     }
 
     authWindow.on("closed", () => {
@@ -276,30 +222,22 @@ ipcMain.handle("open-external-url", async (_event, url: string) => {
 let activeUserHash: string | null = null;
 const GLOBAL_KEYS = ["cryptnode_accounts"];
 
-function isValidSha256Hex(value: string | null): boolean {
-  return !!value && /^[a-f0-9]{64}$/i.test(value);
-}
-
-function isScopedKeyForActiveUser(key: string, userHash: string): boolean {
-  return key.endsWith(`_${userHash}`);
-}
-
 function checkAccess(key: string): boolean {
   if (GLOBAL_KEYS.includes(key)) return true;
-  if (isValidSha256Hex(activeUserHash) && isScopedKeyForActiveUser(key, activeUserHash)) {
+  if (activeUserHash && key.includes(activeUserHash)) {
     return true;
   }
-  console.warn(`[SafeStorage] Access denied for key: ${key}`);
+  console.warn(
+    `[SafeStorage] Access Denied to key: ${key}. ActiveUser: ${activeUserHash}`,
+  );
   return false;
 }
 
 ipcMain.handle(
   "SafeStorage:SetActiveUser",
   async (_event, userHash: string | null) => {
-    activeUserHash =
-      typeof userHash === "string" && isValidSha256Hex(userHash)
-        ? userHash.toLowerCase()
-        : null;
+    console.log("[SafeStorage] Setting Active User Hash:", userHash);
+    activeUserHash = userHash;
     return { success: true };
   },
 );
