@@ -1009,6 +1009,47 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				Data: json.RawMessage(respBytes),
 			})
 
+		case "GET_PUBLIC_KEY":
+			if client.email == "" {
+				s.send(client, Frame{
+					T:    "ERROR",
+					Data: json.RawMessage(`{"message":"Auth required"}`),
+				})
+				continue
+			}
+
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			targetHash := emailHash(d.TargetEmail)
+
+			var pubKey string
+			err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", targetHash).Scan(&pubKey)
+			if err != nil {
+				err = s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", targetHash).Scan(&pubKey)
+			}
+
+			if pubKey != "" {
+				resp, _ := json.Marshal(map[string]any{
+					"publicKey":   pubKey,
+					"targetEmail": d.TargetEmail,
+				})
+				s.send(client, Frame{
+					T:    "PUBLIC_KEY",
+					Data: json.RawMessage(resp),
+				})
+			} else {
+				resp, _ := json.Marshal(map[string]any{
+					"targetEmail": d.TargetEmail,
+				})
+				s.send(client, Frame{
+					T:    "PUBLIC_KEY",
+					Data: json.RawMessage(resp),
+				})
+			}
+
 		}
 	}
 }

@@ -126,6 +126,8 @@ const Home = () => {
         if (result && result.idToken) {
           await actions.login(result.idToken);
           setIsLocked(false);
+          setShowSettings(false);
+          setShowProfileSetup(true);
         } else {
           toast.error("Google sign-in was cancelled.");
         }
@@ -163,6 +165,8 @@ const Home = () => {
         ) {
           await actions.login(response.result.idToken);
           setIsLocked(false);
+          setShowSettings(false);
+          setShowProfileSetup(true);
         } else {
           toast.error("Failed to get Google ID token. Try again.");
         }
