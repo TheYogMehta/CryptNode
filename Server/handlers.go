@@ -346,6 +346,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				keyRows.Close()
 			}
 
+			var singlePubKey string
+			if len(senderPubKeys) > 0 {
+				singlePubKey = senderPubKeys[0]
+			} else {
+				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
+				if singlePubKey == "" {
+					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
+				}
+			}
+
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
 			for rows.Next() {
 				var socketID string
@@ -357,6 +367,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						"senderHash":      senderHash,
 						"encryptedPacket": d.EncryptedPacket,
 						"publicKeys":      senderPubKeys,
+						"publicKey":       singlePubKey,
 					})
 					s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
 				}
@@ -410,6 +421,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			keyRows.Close()
 
+			var singlePubKey string
+			if len(myPubKeys) > 0 {
+				singlePubKey = myPubKeys[0]
+			} else {
+				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
+				if singlePubKey == "" {
+					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
+				}
+			}
+
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
 			for rows.Next() {
 				var socketID string
@@ -420,6 +441,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						"senderHash":      senderHash,
 						"encryptedPacket": d.EncryptedPacket,
 						"publicKeys":      myPubKeys,
+						"publicKey":       singlePubKey,
 					})
 					s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
 				}
@@ -563,10 +585,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				var senderHash, packet string
 				var ts time.Time
 				rows.Scan(&senderHash, &packet, &ts)
+
+				var pubKey string
+				err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&pubKey)
+				if err != nil || pubKey == "" {
+					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&pubKey)
+				}
+
 				pending = append(pending, map[string]any{
 					"senderHash":      senderHash,
 					"encryptedPacket": packet,
 					"timestamp":       ts,
+					"publicKey":       pubKey,
 				})
 			}
 			rows.Close()

@@ -243,10 +243,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
       case "PUBLIC_KEY":
         if (data.publicKey && data.targetEmail) {
           try {
-            await this.sessionService.sendFriendRequest(
-              data.targetEmail,
+            await this.sessionService.sendFriendRequest(data.targetEmail, [
               data.publicKey,
-            );
+            ]);
           } catch (err) {
             console.error("Failed to send encrypted friend request", err);
             this.emit("request_failed");
