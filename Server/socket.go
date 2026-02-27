@@ -704,8 +704,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.db.QueryRow("SELECT s.public_key, d.status FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.socket_id = ?", client.id).Scan(&myPubKey, &status)
 			
 			if status != "approved" {
-				// Only an approved device can nuclear reset
-				continue
+				// We now allow unapproved devices to nuclear reset since the user
+				// explicitly reverted the Google Authentication requirement.
+				log.Println("Unapproved device is performing a nuclear reset")
 			}
 
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key != ?", eh, myPubKey)

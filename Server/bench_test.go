@@ -30,7 +30,6 @@ func setupTestServer() *httptest.Server {
 	s := &Server{
 		clients:         make(map[string]*Client),
 		sessions:        make(map[string]*Session),
-		emailToClientId: make(map[string]string),
 		// Use a discard logger to avoid cluttering test output
 		logger: log.New(io.Discard, "", 0),
 		rateLimiter: &RateLimiter{
@@ -96,7 +95,6 @@ func BenchmarkConnectionHandshake(b *testing.B) {
 	s := &Server{
 		clients:         make(map[string]*Client),
 		sessions:        make(map[string]*Session),
-		emailToClientId: make(map[string]string),
 		// Use a dummy logger that writes to nowhere
 		logger: log.New(io.Discard, "", 0),
 		rateLimiter: &RateLimiter{
@@ -142,7 +140,6 @@ func BenchmarkMessageRelayLatency(b *testing.B) {
 	s := &Server{
 		clients:         make(map[string]*Client),
 		sessions:        make(map[string]*Session),
-		emailToClientId: make(map[string]string),
 		logger:          log.New(io.Discard, "", 0),
 		rateLimiter: &RateLimiter{
 			ipAttempts: make(map[string][]time.Time),
@@ -224,7 +221,6 @@ func BenchmarkMessageThroughput(b *testing.B) {
 	s := &Server{
 		clients:         make(map[string]*Client),
 		sessions:        make(map[string]*Session),
-		emailToClientId: make(map[string]string),
 		logger:          log.New(io.Discard, "", 0),
 		rateLimiter: &RateLimiter{
 			ipAttempts: make(map[string][]time.Time),

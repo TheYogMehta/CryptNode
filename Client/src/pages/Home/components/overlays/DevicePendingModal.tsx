@@ -121,7 +121,7 @@ export const DevicePendingModal: React.FC<Props> = ({
   const handleNuclear = () => {
     if (
       window.confirm(
-        "WARNING: This will log out all other devices and make this the Master Device. Are you sure?",
+        "WARNING: This will log out all other devices and make this the Master Device. Start Fresh?",
       )
     ) {
       setLoadingAction("nuclear");
@@ -137,7 +137,7 @@ export const DevicePendingModal: React.FC<Props> = ({
         </Title>
         <Text>
           This account is protected by a Master Device. To sign in here, you
-          must sync with your Master Device or perform a Nuclear Reset if you've
+          must sync with your Master Device or perform a Start Fresh if you've
           lost access to it.
         </Text>
 
@@ -165,7 +165,7 @@ export const DevicePendingModal: React.FC<Props> = ({
             disabled={!!loadingAction}
           >
             <AlertTriangle size={20} />
-            Start Fresh (Nuclear Reset)
+            Start Fresh
           </ActionButton>
 
           <ActionButton
