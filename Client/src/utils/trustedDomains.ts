@@ -32,10 +32,12 @@ export const getTrustedDomains = (): string[] => {
 
 export const addTrustedDomain = (domain: string) => {
   try {
+    const normalized = domain.trim().toLowerCase();
+    if (!normalized) return;
     const stored = localStorage.getItem(STORAGE_KEY);
     const userDomains = stored ? JSON.parse(stored) : [];
-    if (!userDomains.includes(domain)) {
-      userDomains.push(domain);
+    if (!userDomains.includes(normalized)) {
+      userDomains.push(normalized);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(userDomains));
     }
   } catch (e) {
@@ -45,9 +47,15 @@ export const addTrustedDomain = (domain: string) => {
 
 export const isTrustedUrl = (url: string): boolean => {
   try {
-    const hostname = new URL(url).hostname;
+    const hostname = new URL(url).hostname.toLowerCase();
     const allTrusted = getTrustedDomains();
-    return allTrusted.some((domain) => hostname.endsWith(domain));
+    return allTrusted.some((domain) => {
+      const normalizedDomain = domain.trim().toLowerCase();
+      return (
+        hostname === normalizedDomain ||
+        hostname.endsWith(`.${normalizedDomain}`)
+      );
+    });
   } catch {
     return false;
   }

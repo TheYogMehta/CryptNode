@@ -1,10 +1,8 @@
 import JSZip from "jszip";
-import { queryDB } from "./sqliteService";
-import { StorageService } from "./StorageService";
+import { queryDB, executeDB, switchDatabase } from "./sqliteService";
 import { AccountService } from "../auth/AccountService";
 import { getKeyFromSecureStorage } from "./SafeStorage";
 import { Filesystem, Directory } from "@capacitor/filesystem";
-import { sha256 } from "../../utils/crypto";
 import { VAULT_DIR } from "./StorageUtils";
 
 export class BackupService {
@@ -18,7 +16,7 @@ export class BackupService {
     const zip = new JSZip();
 
     // 1. Export Database
-    const dbData: Record<string, any[]> = {};
+    const dbData: Record<string, unknown[]> = {};
     const tables = [
       "me",
       "sessions",
@@ -49,10 +47,16 @@ export class BackupService {
       zip.file("master_key.txt", masterKeyStr);
     }
     const idKeyStr = await getKeyFromSecureStorage(
-      await AccountService.getStorageKey(userEmail, "identity_key"),
+      await AccountService.getStorageKey(userEmail, "identity_priv"),
     );
     if (idKeyStr) {
-      zip.file("identity_key.json", idKeyStr);
+      zip.file("identity_priv.json", idKeyStr);
+    }
+    const pubKeyStr = await getKeyFromSecureStorage(
+      await AccountService.getStorageKey(userEmail, "identity_pub"),
+    );
+    if (pubKeyStr) {
+      zip.file("identity_pub.json", pubKeyStr);
     }
 
     // 3. Export Media Vault Files
@@ -168,7 +172,7 @@ export class BackupService {
         false,
         ["decrypt"],
       );
-    } catch (e) {
+    } catch {
       throw new Error("Failed to derive key. Incorrect master key/pin?");
     }
 
@@ -179,27 +183,13 @@ export class BackupService {
         aesKey,
         encryptedData,
       );
-    } catch (e) {
+    } catch {
       throw new Error("Decryption failed. Incorrect backup code.");
     }
 
     const zip = await JSZip.loadAsync(decryptedZipBuffer);
 
-    // 1. Restore SQLite Database
-    const dbFile = zip.file("db_export.json");
-    if (dbFile) {
-      const dbText = await dbFile.async("text");
-      const dbData: Record<string, any[]> = JSON.parse(dbText);
-      for (const table of Object.keys(dbData)) {
-        // Not fully executing inserts here to avoid complexity / wiping current DB automatically,
-        // but a proper restore would loop over rows and execute insertions here.
-        console.log(
-          `[RESTORE] Skiping actual INSERT for table: ${table} (Demo only)`,
-        );
-      }
-    }
-
-    // 2. Restore Keys
+    // 1. Restore account metadata first (email is required for scoped keys/db)
     let extractedEmail: string | null = null;
     const metaFile = zip.file("metadata.json");
     if (metaFile) {
@@ -207,7 +197,9 @@ export class BackupService {
         const metaText = await metaFile.async("text");
         const meta = JSON.parse(metaText);
         extractedEmail = meta.email;
-      } catch (e) {}
+      } catch {
+        extractedEmail = null;
+      }
     }
 
     if (!extractedEmail)
@@ -221,15 +213,97 @@ export class BackupService {
         await AccountService.getStorageKey(extractedEmail, "MASTER_KEY"),
         masterKeyStr,
       );
+
+      const dbName = await AccountService.getDbName(extractedEmail);
+      await switchDatabase(dbName, masterKeyStr);
+
+      // 2. Restore SQLite tables now that account DB is active.
+      const dbFile = zip.file("db_export.json");
+      if (dbFile) {
+        const dbText = await dbFile.async("text");
+        const dbData: Record<string, Record<string, unknown>[]> =
+          JSON.parse(dbText);
+        const tableOrder = [
+          "me",
+          "sessions",
+          "messages",
+          "media",
+          "live_shares",
+          "reactions",
+          "queue",
+          "blocked_users",
+        ];
+        const safeIdentifier = (name: string): string => {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+            throw new Error(`Unsafe SQL identifier in backup: ${name}`);
+          }
+          return name;
+        };
+        const orderedTables = tableOrder.filter((t) => Array.isArray(dbData[t]));
+        for (const extraTable of Object.keys(dbData)) {
+          if (!orderedTables.includes(extraTable)) orderedTables.push(extraTable);
+        }
+
+        await executeDB("PRAGMA foreign_keys = OFF");
+        for (const table of orderedTables) {
+          const rows = dbData[table];
+          if (!Array.isArray(rows)) continue;
+          const safeTable = safeIdentifier(table);
+          await executeDB(`DELETE FROM ${safeTable}`);
+          for (const row of rows) {
+            const safeRow =
+              row && typeof row === "object"
+                ? (row as Record<string, unknown>)
+                : {};
+            const cols = Object.keys(safeRow).filter(
+              (c) => safeRow[c] !== undefined,
+            );
+            if (!cols.length) continue;
+            const safeCols = cols.map(safeIdentifier);
+            const placeholders = safeCols.map(() => "?").join(", ");
+            const values = cols.map((c) => safeRow[c]);
+            await executeDB(
+              `INSERT OR REPLACE INTO ${safeTable} (${safeCols.join(", ")}) VALUES (${placeholders})`,
+              values,
+            );
+          }
+        }
+        await executeDB("PRAGMA foreign_keys = ON");
+      }
     }
-    const idKeyFile = zip.file("identity_key.json");
-    if (idKeyFile) {
-      const idKeyStr = await idKeyFile.async("text");
+
+    const identityPrivFile = zip.file("identity_priv.json");
+    const identityPubFile = zip.file("identity_pub.json");
+
+    if (identityPrivFile) {
+      const idKeyStr = await identityPrivFile.async("text");
       const { setKeyFromSecureStorage } = await import("./SafeStorage");
       await setKeyFromSecureStorage(
-        await AccountService.getStorageKey(extractedEmail, "identity_key"),
+        await AccountService.getStorageKey(extractedEmail, "identity_priv"),
         idKeyStr,
       );
+    }
+    if (identityPubFile) {
+      const pubKeyStr = await identityPubFile.async("text");
+      const { setKeyFromSecureStorage } = await import("./SafeStorage");
+      await setKeyFromSecureStorage(
+        await AccountService.getStorageKey(extractedEmail, "identity_pub"),
+        pubKeyStr,
+      );
+    }
+
+    // 3. Restore media vault files.
+    for (const [path, file] of Object.entries(zip.files)) {
+      if (!path.startsWith("media/") || file.dir) continue;
+      const fileName = path.slice("media/".length);
+      if (!fileName) continue;
+      const base64Data = await file.async("base64");
+      await Filesystem.writeFile({
+        path: `${VAULT_DIR}/${fileName}`,
+        data: base64Data,
+        directory: Directory.Data,
+        recursive: true,
+      });
     }
 
     // Add stub account so we know it exists, though token is blank until sign in

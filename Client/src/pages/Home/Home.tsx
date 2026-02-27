@@ -17,7 +17,6 @@ import ChatClient from "../../services/core/ChatClient";
 import { RenameModal } from "./components/overlays/RenameModal";
 import { DevicePendingModal } from "./components/overlays/DevicePendingModal";
 import { DeviceApprovalModal } from "./components/overlays/DeviceApprovalModal";
-import { useHistory } from "react-router-dom";
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { Capacitor } from "@capacitor/core";
@@ -61,7 +60,6 @@ class ErrorBoundary extends React.Component<
 }
 
 const Home = () => {
-  const history = useHistory();
   const [isLocked, setIsLocked] = useState(true);
   const { state, actions } = useChatLogic(!isLocked);
 
@@ -223,9 +221,10 @@ const Home = () => {
   ]);
 
   useEffect(() => {
+    let backButtonHandle: { remove: () => Promise<void> } | null = null;
     const setupBackListener = async () => {
       try {
-        await App.addListener("backButton", () => {
+        backButtonHandle = await App.addListener("backButton", () => {
           const ctx = contextRef.current;
           console.log("[Home] Back button pressed. State:", ctx);
 
@@ -269,7 +268,11 @@ const Home = () => {
     setupBackListener();
 
     return () => {
-      App.removeAllListeners();
+      if (backButtonHandle) {
+        backButtonHandle.remove().catch((e) => {
+          console.warn("Failed to remove back button listener", e);
+        });
+      }
     };
   }, []);
   const checkInitialState = async () => {
@@ -298,12 +301,11 @@ const Home = () => {
           msg.includes("Session expired") ||
           msg.includes("Authentication failed")
         ) {
-          setIsLocked(false);
-          history.push("/login");
+          setIsLocked(true);
         }
       }
     },
-    [history],
+    [],
   );
 
   useEffect(() => {

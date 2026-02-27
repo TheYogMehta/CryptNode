@@ -278,8 +278,8 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
                 <MessageBubble
                   msg={msg}
                   onReply={setReplyingTo}
-                  onMediaClick={(url: string, type: "image" | "video") =>
-                    window.open(url, "_blank")
+                  onMediaClick={(url: string) =>
+                    window.open(url, "_blank", "noopener,noreferrer")
                   }
                   messageLayout={messageLayout}
                   senderName={

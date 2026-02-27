@@ -149,8 +149,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setIsJoining(false);
       setUserEmail(null);
       setPendingMasterKey(null);
-      setIsLoading(false);
-      window.location.href = "/login";
+      window.location.href = "/";
     };
 
     const onAuthPending = (masterKey: string) => {
@@ -168,7 +167,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
 
     const onDeviceLinkRejected = () => {
       toast.error("Master device rejected your connection request.");
-      window.location.href = "/login";
+      window.location.href = "/";
     };
 
     const onDeviceNuclearSuccess = () => {

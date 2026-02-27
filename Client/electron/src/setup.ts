@@ -150,6 +150,24 @@ export class ElectronCapacitorApp {
     return this.customScheme;
   }
 
+  private isAllowedAppUrl(rawUrl: string): boolean {
+    try {
+      const parsed = new URL(rawUrl);
+      const protocol = parsed.protocol.toLowerCase();
+      const hostname = parsed.hostname.toLowerCase();
+      if (protocol === `${this.customScheme.toLowerCase()}:`) return true;
+      if (
+        protocol === "http:" &&
+        (hostname === "localhost" || hostname === "127.0.0.1")
+      ) {
+        return parsed.port === "5173";
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   async init(): Promise<void> {
     const icon = nativeImage.createFromPath(
       join(
@@ -172,7 +190,7 @@ export class ElectronCapacitorApp {
       width: this.mainWindowState.width,
       height: this.mainWindowState.height,
       webPreferences: {
-        nodeIntegration: true,
+        nodeIntegration: false,
         contextIsolation: true,
         // Use preload to inject the electron varriant overrides for capacitor plugins.
         // preload: join(app.getAppPath(), "node_modules", "@capacitor-community", "electron", "dist", "runtime", "electron-rt.js"),
@@ -250,20 +268,14 @@ export class ElectronCapacitorApp {
 
     // Security
     this.MainWindow.webContents.setWindowOpenHandler((details) => {
-      if (
-        !details.url.includes(this.customScheme) &&
-        !details.url.includes("localhost")
-      ) {
+      if (!this.isAllowedAppUrl(details.url)) {
         return { action: "deny" };
       } else {
         return { action: "allow" };
       }
     });
-    this.MainWindow.webContents.on("will-navigate", (event, _newURL) => {
-      if (
-        !this.MainWindow.webContents.getURL().includes(this.customScheme) &&
-        !this.MainWindow.webContents.getURL().includes("localhost")
-      ) {
+    this.MainWindow.webContents.on("will-navigate", (event, newURL) => {
+      if (!this.isAllowedAppUrl(newURL)) {
         event.preventDefault();
       }
     });
@@ -296,14 +308,14 @@ export class ElectronCapacitorApp {
 export function setupContentSecurityPolicy(customScheme: string): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const csp = `
-      default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
-      connect-src * ws: wss: data: blob:;
-      img-src * data: blob:;
-      style-src * 'unsafe-inline';
-      font-src *;
-      script-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
-      worker-src * data: blob: 'unsafe-inline' 'unsafe-eval';
-      frame-src *;
+      default-src 'self' ${customScheme}: data: blob:;
+      connect-src 'self' ${customScheme}: https: wss: ws://localhost:5173 http://localhost:5173;
+      img-src 'self' ${customScheme}: https: data: blob:;
+      style-src 'self' 'unsafe-inline';
+      font-src 'self' data:;
+      script-src 'self' ${customScheme}: 'unsafe-inline' blob:;
+      worker-src 'self' ${customScheme}: blob:;
+      frame-src 'none';
     `;
 
     callback({

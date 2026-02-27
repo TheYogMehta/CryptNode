@@ -89,7 +89,7 @@ class SocketManager extends EventEmitter {
     }
   }
 
-  send(data: any) {
+  send(data: any, retryCount: number = 0) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const serialized = JSON.stringify(data);
       if (serialized.length > MAX_WS_FRAME_BYTES) {
@@ -106,11 +106,17 @@ class SocketManager extends EventEmitter {
         );
         return;
       }
+      if (retryCount >= 5) {
+        console.warn("WebSocket not connected. Dropping message after retries.");
+        this.emit("error", new Error("WebSocket send retries exhausted"));
+        return;
+      }
       console.warn("WebSocket not connected. Retrying message...");
       if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
         this.connect(this.url).catch(console.error);
       }
-      setTimeout(() => this.send(data), 500);
+      const delayMs = Math.min(8000, 500 * 2 ** retryCount);
+      setTimeout(() => this.send(data, retryCount + 1), delayMs);
     }
   }
 
