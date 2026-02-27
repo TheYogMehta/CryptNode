@@ -16,3 +16,7 @@ contextBridge.exposeInMainWorld("electron", {
   getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
   openExternal: (url: string) => ipcRenderer.invoke("open-external-url", url),
 });
+
+contextBridge.exposeInMainWorld("envConfig", {
+  USE_DEV_SOCKET: process.env.VITE_DEV_SOCKET === "1",
+});

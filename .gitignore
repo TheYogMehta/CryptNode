@@ -13,3 +13,4 @@ Client/public/models/Xenova/Qwen1.5-0.5B-Chat/onnx/decoder_model_merged_quantize
 Server/socket
 Server/server.db
 Server/relay
+Server/connections.log

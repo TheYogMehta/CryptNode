@@ -12,6 +12,7 @@
     "lint": "eslint",
     "sync": "node sync.cjs",
     "electron:start": "cd electron && npm run electron:start",
+    "electron:dev": "VITE_DEV_SOCKET=1 cd electron && npm run electron:start",
     "android:start": "npx cap open android"
   },
   "dependencies": {

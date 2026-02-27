@@ -48,7 +48,13 @@ export class AuthService extends EventEmitter {
       await new Promise((res) => setTimeout(res, 100));
     }
 
-    await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+    const isDev =
+      import.meta.env.VITE_DEV_SOCKET ||
+      (window as any).envConfig?.USE_DEV_SOCKET;
+    const wsUrl = isDev
+      ? "ws://localhost:9000"
+      : "wss://socket.cryptnode.theyogmehta.online";
+    await socket.connect(wsUrl);
 
     socket.send({
       t: "AUTH",
@@ -138,7 +144,13 @@ export class AuthService extends EventEmitter {
       await new Promise((res) => setTimeout(res, 100));
     }
 
-    await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+    const isDev =
+      import.meta.env.VITE_DEV_SOCKET ||
+      (window as any).envConfig?.USE_DEV_SOCKET;
+    const wsUrl = isDev
+      ? "ws://localhost:9000"
+      : "wss://socket.cryptnode.theyogmehta.online";
+    await socket.connect(wsUrl);
 
     const waitForAuth = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {

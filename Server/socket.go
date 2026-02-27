@@ -701,11 +701,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			eh := emailHash(client.email)
 			var myPubKey string
 			var status string
-			s.db.QueryRow("SELECT s.public_key, d.status FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.socket_id = ?", client.id).Scan(&myPubKey, &status)
+			err := s.db.QueryRow("SELECT s.public_key, d.status FROM sockets s JOIN devices d ON s.public_key = d.public_key AND s.email_hash = d.email_hash WHERE s.socket_id = ?", client.id).Scan(&myPubKey, &status)
+			
+			log.Printf("[NUCLEAR RESET DEBUG] myPubKey=%s, status=%s, error=%v, email_hash=%s, socket_id=%s", myPubKey, status, err, eh, client.id)
 			
 			if status != "approved" {
-				// We now allow unapproved devices to nuclear reset since the user
-				// explicitly reverted the Google Authentication requirement.
 				log.Println("Unapproved device is performing a nuclear reset")
 			}
 
