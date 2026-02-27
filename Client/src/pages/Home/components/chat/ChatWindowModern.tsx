@@ -64,7 +64,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   isRateLimited,
 }) => {
   const { messageLayout } = useTheme();
-  const { isLoaded: isAiLoaded } = useAIStatus();
+  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
   const [inputText, setInputText] = useState("");
   const [showAiSuggestions, setShowAiSuggestions] = useState(true);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -324,33 +324,36 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
               </CloseReplyButton>
             </ReplyContainer>
           )}{" "}
-          {!showAiSuggestions && !inputText.trim() && isAiLoaded && (
-            <div style={{ marginBottom: 8 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAiSuggestions(true);
-                  generateQuickReplies();
-                }}
-                disabled={isGeneratingReplies}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: 14,
-                  color: "#fff",
-                  background: "rgba(255,255,255,0.06)",
-                  padding: "5px 10px",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <Lightbulb size={16} />
-                {isGeneratingReplies ? "Catching up..." : "Catch Up"}
-              </button>
-            </div>
-          )}
+          {isAiInstalled &&
+            !showAiSuggestions &&
+            !inputText.trim() &&
+            isAiLoaded && (
+              <div style={{ marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAiSuggestions(true);
+                    generateQuickReplies();
+                  }}
+                  disabled={isGeneratingReplies}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    borderRadius: 14,
+                    color: "#fff",
+                    background: "rgba(255,255,255,0.06)",
+                    padding: "5px 10px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Lightbulb size={16} />
+                  {isGeneratingReplies ? "Catching up..." : "Catch Up"}
+                </button>
+              </div>
+            )}
           {showAiSuggestions &&
             (quickReplies.length > 0 || isGeneratingReplies) &&
             !inputText.trim() && (

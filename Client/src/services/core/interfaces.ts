@@ -6,7 +6,7 @@ export interface IChatClient {
     sid: string,
     data: string | Uint8Array | ArrayBuffer,
     priority: number,
-  ): Promise<string>;
+  ): Promise<Record<string, string>>;
   emit(event: string, ...args: any[]): boolean;
   insertMessageRecord(
     sid: string,
@@ -16,4 +16,5 @@ export interface IChatClient {
     forceId?: string,
     replyTo?: any,
   ): Promise<string>;
+  getPublicKeyString(): Promise<string>;
 }

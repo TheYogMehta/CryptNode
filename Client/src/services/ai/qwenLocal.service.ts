@@ -1,6 +1,22 @@
 import type { ChatMessage } from "../../pages/Home/types";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import {
+  NativeLlamaContext,
+  Llama as LlamaPlugin,
+  TokenEvent,
+} from "@cantoo/capacitor-llama";
+import { Capacitor } from "@capacitor/core";
+
+declare global {
+  interface Window {
+    Capacitor?: any;
+  }
+}
 
 const MODEL_ID = "Xenova/Qwen1.5-0.5B-Chat";
+const GGUF_URL =
+  "https://huggingface.co/Qwen/Qwen1.5-0.5B-Chat-GGUF/resolve/main/qwen1_5-0_5b-chat-q4_k_m.gguf";
+const GGUF_FILENAME = "qwen1_5-0_5b-chat-q4_k_m.gguf";
 
 interface QwenGenerationOptions {
   maxNewTokens?: number;
@@ -45,7 +61,7 @@ function parseBulletList(text: string, limit: number): string[] {
   return Array.from(new Set(lines)).slice(0, limit);
 }
 
-// Worker instance
+// Worker instance for Web
 let worker: Worker | null = null;
 const pendingRequests: Record<
   string,
@@ -96,15 +112,29 @@ function getWorker(): Worker {
 }
 
 export class QwenLocalService {
-  private failed = false;
   private _isLoaded = false;
   private _isLoading = false;
+  public failed = false;
+  private isNative = false;
+  private nativeContextId = -1;
+  private _downloadProgress = 0;
+
+  constructor() {
+    const platform =
+      typeof window !== "undefined" ? Capacitor.getPlatform() : "web";
+    if (platform === "android" || platform === "ios") {
+      this.isNative = true;
+    }
+  }
 
   get isLoaded() {
     return this._isLoaded;
   }
   get isLoading() {
     return this._isLoading;
+  }
+  get downloadProgress() {
+    return this._downloadProgress;
   }
 
   private listeners: (() => void)[] = [];
@@ -120,44 +150,204 @@ export class QwenLocalService {
     this.listeners.forEach((l) => l());
   }
 
-  async init(): Promise<void> {
-    if (this._isLoaded) return;
-    this._isLoading = true;
-    this.notify();
+  async isModelInstalled(): Promise<boolean> {
     try {
-      getWorker();
-      // Wait for a brief moment to allow worker init start, but actual loading is async in worker
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      this._isLoaded = true;
+      const stat = await Filesystem.stat({
+        directory: Directory.Data,
+        path: GGUF_FILENAME,
+      });
+      return stat.size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async deleteModel(): Promise<void> {
+    try {
+      if (this.isNative && this.nativeContextId !== -1) {
+        await LlamaPlugin.releaseAllContexts();
+      }
+      await Filesystem.deleteFile({
+        directory: Directory.Data,
+        path: GGUF_FILENAME,
+      });
+      this._isLoaded = false;
+      this.failed = false;
+      this.notify();
     } catch (e) {
-      console.error("[QwenLocalService] Failed to load model worker", e);
+      console.warn("Model already deleted or could not delete", e);
+    }
+  }
+
+  async downloadModel(): Promise<void> {
+    if (this._isLoading) return;
+    this._isLoading = true;
+    this.failed = false;
+    this.notify();
+
+    try {
+      await this.ensureNativeModel();
+    } catch (e) {
+      console.error("Failed to download model", e);
       this.failed = true;
+      throw e; // Rethrow to let UI catch it
     } finally {
       this._isLoading = false;
+      this._downloadProgress = 0;
       this.notify();
     }
   }
 
-  async generate(
-    messages: { role: string; content: string }[],
-    options: QwenGenerationOptions & { onToken?: (token: string) => void } = {},
-  ): Promise<string> {
-    if (this.failed) return "";
+  private async ensureNativeModel(): Promise<string> {
+    const dir = Directory.Data;
+    const path = GGUF_FILENAME;
+
+    try {
+      const stat = await Filesystem.stat({ directory: dir, path });
+      if (stat.size > 0) {
+        const uri = await Filesystem.getUri({ directory: dir, path });
+        return uri.uri.replace("file://", "");
+      }
+    } catch (e) {
+      // File doesn't exist, proceed to download
+    }
+
+    console.log("[QwenLocalService] Downloading GGUF model...");
+    this._downloadProgress = 1;
+    this.notify();
+
+    try {
+      // Fetch from remote
+      const req = await fetch(GGUF_URL);
+      if (!req.ok) throw new Error("Failed to download model");
+
+      const contentLength = req.headers.get("content-length");
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      let loaded = 0;
+
+      const reader = req.body?.getReader();
+      if (!reader) throw new Error("Could not get response stream");
+
+      const chunks: Uint8Array[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          loaded += value.byteLength;
+          if (total) {
+            this._downloadProgress = Math.round((loaded / total) * 100);
+            this.notify();
+          }
+        }
+      }
+
+      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const c of chunks) {
+        combined.set(c, offset);
+        offset += c.length;
+      }
+
+      const blob = new Blob([combined]);
+      const base64Data = await new Promise<string>((resolve) => {
+        const fr = new FileReader();
+        fr.readAsDataURL(blob);
+        fr.onloadend = () => {
+          resolve(fr.result as string);
+        };
+      });
+
+      console.log("[QwenLocalService] Saving to filesystem...");
+      await Filesystem.writeFile({
+        directory: dir,
+        path: path,
+        data: base64Data,
+      });
+
+      this._downloadProgress = 100;
+      this.notify();
+
+      const uri = await Filesystem.getUri({ directory: dir, path });
+      return uri.uri.replace("file://", "");
+    } catch (error) {
+      console.error("[QwenLocalService] Failed to download model", error);
+      throw error;
+    }
+  }
+
+  async init(): Promise<void> {
+    if (this._isLoaded) return;
     this._isLoading = true;
     this.notify();
 
+    try {
+      if (this.isNative) {
+        try {
+          const absolutePath = await this.ensureNativeModel();
+          console.log(
+            "[QwenLocalService] Initializing Native Llama context:",
+            absolutePath,
+          );
+
+          await LlamaPlugin.releaseAllContexts();
+
+          this.nativeContextId = Math.floor(Math.random() * 10000);
+          const initPromise = LlamaPlugin.initContext({
+            id: this.nativeContextId,
+            model: absolutePath,
+            n_ctx: 1024,
+            n_threads: 4,
+          });
+
+          await Promise.race([
+            initPromise,
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("initContext timeout")), 2000),
+            ),
+          ]);
+        } catch (nativeErr) {
+          console.warn(
+            "[QwenLocalService] Native Llama init failed or timed out. WASM fallback disabled on mobile.",
+            nativeErr,
+          );
+          this.isNative = false;
+          throw new Error(
+            "Local AI is not supported on this device architecture.",
+          );
+        }
+      }
+
+      if (!this.isNative) {
+        getWorker();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      this._isLoaded = true;
+    } catch (e: any) {
+      console.error("[QwenLocalService] Failed to load model:", e);
+      // Propagate the architecture unsupported error so 'generate' knows we failed
+      if (e.message && e.message.includes("not supported")) {
+        throw e;
+      }
+    } finally {
+      this._isLoading = false;
+      this._downloadProgress = 0;
+      this.notify();
+    }
+  }
+
+  private async generateWasm(
+    prompt: string,
+    options: QwenGenerationOptions & { onToken?: (token: string) => void },
+  ): Promise<string> {
     const worker = getWorker();
     const id = Math.random().toString(36).substring(7);
 
-    const prompt =
-      messages
-        .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>`)
-        .join("\n") + "\n<|im_start|>assistant\n";
-
-    return new Promise<string>((resolve, reject) => {
+    return await new Promise<string>((resolve, reject) => {
       pendingRequests[id] = {
         resolve: (output: any) => {
-          console.log("[QwenLocalService] Raw output:", output);
           resolve(extractText(output).trim());
         },
         reject,
@@ -176,10 +366,61 @@ export class QwenLocalService {
           return_full_text: false,
         },
       });
-    }).finally(() => {
+    });
+  }
+
+  async generate(
+    messages: { role: string; content: string }[],
+    options: QwenGenerationOptions & { onToken?: (token: string) => void } = {},
+  ): Promise<string> {
+    this._isLoading = true;
+    this.notify();
+
+    const prompt =
+      messages
+        .map((m) => `<|im_start|>${m.role}\n${m.content}<|im_end|>`)
+        .join("\n") + "\n<|im_start|>assistant\n";
+
+    try {
+      if (!this._isLoaded) await this.init();
+      if (!this._isLoaded)
+        throw new Error("Local AI model failed to initialize.");
+
+      if (this.isNative) {
+        let tokenListener: any;
+        if (options.onToken) {
+          tokenListener = await LlamaPlugin.addListener(
+            "onToken",
+            (event: TokenEvent) => {
+              if (event.contextId === this.nativeContextId) {
+                options.onToken?.(event.tokenResult.token);
+              }
+            },
+          );
+        }
+
+        const res = await LlamaPlugin.completion({
+          id: this.nativeContextId,
+          params: {
+            prompt,
+            n_predict: options.maxNewTokens ?? 128,
+            temperature: options.temperature ?? 0.2,
+            top_p: options.topP ?? 0.9,
+            stop: ["<|im_end|>", "<|im_start|>"],
+            emit_partial_completion: false,
+          },
+        });
+
+        if (tokenListener) await tokenListener.remove();
+
+        return res.content.trim();
+      } else {
+        return await this.generateWasm(prompt, options);
+      }
+    } finally {
       this._isLoading = false;
       this.notify();
-    });
+    }
   }
 
   async quickReplies(

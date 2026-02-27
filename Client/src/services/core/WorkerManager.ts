@@ -15,9 +15,9 @@ export class WorkerManager {
     return WorkerManager.instance;
   }
 
-  public async initSession(sid: string, keyJWK: JsonWebKey) {
+  public async initSession(sid: string, jwksMap: Record<string, JsonWebKey>) {
     const id = crypto.randomUUID();
-    const msg = { type: "INIT_SESSION", sid, keyJWK, id };
+    const msg = { type: "INIT_SESSION", sid, jwksMap, id };
     await this.worker.postMessage(msg);
   }
 
@@ -25,7 +25,7 @@ export class WorkerManager {
     sid: string,
     data: string | ArrayBuffer,
     priority: number,
-  ): Promise<string> {
+  ): Promise<Record<string, string>> {
     const id = crypto.randomUUID();
     const msg = { type: "ENCRYPT", sid, data, id, priority };
     return this.worker.postMessage(msg);

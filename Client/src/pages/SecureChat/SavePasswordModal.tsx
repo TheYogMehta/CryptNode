@@ -18,7 +18,6 @@ interface SavePasswordModalProps {
   onClose: () => void;
   onSave: (data: any) => void;
 }
-
 const SavePasswordModal: React.FC<SavePasswordModalProps> = ({
   isOpen,
   onClose,
@@ -35,9 +34,26 @@ const SavePasswordModal: React.FC<SavePasswordModalProps> = ({
 
   const handleSave = () => {
     if (!password || (!username && !email)) {
-      // Basic validation
-      alert("Please enter password and at least a username or email");
+      alert("Please enter a password and at least a username or email.");
       return;
+    }
+
+    if (url) {
+      const urlRegex = /^https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:\/.*)?$/;
+      if (!urlRegex.test(url)) {
+        alert(
+          "Please enter a valid website URL (must start with http:// or https:// and have a valid domain ending).",
+        );
+        return;
+      }
+    }
+
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        alert("Please enter a valid email address.");
+        return;
+      }
     }
 
     onSave({
@@ -79,7 +95,9 @@ const SavePasswordModal: React.FC<SavePasswordModalProps> = ({
             } as React.CSSProperties
           }
         >
-          <IonTitle style={{ color: colors.text.primary }}>Save Password</IonTitle>
+          <IonTitle style={{ color: colors.text.primary }}>
+            Save Password
+          </IonTitle>
           <IonButtons slot="end">
             <IonButton onClick={reset} style={{ color: colors.text.secondary }}>
               <IonIcon icon={closeOutline} />
@@ -131,9 +149,7 @@ const SavePasswordModal: React.FC<SavePasswordModalProps> = ({
               key={field.label}
               style={{ display: "flex", flexDirection: "column", gap: "6px" }}
             >
-              <span
-                style={{ fontSize: "12px", color: colors.text.tertiary }}
-              >
+              <span style={{ fontSize: "12px", color: colors.text.tertiary }}>
                 {field.label}
               </span>
               <input
@@ -154,7 +170,9 @@ const SavePasswordModal: React.FC<SavePasswordModalProps> = ({
             </label>
           ))}
 
-          <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <label
+            style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+          >
             <span style={{ fontSize: "12px", color: colors.text.tertiary }}>
               Password
             </span>

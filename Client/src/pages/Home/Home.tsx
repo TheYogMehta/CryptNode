@@ -7,17 +7,20 @@ import { ConnectionSetup } from "./components/overlays/ConnectionSetup";
 import { RequestModal } from "./components/overlays/RequestModal";
 import { CallOverlay } from "./components/overlays/CallOverlay";
 import { WelcomeView } from "./components/views/WelcomeView";
-import { NotificationToast } from "./components/overlays/NotificationToast";
+import toast, { Toaster } from "react-hot-toast";
 import { SettingsOverlay } from "./components/overlays/SettingsOverlay";
 import { ProfileSetup } from "./components/overlays/ProfileSetup";
 import { AppLockScreen } from "./components/overlays/AppLockScreen";
 import LoadingScreen from "../LoadingScreen";
 import { AccountService } from "../../services/auth/AccountService";
 import ChatClient from "../../services/core/ChatClient";
-import { Login } from "../Login";
 import { RenameModal } from "./components/overlays/RenameModal";
+import { DevicePendingModal } from "./components/overlays/DevicePendingModal";
+import { DeviceApprovalModal } from "./components/overlays/DeviceApprovalModal";
 import { useHistory } from "react-router-dom";
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
+import { SocialLogin } from "@capgo/capacitor-social-login";
+import { Capacitor } from "@capacitor/core";
 import {
   AppContainer,
   MainContent,
@@ -80,11 +83,110 @@ const Home = () => {
     closeSummary,
   } = useGlobalSummary(state.sessions);
 
+  const hasElectronGoogleLogin =
+    typeof window !== "undefined" &&
+    typeof window.SafeStorage?.googleLogin === "function";
+
+  const [socialLoginInitialized, setSocialLoginInitialized] = useState(false);
+
+  useEffect(() => {
+    const initSocialLogin = async () => {
+      if (socialLoginInitialized) return;
+      if (hasElectronGoogleLogin) {
+        try {
+          localStorage.removeItem("OAUTH_STATE_KEY");
+          localStorage.removeItem("oauth_state");
+        } catch (_e) {}
+        setSocialLoginInitialized(true);
+        return;
+      }
+      await SocialLogin.initialize({
+        google: {
+          webClientId:
+            "588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com",
+          mode: "online",
+        },
+      });
+      setSocialLoginInitialized(true);
+    };
+    initSocialLogin().catch(console.error);
+  }, [hasElectronGoogleLogin, socialLoginInitialized]);
+
+  const extractMessage = (error: unknown): string => {
+    if (error instanceof Error) return error.message || "Unknown error";
+    if (typeof error === "string") return error;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Unknown error";
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      if (hasElectronGoogleLogin) {
+        const result = await window.SafeStorage.googleLogin();
+        if (result && result.idToken) {
+          await actions.login(result.idToken);
+          setIsLocked(false);
+        } else {
+          toast.error("Google sign-in was cancelled.");
+        }
+      } else {
+        const isAndroid = Capacitor.getPlatform() === "android";
+        let response;
+        try {
+          response = await SocialLogin.login({
+            provider: "google",
+            options: {
+              forceRefreshToken: !isAndroid,
+              ...(isAndroid ? { style: "bottom" } : {}),
+            },
+          });
+        } catch (error) {
+          const msg = extractMessage(error);
+          if (msg.includes("No credentials available")) {
+            response = await SocialLogin.login({
+              provider: "google",
+              options: {
+                forceRefreshToken: false,
+                filterByAuthorizedAccounts: false,
+                style: "standard",
+              },
+            });
+          } else {
+            throw error;
+          }
+        }
+
+        if (
+          response.result &&
+          "idToken" in response.result &&
+          response.result.idToken
+        ) {
+          await actions.login(response.result.idToken);
+          setIsLocked(false);
+        } else {
+          toast.error("Failed to get Google ID token. Try again.");
+        }
+      }
+    } catch (error) {
+      console.error("Sign-In Error:", error);
+      const msg = extractMessage(error);
+      if (msg.includes("No credentials available")) {
+        toast.error(
+          "No Google account found. Please add an account in Android Settings.",
+        );
+      } else if (msg.includes("canceled") || msg.includes("cancelled")) {
+        toast.error("Sign-in cancelled.");
+      } else {
+        toast.error("Login failed. Please try again.");
+      }
+    }
+  };
+
   useEffect(() => {
     checkInitialState();
-    qwenLocalService
-      .init()
-      .catch((err) => console.error("AI Init failed", err));
   }, []);
 
   const contextRef = useRef({
@@ -176,23 +278,11 @@ const Home = () => {
       console.log("[Home] Loaded accounts from storage:", accs);
       setStoredAccounts(accs);
 
-      if (accs.length === 0) {
-        console.log("[Home] No accounts found, setting isLocked=false");
-        setIsLocked(false);
-      } else if (
-        !accs.some((a) => Boolean(a?.token && String(a.token).trim()))
-      ) {
-        console.log(
-          "[Home] Accounts found but no valid session token, showing login",
-        );
-        setIsLocked(false);
-      } else {
-        console.log("[Home] Accounts found, setting isLocked=true");
-        setIsLocked(true);
-      }
+      // Always show Lock Screen first, even if no accounts
+      setIsLocked(true);
     } catch (e) {
       console.error("[Home] Failed to load initial state:", e);
-      setIsLocked(false);
+      setIsLocked(true);
     }
   };
 
@@ -302,21 +392,29 @@ const Home = () => {
     return <LoadingScreen message="Checking authentication..." />;
   }
 
+  if (state.pendingMasterKey !== null) {
+    return (
+      <DevicePendingModal
+        masterPubKey={state.pendingMasterKey}
+        onLogout={async () => {
+          await ChatClient.logout();
+        }}
+      />
+    );
+  }
+
   if (isLocked) {
     return (
       <AppLockScreen
         mode="lock_screen"
         accounts={storedAccounts}
         onUnlockAccount={handleUnlock}
-        onAddAccount={() => setIsLocked(false)}
+        onAddAccount={handleGoogleSignIn}
         onSuccess={() => {}}
       />
     );
   }
 
-  if (!state.userEmail) {
-    return <Login onLogin={actions.login} />;
-  }
   return (
     <ErrorBoundary>
       {showSummaryModal && (
@@ -413,13 +511,7 @@ const Home = () => {
         onTouchEnd={onTouchEnd}
       >
         {state.error && <ErrorToast>{state.error}</ErrorToast>}
-        {state.notification && (
-          <NotificationToast
-            type={state.notification.type as "error" | "info" | "success"}
-            message={state.notification.message}
-            onClose={actions.clearNotification}
-          />
-        )}
+        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
 
         <Sidebar
           sessions={state.sessions}
@@ -497,20 +589,14 @@ const Home = () => {
           onHangup={actions.endCall}
         />
 
-        {(state.inboundReq || state.isWaiting) && (
-          <RequestModal
-            inboundReq={state.inboundReq}
-            isWaiting={state.isWaiting}
-            setInboundReq={actions.setInboundReq}
-            setIsWaiting={actions.setIsWaiting}
-          />
-        )}
+        {/* Removed RequestModal for pending requests to avoid popups */}
 
         {showSettings && (
           <SettingsOverlay
             onClose={() => setShowSettings(false)}
             currentUserEmail={state.userEmail}
             isMobile={isMobile}
+            onAddAccount={handleGoogleSignIn}
           />
         )}
 
@@ -529,6 +615,17 @@ const Home = () => {
           <ProfileSetup
             userEmail={state.userEmail}
             onComplete={() => setShowProfileSetup(false)}
+          />
+        )}
+
+        {state.linkRequests && state.linkRequests.length > 0 && (
+          <DeviceApprovalModal
+            requests={state.linkRequests}
+            onHandled={(pubKey) => {
+              actions.setLinkRequests((prev: any[]) =>
+                prev.filter((r) => r.senderPubKey !== pubKey),
+              );
+            }}
           />
         )}
 

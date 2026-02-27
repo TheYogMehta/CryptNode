@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback } from "react";
 import styled from "@emotion/styled";
 import {
   X,
-  Crop as CropIcon,
+  Edit2 as EditIcon,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -10,8 +10,10 @@ import {
   Send,
   Plus,
 } from "lucide-react";
-import Cropper from "react-easy-crop";
-import { Point, Area } from "react-easy-crop/types";
+import FilerobotImageEditor, {
+  TABS,
+  TOOLS,
+} from "react-filerobot-image-editor";
 import {
   colors,
   radii,
@@ -283,10 +285,6 @@ interface FileData {
   previewUrl: string;
   type: "image" | "video" | "unknown";
   caption: string;
-  crop?: { x: number; y: number };
-  zoom?: number;
-  aspect?: number;
-  croppedRef?: { x: number; y: number; width: number; height: number }; // Percentage
 }
 
 interface FileUploadPreviewProps {
@@ -314,9 +312,6 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
         ? "video"
         : "unknown") as "image" | "video" | "unknown",
       caption: "",
-      crop: { x: 0, y: 0 },
-      zoom: 1,
-      aspect: undefined,
     })),
   );
 
@@ -338,9 +333,6 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
           ? "video"
           : "unknown") as "image" | "video" | "unknown",
         caption: "",
-        crop: { x: 0, y: 0 },
-        zoom: 1,
-        aspect: undefined,
       }));
 
       return [...prev, ...newFileData];
@@ -348,15 +340,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
   }, [files]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isCropping, setIsCropping] = useState(false);
-  const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [aspect, setAspect] = useState<number | undefined>(undefined);
-  const [mediaSize, setMediaSize] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const currentFile = fileList[currentIndex];
 
@@ -379,56 +363,41 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
     );
   };
 
-  const startCrop = () => {
+  const startEdit = () => {
     if (currentFile.type === "image") {
-      setCrop(currentFile.crop || { x: 0, y: 0 });
-      setZoom(currentFile.zoom || 1);
-      setAspect(currentFile.aspect);
-      setIsCropping(true);
+      setIsEditing(true);
     }
   };
 
-  const onCropComplete = useCallback(
-    (croppedArea: Area, croppedAreaPixels: Area) => {
-      setCroppedAreaPixels(croppedAreaPixels);
-    },
-    [],
-  );
-
-  const saveCrop = async () => {
-    if (!currentFile || !croppedAreaPixels) return;
+  const saveEdit = (editedImageObject: any) => {
+    if (!currentFile) return;
 
     try {
-      const croppedImage = await getCroppedImg(
-        currentFile.previewUrl,
-        croppedAreaPixels,
-      );
-      // Replace file in list with cropped version
-      const newFile = new File([croppedImage], currentFile.file.name, {
-        type: currentFile.file.type,
-        lastModified: Date.now(),
-      });
+      const dataUrl = editedImageObject.imageBase64;
+      fetch(dataUrl)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const newFile = new File([blob], currentFile.file.name, {
+            type: blob.type || "image/png",
+            lastModified: Date.now(),
+          });
+          const newPreviewUrl = URL.createObjectURL(newFile);
 
-      const newPreviewUrl = URL.createObjectURL(newFile);
-
-      setFileList((prev) =>
-        prev.map((f, i) =>
-          i === currentIndex
-            ? {
-                ...f,
-                file: newFile,
-                previewUrl: newPreviewUrl,
-                crop, // Save state for re-edit (though re-editing a cropped image is tricky, usually you crop the original)
-                zoom,
-                aspect,
-              }
-            : f,
-        ),
-      );
-
-      setIsCropping(false);
+          setFileList((prev) =>
+            prev.map((f, i) =>
+              i === currentIndex
+                ? {
+                    ...f,
+                    file: newFile,
+                    previewUrl: newPreviewUrl,
+                  }
+                : f,
+            ),
+          );
+          setIsEditing(false);
+        });
     } catch (e) {
-      console.error("Failed to crop image", e);
+      console.error("Failed to save edited image", e);
     }
   };
 
@@ -449,7 +418,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
         <div style={{ fontWeight: 600 }}>
           {currentIndex + 1} / {fileList.length}
         </div>
-        {!isCropping && (
+        {!isEditing && (
           <IconButton
             variant="ghost"
             onClick={(e) => handleRemove(e, currentIndex)}
@@ -460,7 +429,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
       </Header>
 
       <MainContent>
-        {isCropping ? (
+        {isEditing ? (
           <div
             style={{
               position: "relative",
@@ -469,83 +438,25 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
               backgroundColor: "#000",
             }}
           >
-            <Cropper
-              image={currentFile.previewUrl}
-              crop={crop}
-              zoom={zoom}
-              aspect={aspect}
-              onCropChange={setCrop}
-              onZoomChange={setZoom}
-              onCropComplete={onCropComplete}
-              onMediaLoaded={(mediaSize) => {
-                setMediaSize({
-                  width: mediaSize.naturalWidth,
-                  height: mediaSize.naturalHeight,
-                });
+            <FilerobotImageEditor
+              source={currentFile.previewUrl}
+              onSave={saveEdit}
+              onClose={() => setIsEditing(false)}
+              annotationsCommon={{
+                fill: "#ff0000",
               }}
+              tabsIds={[
+                TABS.ADJUST,
+                TABS.ANNOTATE,
+                TABS.WATERMARK,
+                TABS.FILTERS,
+                TABS.FINETUNE,
+              ]}
+              defaultTabId={TABS.ANNOTATE}
+              defaultToolId={TOOLS.PEN}
+              savingPixelRatio={4}
+              previewPixelRatio={window.devicePixelRatio}
             />
-            <ControlsWrapper>
-              <AspectRow>
-                <AspectButton
-                  active={aspect === undefined}
-                  onClick={() => setAspect(undefined)}
-                >
-                  Free
-                </AspectButton>
-                <AspectButton
-                  active={
-                    !!mediaSize && aspect === mediaSize.width / mediaSize.height
-                  }
-                  onClick={() =>
-                    mediaSize && setAspect(mediaSize.width / mediaSize.height)
-                  }
-                >
-                  Original
-                </AspectButton>
-                <AspectButton
-                  active={aspect === 1}
-                  onClick={() => setAspect(1)}
-                >
-                  Square
-                </AspectButton>
-                <AspectButton
-                  active={Math.abs((aspect || 0) - 16 / 9) < 0.01}
-                  onClick={() => setAspect(16 / 9)}
-                >
-                  16:9
-                </AspectButton>
-                <AspectButton
-                  active={Math.abs((aspect || 0) - 4 / 5) < 0.01}
-                  onClick={() => setAspect(4 / 5)}
-                >
-                  4:5
-                </AspectButton>
-              </AspectRow>
-              <BottomBar>
-                <IconButton
-                  variant="ghost"
-                  onClick={() => setIsCropping(false)}
-                >
-                  <X size={20} color="white" />
-                </IconButton>
-                <Slider
-                  type="range"
-                  value={zoom}
-                  min={1}
-                  max={3}
-                  step={0.1}
-                  aria-labelledby="Zoom"
-                  onChange={(e) => setZoom(Number(e.target.value))}
-                />
-                <IconButton
-                  variant="ghost"
-                  onClick={saveCrop}
-                  style={{ backgroundColor: colors.primary.DEFAULT }}
-                >
-                  <Check size={20} color="white" />
-                </IconButton>
-              </BottomBar>
-            </ControlsWrapper>
           </div>
         ) : (
           <PreviewArea>
@@ -584,14 +495,14 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
         )}
       </MainContent>
 
-      {!isCropping && (
+      {!isEditing && (
         <Footer>
           <div
             style={{ display: "flex", alignItems: "center", gap: spacing[3] }}
           >
             {currentFile.type === "image" && (
-              <IconButton variant="ghost" onClick={startCrop} title="Crop">
-                <CropIcon size={20} color="white" />
+              <IconButton variant="ghost" onClick={startEdit} title="Edit">
+                <EditIcon size={20} color="white" />
               </IconButton>
             )}
             <CaptionInput
@@ -630,53 +541,3 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
     </OverlayContainer>
   );
 };
-
-// --- Utils ---
-async function getCroppedImg(imageSrc: string, pixelCrop: Area): Promise<Blob> {
-  const image = await createImage(imageSrc);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) {
-    throw new Error("No 2d context");
-  }
-
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
-
-  ctx.drawImage(
-    image,
-    pixelCrop.x,
-    pixelCrop.y,
-    pixelCrop.width,
-    pixelCrop.height,
-    0,
-    0,
-    pixelCrop.width,
-    pixelCrop.height,
-  );
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Canvas is empty"));
-          return;
-        }
-        resolve(blob);
-      },
-      "image/jpeg",
-      1,
-    );
-  });
-}
-
-function createImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.addEventListener("load", () => resolve(image));
-    image.addEventListener("error", (error) => reject(error));
-    image.setAttribute("crossOrigin", "anonymous");
-    image.src = url;
-  });
-}

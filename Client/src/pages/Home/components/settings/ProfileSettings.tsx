@@ -14,6 +14,7 @@ import {
   EditProfileContainer,
   EditProfileForm,
   EditProfileActions,
+  AccountItem,
 } from "../overlays/Settings.styles";
 import { colors } from "../../../../theme/design-system";
 
@@ -21,12 +22,18 @@ interface ProfileSettingsProps {
   currentUserEmail: string | null;
   accounts: StoredAccount[];
   onReloadAccounts: () => Promise<void>;
+  onSwitchAccount: (email: string) => Promise<void>;
+  isDeletingAccount: boolean;
+  onAddAccount?: () => void;
 }
 
 export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   currentUserEmail,
   accounts,
   onReloadAccounts,
+  onSwitchAccount,
+  isDeletingAccount,
+  onAddAccount,
 }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState("");
@@ -269,6 +276,85 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
           </ProfileHeader>
         </ProfileSection>
       )}
+
+      <h3 style={{ marginTop: "30px", color: colors.text.primary }}>
+        Manage Accounts
+      </h3>
+      <div style={{ marginBottom: "20px" }}>
+        {accounts.map((acc) => (
+          <AccountItem
+            key={acc.email}
+            isActive={acc.email === currentUserEmail}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+              }}
+            >
+              <UserAvatar
+                avatarUrl={acc.avatarUrl}
+                name={acc.email}
+                size={32}
+                style={{ background: colors.background.tertiary }}
+              />
+              <span style={{ color: colors.text.primary }}>{acc.email}</span>
+              {acc.email === currentUserEmail && (
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: colors.primary.main,
+                    background: colors.primary.subtle,
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  Current
+                </span>
+              )}
+            </div>
+            {acc.email !== currentUserEmail && (
+              <button
+                disabled={isDeletingAccount}
+                onClick={() => onSwitchAccount(acc.email)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "4px",
+                  background: colors.primary.main,
+                  color: colors.text.inverse,
+                  border: "none",
+                  cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                  opacity: isDeletingAccount ? 0.6 : 1,
+                }}
+              >
+                Switch
+              </button>
+            )}
+          </AccountItem>
+        ))}
+
+        {onAddAccount && (
+          <button
+            disabled={isDeletingAccount}
+            onClick={onAddAccount}
+            style={{
+              width: "100%",
+              padding: "12px",
+              marginTop: "10px",
+              background: "transparent",
+              color: colors.primary.main,
+              border: `1px dashed ${colors.primary.main}`,
+              borderRadius: "8px",
+              cursor: isDeletingAccount ? "not-allowed" : "pointer",
+              opacity: isDeletingAccount ? 0.6 : 1,
+              fontWeight: 600,
+            }}
+          >
+            + Add Account
+          </button>
+        )}
+      </div>
     </div>
   );
 };

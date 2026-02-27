@@ -20,24 +20,30 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
   const [pending, setPending] = React.useState<any[]>([]);
 
   React.useEffect(() => {
+    let mounted = true;
+
     const handleList = async (list: any[]) => {
+      if (!Array.isArray(list)) return;
       const decrypted = await Promise.all(
         list.map(async (item) => {
           try {
+            if (!item.encryptedPacket || !item.publicKey) return null;
             const req = await ChatClient.sessionService.decryptFriendRequest(
               item.encryptedPacket,
               item.publicKey,
             );
             return { ...req, ...item };
           } catch (e) {
+            console.error("Failed to decrypt pending req", e);
             return null;
           }
         }),
       );
-      setPending(decrypted.filter(Boolean));
+      if (mounted) setPending(decrypted.filter(Boolean));
     };
 
     const handleNew = (req: any) => {
+      if (!mounted) return;
       setPending((prev) => {
         if (prev.find((p) => p.email === req.email)) return prev;
         return [...prev, req];
@@ -47,9 +53,12 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
     ChatClient.on("pending_requests_list", handleList);
     ChatClient.on("inbound_request", handleNew);
 
-    ChatClient.getPendingRequests();
+    if (ChatClient.hasToken()) {
+      ChatClient.getPendingRequests();
+    }
 
     return () => {
+      mounted = false;
       ChatClient.off("pending_requests_list", handleList);
       ChatClient.off("inbound_request", handleNew);
     };
@@ -180,22 +189,22 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                   </button>
                   <button
                     onClick={() => {
-                      ChatClient.denyFriend(req.email);
+                      ChatClient.blockUser(req.email);
                       setPending((prev) =>
                         prev.filter((p) => p.email !== req.email),
                       );
                     }}
                     style={{
-                      background: "rgba(255,255,255,0.1)",
+                      background: "rgba(255, 60, 60, 0.15)",
                       border: "none",
                       borderRadius: "4px",
                       padding: "6px 12px",
-                      color: colors.text.primary,
+                      color: "#ff3c3c",
                       cursor: "pointer",
                       fontSize: "0.8em",
                     }}
                   >
-                    Deny
+                    Block
                   </button>
                 </div>
               </div>

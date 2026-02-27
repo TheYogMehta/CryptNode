@@ -19,6 +19,7 @@
     "electron:pack": "npm run build && electron-builder install-app-deps && electron-builder build -p always --win --linux"
   },
   "dependencies": {
+    "@cantoo/capacitor-llama": "^0.1.2",
     "@capacitor-community/electron": "^5.0.1",
     "@capacitor-community/sqlite": "^7.0.2",
     "better-sqlite3-multiple-ciphers": "^12.5.0",

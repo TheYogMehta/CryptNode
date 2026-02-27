@@ -1,27 +1,11 @@
 import React from "react";
 import styled from "styled-components";
 import { AlertTriangle } from "lucide-react";
-
-const ModalOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  backdrop-filter: blur(4px);
-`;
-
-const ModalContent = styled.div`
-  background: #1f1f1f;
-  border: 1px solid #dc2626;
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 400px;
-  width: 90%;
-  text-align: center;
-`;
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContentText from "@mui/material/DialogContentText";
 
 const Title = styled.h2`
   color: #dc2626;
@@ -81,17 +65,33 @@ export const UnsafeLinkModal: React.FC<UnsafeLinkModalProps> = ({
   onCancel,
 }) => {
   return (
-    <ModalOverlay onClick={onCancel}>
-      <ModalContent onClick={(e) => e.stopPropagation()}>
-        <Title>
-          <AlertTriangle size={24} color="#eab308" />
-          External Link
-        </Title>
-        <Message>
+    <Dialog
+      open={true}
+      onClose={onCancel}
+      PaperProps={{
+        style: {
+          backgroundColor: "#1f1f1f",
+          border: "1px solid #dc2626",
+          borderRadius: "12px",
+          textAlign: "center",
+          color: "#d1d5db",
+        },
+      }}
+    >
+      <DialogTitle>
+        <AlertTriangle size={24} color="#eab308" />
+        External Link
+      </DialogTitle>
+      <DialogContent>
+        <DialogContentText style={{ color: "#d1d5db", marginBottom: "16px" }}>
           This link leads to an untrusted domain. Are you sure you want to
           visit?
-        </Message>
+        </DialogContentText>
         <UrlPreview>{url}</UrlPreview>
+      </DialogContent>
+      <DialogActions
+        style={{ justifyContent: "center", paddingBottom: "24px" }}
+      >
         <ButtonGroup>
           <Button variant="secondary" onClick={onCancel}>
             Go Back
@@ -100,7 +100,7 @@ export const UnsafeLinkModal: React.FC<UnsafeLinkModalProps> = ({
             Visit Once
           </Button>
         </ButtonGroup>
-      </ModalContent>
-    </ModalOverlay>
+      </DialogActions>
+    </Dialog>
   );
 };

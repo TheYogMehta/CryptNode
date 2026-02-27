@@ -25,12 +25,13 @@ import (
 )
 
 type Frame struct {
-	T    string          `json:"t"`
-	SID  string          `json:"sid,omitempty"`
-	C    bool            `json:"c,omitempty"`
-	P    int             `json:"p,omitempty"`
-	SH   string          `json:"sh,omitempty"`
-	Data json.RawMessage `json:"data,omitempty"`
+	T            string          `json:"t"`
+	SID          string          `json:"sid,omitempty"`
+	C            bool            `json:"c,omitempty"`
+	P            int             `json:"p,omitempty"`
+	SH           string          `json:"sh,omitempty"`
+	TargetPubKey string          `json:"targetPubKey,omitempty"`
+	Data         json.RawMessage `json:"data,omitempty"`
 }
 
 type Client struct {
@@ -41,6 +42,7 @@ type Client struct {
 	msgCount    int
 	msgWindow   time.Time
 	lastConnect time.Time
+	approved    bool
 }
 
 type Session struct {
@@ -57,7 +59,6 @@ type RateLimiter struct {
 type Server struct {
 	clients         map[string]*Client
 	sessions        map[string]*Session
-	emailToClientId map[string]string
 	mu              sync.Mutex
 	logger          *log.Logger
 	rateLimiter     *RateLimiter
@@ -81,7 +82,8 @@ func normalizeEmail(email string) string {
 }
 
 func emailHash(email string) string {
-	sum := sha256.Sum256([]byte(normalizeEmail(email)))
+	email = normalizeEmail(email)
+	sum := sha256.Sum256([]byte(email))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -254,6 +256,48 @@ func verifyAuthToken(token string) (string, string, error) {
 	return email, newToken, nil
 }
 
+func (s *Server) broadcastDeviceList(emailHash string) {
+	rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", emailHash)
+	if err != nil {
+		s.logger.Printf("Failed to get devices for broadcast: %v", err)
+		return
+	}
+	var devicesList []map[string]any
+	for rows.Next() {
+		var pk, status string
+		var lastActive time.Time
+		var isMaster int
+		if err := rows.Scan(&pk, &lastActive, &isMaster, &status); err == nil {
+			devicesList = append(devicesList, map[string]any{
+				"publicKey": pk,
+				"lastActive": lastActive.Format(time.RFC3339),
+				"isMaster": isMaster == 1,
+				"status": status,
+			})
+		}
+	}
+	rows.Close()
+
+	if len(devicesList) == 0 {
+		return
+	}
+
+	respBytes, _ := json.Marshal(map[string]any{"devices": devicesList})
+	frame := Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)}
+
+	sockRows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", emailHash)
+	for sockRows.Next() {
+		var socketID string
+		sockRows.Scan(&socketID)
+		s.mu.Lock()
+		if targetClient, ok := s.clients[socketID]; ok {
+			s.send(targetClient, frame)
+		}
+		s.mu.Unlock()
+	}
+	sockRows.Close()
+}
+
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -285,18 +329,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, client.id)
-		if client.email != "" {
-			delete(s.emailToClientId, client.email)
-		}
 		s.mu.Unlock()
 
 		if client.email != "" {
 			s.db.Exec("DELETE FROM sockets WHERE socket_id = ?", client.id)
-			// TODO: Notify friends that user is offline?
-			// For now, we rely on polling or specific checks, or existing session logic.
 		}
 
-		// Clean up legacy sessions (optional, keeping for now to avoid breaking existing calls immediately)
 		for _, sess := range s.sessions {
 			sess.mu.Lock()
 			_, wasMember := sess.clients[client.id]
@@ -321,6 +359,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		var frame Frame
 		if err := ws.ReadJSON(&frame); err != nil {
 			break
+		}
+
+		client.mu.Lock()
+		isApproved := client.approved
+		client.mu.Unlock()
+
+		if !isApproved && frame.T != "AUTH" && frame.T != "PING" && frame.T != "DEVICE_NUCLEAR_RESET" && frame.T != "DEVICE_LINK_REQUEST" && frame.T != "DEVICE_LINK_ACCEPTED" && frame.T != "DEVICE_LINK_REJECTED" {
+			s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval"}`)})
+			continue
 		}
 
 		switch frame.T {
@@ -351,30 +398,90 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			client.mu.Unlock()
 
 			eh := emailHash(email)
-			// Upsert user
-			s.db.Exec("INSERT OR IGNORE INTO users (email_hash, public_key) VALUES (?, ?)", eh, d.PublicKey)
-			if d.PublicKey != "" {
-				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, eh)
+
+			var deviceCount int
+			s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ?", eh).Scan(&deviceCount)
+
+			var deviceStatus string
+			var isMaster int
+
+			if deviceCount == 0 {
+				deviceStatus = "approved"
+				isMaster = 1
+				if d.PublicKey != "" {
+					s.db.Exec(`
+						INSERT INTO devices (email_hash, public_key, last_active, is_master, status) 
+						VALUES (?, ?, ?, ?, ?)`,
+						eh, d.PublicKey, time.Now(), isMaster, deviceStatus)
+				}
+			} else {
+				err := s.db.QueryRow("SELECT status, is_master FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&deviceStatus, &isMaster)
+				if err != nil {
+					deviceStatus = "pending"
+					isMaster = 0
+					if d.PublicKey != "" {
+						s.db.Exec(`
+							INSERT INTO devices (email_hash, public_key, last_active, is_master, status) 
+							VALUES (?, ?, ?, ?, ?)`,
+							eh, d.PublicKey, time.Now(), isMaster, deviceStatus)
+					}
+				} else {
+					s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
+				}
 			}
-			// Register socket
-			s.db.Exec("INSERT INTO sockets (email_hash, socket_id) VALUES (?, ?)", eh, client.id)
 
-			s.mu.Lock()
-			s.emailToClientId[email] = client.id // Legacy support
-			s.mu.Unlock()
+			s.db.Exec("INSERT INTO sockets (email_hash, socket_id, public_key) VALUES (?, ?, ?)", eh, client.id, d.PublicKey)
 
-			resp := map[string]string{
-				"email": email,
-				"token": sessionToken,
-			}
-			respBytes, _ := json.Marshal(resp)
-			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
+			if deviceStatus == "approved" {
+				client.mu.Lock()
+				client.approved = true
+				client.mu.Unlock()
 
-			// ---------------------------------------------------------
-			// Server-Side Session Hydration
-			// ---------------------------------------------------------
+				resp := map[string]string{
+					"email": email,
+					"token": sessionToken,
+				}
+				respBytes, _ := json.Marshal(resp)
+				s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
+
 			go func() {
-				// Query friends with SID
+				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
+				if err == nil {
+					var idsToDelete []int
+					for rows.Next() {
+						var id int
+						var data string
+						if err := rows.Scan(&id, &data); err == nil {
+							var notif Frame
+							if json.Unmarshal([]byte(data), &notif) == nil {
+								s.send(client, notif)
+								idsToDelete = append(idsToDelete, id)
+							}
+						}
+					}
+					rows.Close()
+
+					for _, id := range idsToDelete {
+						s.db.Exec("DELETE FROM offline_notifications WHERE id = ?", id)
+					}
+				}
+			}()
+			
+			} else {
+				var masterPubKey string
+				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", eh).Scan(&masterPubKey)
+
+				resp := map[string]string{
+					"masterPubKey": masterPubKey,
+					"email":        email,
+					"token":        sessionToken,
+				}
+				respBytes, _ := json.Marshal(resp)
+				s.send(client, Frame{T: "AUTH_PENDING", Data: json.RawMessage(respBytes)})
+				continue
+			}
+
+			go func() {
 				rows, err := s.db.Query(`
 					SELECT sid, user1_hash, user2_hash 
 					FROM friends 
@@ -394,41 +501,51 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 
-					// Identify peer hash
 					peerHash := u1
 					if peerHash == eh {
 						peerHash = u2
 					}
 
-					// Check if peer is online
 					isOnline := false
-					// Quick check in sockets table or memory
-					// In memory is faster:
-					s.mu.Lock()
-					// But we only have emailToClientId...
-					// And we have peerHash.
-					// We can check sockets table for peerHash
-					// Or maintain hashToClientId map.
-					// Let's check DB for sockets for this peerHash
-					// (nested query inside loop is meh, but okay for MVP)
-					// Better: check if we have any client for this hash.
-					// We don't have a direct map from Hash -> Client, but we can query DB or existing sessions?
-					// Let's use the DB 'sockets' table which maps hash -> socket_id
-					s.mu.Unlock()
-
-					// Check online status
 					var onlineCount int
-					s.db.QueryRow("SELECT COUNT(*) FROM sockets WHERE email_hash = ?", peerHash).Scan(&onlineCount)
+					s.db.QueryRow("SELECT COUNT(*) FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND d.status = 'approved'", peerHash).Scan(&onlineCount)
 					isOnline = onlineCount > 0
 
-					// Add to session list
+					var peerPubKeys []string
+					if isOnline {
+						// Only transmit keys that are actively connected right now
+						keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", peerHash)
+						if err == nil {
+							for keyRows.Next() {
+								var pk string
+								if err := keyRows.Scan(&pk); err == nil {
+									peerPubKeys = append(peerPubKeys, pk)
+								}
+							}
+							keyRows.Close()
+						}
+					}
+
+					var ownPubKeys []string
+					ownKeyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", eh)
+					if err == nil {
+						for ownKeyRows.Next() {
+							var pk string
+							if err := ownKeyRows.Scan(&pk); err == nil {
+								ownPubKeys = append(ownPubKeys, pk)
+							}
+						}
+						ownKeyRows.Close()
+					}
+
 					sessions = append(sessions, map[string]any{
-						"sid":    sid,
-						"online": isOnline,
-						"peerHash": peerHash,
+						"sid":         sid,
+						"online":      isOnline,
+						"peerHash":    peerHash,
+						"peerPubKeys": peerPubKeys,
+						"ownPubKeys":  ownPubKeys,
 					})
 					
-					// Auto-join server session
 					s.mu.Lock()
 					sess, ok := s.sessions[sid]
 					if !ok {
@@ -440,6 +557,33 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					} else {
 						sess.mu.Lock()
 						sess.clients[client.id] = client
+						for _, c := range sess.clients {
+							if c.id != client.id {
+								
+								// Calculate sender's current active keys to broadcast to friends
+								var senderPubKeys []string
+								keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", eh)
+								if err == nil {
+									for keyRows.Next() {
+										var pk string
+										if err := keyRows.Scan(&pk); err == nil {
+											senderPubKeys = append(senderPubKeys, pk)
+										}
+									}
+									keyRows.Close()
+								}
+								
+								onlineData, _ := json.Marshal(map[string]any{
+									"peerPubKeys": senderPubKeys,
+								})
+
+								s.send(c, Frame{
+									T:   "PEER_ONLINE",
+									SID: sid,
+									Data: json.RawMessage(onlineData),
+								})
+							}
+						}
 						sess.mu.Unlock()
 					}
 					s.mu.Unlock()
@@ -451,10 +595,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				listData, _ := json.Marshal(sessions)
 				s.send(client, Frame{T: "SESSION_LIST", Data: json.RawMessage(listData)})
 			}()
-			// ---------------------------------------------------------
-
+	
 		case "UPDATE_PUBKEY":
 			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
 				continue
 			}
 			var d struct {
@@ -465,31 +609,150 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, emailHash(client.email))
 			}
 
-		case "GET_PUBLIC_KEY":
-			if client.email == "" {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
-				continue
-			}
+
+		case "DEVICE_LINK_REQUEST":
 			var d struct {
-				TargetEmail string `json:"targetEmail"`
+				EncryptedSpecs string `json:"encryptedSpecs"`
+				TargetPubKey   string `json:"targetPubKey"`
 			}
 			json.Unmarshal(frame.Data, &d)
-			targetEmail := normalizeEmail(d.TargetEmail)
-			targetHash := emailHash(targetEmail)
 
-			var pubKey string
-			err := s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", targetHash).Scan(&pubKey)
-			if err != nil {
-				// Not found
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"User not found"}`)})
-			} else {
-				resp, _ := json.Marshal(map[string]string{
-					"targetEmail": targetEmail,
-					"targetHash":  targetHash,
-					"publicKey":   pubKey,
-				})
-				s.send(client, Frame{T: "PUBLIC_KEY", Data: json.RawMessage(resp)})
+			eh := emailHash(client.email)
+			var senderPubKey string
+			s.db.QueryRow("SELECT public_key FROM sockets WHERE socket_id = ?", client.id).Scan(&senderPubKey)
+			
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					reqData, _ := json.Marshal(map[string]any{
+						"encryptedSpecs": d.EncryptedSpecs,
+						"senderPubKey": senderPubKey,
+					})
+					s.send(targetClient, Frame{T: "DEVICE_LINK_REQUEST", Data: json.RawMessage(reqData)})
+				}
+				s.mu.Unlock()
 			}
+			rows.Close()
+
+		case "DEVICE_LINK_ACCEPT":
+			var d struct {
+				TargetPubKey string `json:"targetPubKey"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			eh := emailHash(client.email)
+			
+			var status string
+			s.db.QueryRow("SELECT d.status FROM devices d JOIN sockets s ON d.public_key = s.public_key WHERE s.socket_id = ?", client.id).Scan(&status)
+			if status != "approved" {
+				continue
+			}
+
+			s.db.Exec("UPDATE devices SET status = 'approved' WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					s.send(targetClient, Frame{T: "DEVICE_LINK_ACCEPTED"})
+				}
+				s.mu.Unlock()
+			}
+			rows.Close()
+
+			// Broadcast DEVICE_LIST to all approved devices so their settings UI synced
+			s.broadcastDeviceList(eh)
+
+		case "DEVICE_LINK_REJECT":
+			var d struct {
+				TargetPubKey string `json:"targetPubKey"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			eh := emailHash(client.email)
+			
+			var status string
+			s.db.QueryRow("SELECT d.status FROM devices d JOIN sockets s ON d.public_key = s.public_key WHERE s.socket_id = ?", client.id).Scan(&status)
+			if status != "approved" {
+				continue
+			}
+
+			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+			
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					s.send(targetClient, Frame{T: "DEVICE_LINK_REJECTED"})
+					targetClient.conn.Close()
+				}
+				s.mu.Unlock()
+			}
+			rows.Close()
+			
+			s.broadcastDeviceList(eh)
+
+		case "DEVICE_NUCLEAR_RESET":
+			eh := emailHash(client.email)
+			var myPubKey string
+			var status string
+			s.db.QueryRow("SELECT s.public_key, d.status FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.socket_id = ?", client.id).Scan(&myPubKey, &status)
+			
+			if status != "approved" {
+				// Only an approved device can nuclear reset
+				continue
+			}
+
+			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key != ?", eh, myPubKey)
+			for rows.Next() {
+				var socketID string
+				rows.Scan(&socketID)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					s.send(targetClient, Frame{T: "DEVICE_LINK_REJECTED"})
+					targetClient.conn.Close()
+				}
+				s.mu.Unlock()
+			}
+			rows.Close()
+
+			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key != ?", eh, myPubKey)
+			s.db.Exec("UPDATE devices SET is_master = 1, status = 'approved' WHERE email_hash = ? AND public_key = ?", eh, myPubKey)
+
+			s.send(client, Frame{T: "DEVICE_NUCLEAR_SUCCESS"})
+			s.broadcastDeviceList(eh)
+
+		case "GET_DEVICES":
+			eh := emailHash(client.email)
+			rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", eh)
+			if err != nil {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to get devices"}`)})
+				continue
+			}
+			
+			var devicesList []map[string]any
+			for rows.Next() {
+				var pk, status string
+				var lastActive time.Time
+				var isMaster int
+				if err := rows.Scan(&pk, &lastActive, &isMaster, &status); err == nil {
+					devicesList = append(devicesList, map[string]any{
+						"publicKey": pk,
+						"lastActive": lastActive.Format(time.RFC3339),
+						"isMaster": isMaster == 1,
+						"status": status,
+					})
+				}
+			}
+			rows.Close()
+			
+			respBytes, _ := json.Marshal(map[string]any{"devices": devicesList})
+			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
 
 		case "FRIEND_REQUEST":
 			if client.email == "" {
@@ -506,15 +769,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			targetHash := emailHash(targetEmail)
 			senderHash := emailHash(client.email)
 
-			// Check Blocked
-			var blocked int
-			s.db.QueryRow("SELECT COUNT(*) FROM blocked WHERE blocker_hash = ? AND blocked_hash = ?", targetHash, senderHash).Scan(&blocked)
-			if blocked > 0 {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"You are blocked by this user"}`)})
-				continue
-			}
-
-			// Store Request
 			_, err := s.db.Exec(`INSERT OR REPLACE INTO requests (sender_hash, target_hash, encrypted_packet, timestamp) 
 				VALUES (?, ?, ?, ?)`, senderHash, targetHash, d.EncryptedPacket, time.Now())
 			if err != nil {
@@ -523,40 +777,39 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Fetch sender public key
-			var senderPub string
-			s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", senderHash).Scan(&senderPub)
+			// We don't send individual public keys via `FRIEND_REQUEST` anymore
+			// Instead we can send the sender's current active keys:
+			var senderPubKeys []string
+			keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
+			if err == nil {
+				for keyRows.Next() {
+					var pk string
+					if err := keyRows.Scan(&pk); err == nil {
+						senderPubKeys = append(senderPubKeys, pk)
+					}
+				}
+				keyRows.Close()
+			}
 
-			// Notify Target if Online
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
-			defer rows.Close()
 			for rows.Next() {
 				var socketID string
 				rows.Scan(&socketID)
 				
 				s.mu.Lock()
 				if targetClient, ok := s.clients[socketID]; ok {
-					reqData, _ := json.Marshal(map[string]string{
+					reqData, _ := json.Marshal(map[string]any{
 						"senderHash": senderHash,
 						"encryptedPacket": d.EncryptedPacket,
-						"publicKey": senderPub,
+						"publicKeys": senderPubKeys,
 					})
 					s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
 				}
 				s.mu.Unlock()
 			}
+			rows.Close()
 			
 			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(`{"success":true}`)})
-
-		case "CONNECT_REQ_LEGACY": // Renaming old CONNECT_REQ to avoid conflict if I didn't delete it fully, but I will delete it.
-
-			client.mu.Lock()
-			if time.Since(client.lastConnect) < 1*time.Second {
-				client.mu.Unlock()
-				// Rate limit silent for legacys
-			}
-			client.mu.Unlock()
-			// End Legacy logic placeholder
 
 		case "FRIEND_ACCEPT":
 			if client.email == "" {
@@ -573,13 +826,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			targetHash := emailHash(targetEmail)
 			senderHash := emailHash(client.email)
 
-			// Add to friends (lexicographical order)
 			u1, u2 := senderHash, targetHash
 			if u1 > u2 {
 				u1, u2 = u2, u1
 			}
 			
-			// Calculate SID
 			e1, e2 := client.email, targetEmail
 			if e1 > e2 {
 				e1, e2 = e2, e1
@@ -592,24 +843,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.logger.Printf("Error adding friend: %v", err)
 			}
 
-			// Delete request
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
 
-			// Fetch my public key (User B)
-			var myPub string
-			s.db.QueryRow("SELECT public_key FROM users WHERE email_hash = ?", senderHash).Scan(&myPub)
+			var myPubKeys []string
+			keyRows, _ := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
+			for keyRows.Next() {
+				var pk string
+				if err := keyRows.Scan(&pk); err == nil {
+					myPubKeys = append(myPubKeys, pk)
+				}
+			}
+			keyRows.Close()
 
-			// Notify Target
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
 			for rows.Next() {
 				var socketID string
 				rows.Scan(&socketID)
 				s.mu.Lock()
 				if targetClient, ok := s.clients[socketID]; ok {
-					respData, _ := json.Marshal(map[string]string{
+					respData, _ := json.Marshal(map[string]any{
 						"senderHash": senderHash,
 						"encryptedPacket": d.EncryptedPacket,
-						"publicKey": myPub,
+						"publicKeys": myPubKeys,
 					})
 					s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
 				}
@@ -617,11 +872,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			rows.Close()
 			
-			// Ack to me
 			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"`+targetEmail+`"}`)})
 
 		case "FRIEND_DENY":
-			if client.email == "" { continue }
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
 			var d struct {
 				TargetEmail string `json:"targetEmail"`
 			}
@@ -630,22 +887,35 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			senderHash := emailHash(client.email)
 			
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
-			// Notify target they were denied? User said "if they get a success or deny they get that message too".
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
-			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
-				s.mu.Lock()
-				if targetClient, ok := s.clients[socketID]; ok {
-					respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
-					s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+			// Notify target they were denied.
+			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			hasSockets := false
+			if err == nil {
+				for rows.Next() {
+					hasSockets = true
+					var socketID string
+					rows.Scan(&socketID)
+					s.mu.Lock()
+					if targetClient, ok := s.clients[socketID]; ok {
+						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+						s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+					}
+					s.mu.Unlock()
 				}
-				s.mu.Unlock()
+				rows.Close()
 			}
-			rows.Close()
+
+			if !hasSockets {
+				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+				frame, _ := json.Marshal(Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frame), time.Now())
+			}
 
 		case "BLOCK_USER":
-			if client.email == "" { continue }
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
 			var d struct {
 				TargetEmail string `json:"targetEmail"`
 			}
@@ -653,34 +923,95 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			targetHash := emailHash(normalizeEmail(d.TargetEmail))
 			senderHash := emailHash(client.email)
 			
-			s.db.Exec("INSERT OR IGNORE INTO blocked (blocker_hash, blocked_hash) VALUES (?, ?)", senderHash, targetHash)
-			// Also remove friend requests?
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
 			
-			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true}`)})
+			s.db.Exec("DELETE FROM friends WHERE (user1_hash = ? AND user2_hash = ?) OR (user1_hash = ? AND user2_hash = ?)", senderHash, targetHash, targetHash, senderHash)
+
+			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			hasSockets := false
+			if err == nil {
+				for rows.Next() {
+					hasSockets = true
+					var socketID string
+					rows.Scan(&socketID)
+					s.mu.Lock()
+					if targetClient, ok := s.clients[socketID]; ok {
+						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+						s.send(targetClient, Frame{T: "USER_BLOCKED_EVENT", Data: json.RawMessage(respData)})
+					}
+					s.mu.Unlock()
+				}
+				rows.Close()
+			}
+
+			if !hasSockets {
+				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+				frameEvent, _ := json.Marshal(Frame{T: "USER_BLOCKED_EVENT", Data: json.RawMessage(respData)})
+				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now())
+			}
+
+			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
+			
+		case "UNBLOCK_USER":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+			senderHash := emailHash(client.email)
+			
+			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			hasSockets := false
+			if err == nil {
+				for rows.Next() {
+					hasSockets = true
+					var socketID string
+					rows.Scan(&socketID)
+					s.mu.Lock()
+					if targetClient, ok := s.clients[socketID]; ok {
+						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+						s.send(targetClient, Frame{T: "USER_UNBLOCKED_EVENT", Data: json.RawMessage(respData)})
+					}
+					s.mu.Unlock()
+				}
+				rows.Close()
+			}
+
+			if !hasSockets {
+				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+				frameEvent, _ := json.Marshal(Frame{T: "USER_UNBLOCKED_EVENT", Data: json.RawMessage(respData)})
+				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now())
+			}
+
+			s.send(client, Frame{T: "USER_UNBLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
 
 		case "GET_PENDING_REQUESTS":
-			if client.email == "" { continue }
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
 			myHash := emailHash(client.email)
 			rows, err := s.db.Query(`
-				SELECT r.sender_hash, r.encrypted_packet, r.timestamp, u.public_key 
+				SELECT r.sender_hash, r.encrypted_packet, r.timestamp 
 				FROM requests r 
-				JOIN users u ON r.sender_hash = u.email_hash 
 				WHERE r.target_hash = ?`, myHash)
 			if err != nil {
 				continue
 			}
 			var pending []map[string]any
 			for rows.Next() {
-				var senderHash, packet, pubKey string
+				var senderHash, packet string
 				var ts time.Time
-				rows.Scan(&senderHash, &packet, &ts, &pubKey)
+				rows.Scan(&senderHash, &packet, &ts)
 				pending = append(pending, map[string]any{
 					"senderHash": senderHash,
 					"encryptedPacket": packet,
 					"timestamp": ts,
-					"publicKey": pubKey,
 				})
 			}
 			rows.Close()
@@ -858,7 +1189,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			var msgData struct {
-				Payload string `json:"payload"`
+				Payloads map[string]string `json:"payloads"`
 			}
 			if err := json.Unmarshal(frame.Data, &msgData); err != nil {
 				s.send(client, Frame{
@@ -867,7 +1198,19 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			if msgData.Payload == "" || len(msgData.Payload) > maxEncryptedDataBytes {
+			if len(msgData.Payloads) == 0 {
+				s.send(client, Frame{
+					T:    "ERROR",
+					Data: json.RawMessage(`{"message":"Message payloads missing"}`),
+				})
+				continue
+			}
+
+			totalSize := 0
+			for _, p := range msgData.Payloads {
+				totalSize += len(p)
+			}
+			if totalSize > maxEncryptedDataBytes {
 				s.send(client, Frame{
 					T:    "ERROR",
 					Data: json.RawMessage(`{"message":"Message payload too large"}`),
@@ -912,8 +1255,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			recipientCount := 0
-			relayData, _ := json.Marshal(map[string]string{
-				"payload": msgData.Payload,
+			relayData, _ := json.Marshal(map[string]any{
+				"payloads": msgData.Payloads,
 			})
 			relayFrame := Frame{
 				T:    "MSG",
@@ -959,10 +1302,33 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
+			var targetSocketIDs []string
+			if frame.TargetPubKey != "" {
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE public_key = ?", frame.TargetPubKey)
+				if err == nil {
+					for rows.Next() {
+						var sid string
+						if err := rows.Scan(&sid); err == nil {
+							targetSocketIDs = append(targetSocketIDs, sid)
+						}
+					}
+					rows.Close()
+				}
+			}
+
 			sess.mu.Lock()
 			for _, c := range sess.clients {
 				if c.id != client.id {
-					s.send(c, frame)
+					isTarget := false
+					for _, tsid := range targetSocketIDs {
+						if c.id == tsid {
+							isTarget = true
+							break
+						}
+					}
+					if isTarget {
+						s.send(c, frame)
+					}
 				}
 			}
 			sess.mu.Unlock()
@@ -983,10 +1349,33 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
+			var targetSocketIDs []string
+			if frame.TargetPubKey != "" {
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE public_key = ?", frame.TargetPubKey)
+				if err == nil {
+					for rows.Next() {
+						var sid string
+						if err := rows.Scan(&sid); err == nil {
+							targetSocketIDs = append(targetSocketIDs, sid)
+						}
+					}
+					rows.Close()
+				}
+			}
+
 			sess.mu.Lock()
 			for _, c := range sess.clients {
 				if c.id != client.id {
-					s.send(c, frame)
+					isTarget := false
+					for _, tsid := range targetSocketIDs {
+						if c.id == tsid {
+							isTarget = true
+							break
+						}
+					}
+					if isTarget {
+						s.send(c, frame)
+					}
 				}
 			}
 			sess.mu.Unlock()
@@ -1007,10 +1396,33 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
+			var targetSocketIDs []string
+			if frame.TargetPubKey != "" {
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE public_key = ?", frame.TargetPubKey)
+				if err == nil {
+					for rows.Next() {
+						var sid string
+						if err := rows.Scan(&sid); err == nil {
+							targetSocketIDs = append(targetSocketIDs, sid)
+						}
+					}
+					rows.Close()
+				}
+			}
+
 			sess.mu.Lock()
 			for _, c := range sess.clients {
 				if c.id != client.id {
-					s.send(c, frame)
+					isTarget := false
+					for _, tsid := range targetSocketIDs {
+						if c.id == tsid {
+							isTarget = true
+							break
+						}
+					}
+					if isTarget {
+						s.send(c, frame)
+					}
 				}
 			}
 			sess.mu.Unlock()
@@ -1065,9 +1477,13 @@ func (s *Server) initDB() error {
 
 	// Create tables
 	queries := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-			email_hash TEXT PRIMARY KEY,
-			public_key TEXT
+		`CREATE TABLE IF NOT EXISTS devices (
+			email_hash TEXT,
+			public_key TEXT,
+			last_active DATETIME,
+			is_master BOOLEAN DEFAULT 0,
+			status TEXT DEFAULT 'pending',
+			PRIMARY KEY (email_hash, public_key)
 		);`,
 		`CREATE TABLE IF NOT EXISTS requests (
 			sender_hash TEXT,
@@ -1083,15 +1499,17 @@ func (s *Server) initDB() error {
 			sid TEXT,
 			PRIMARY KEY (user1_hash, user2_hash)
 		);`,
-		`CREATE TABLE IF NOT EXISTS blocked (
-			blocker_hash TEXT,
-			blocked_hash TEXT,
-			PRIMARY KEY (blocker_hash, blocked_hash)
-		);`,
 		`CREATE TABLE IF NOT EXISTS sockets (
 			email_hash TEXT,
 			socket_id TEXT,
+			public_key TEXT,
 			PRIMARY KEY (email_hash, socket_id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS offline_notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_hash TEXT,
+			event_data TEXT,
+			timestamp DATETIME
 		);`,
 	}
 
@@ -1101,14 +1519,34 @@ func (s *Server) initDB() error {
 		}
 	}
 
-	// Clean up phantom sockets on startup
-	_, _ = s.db.Exec("DELETE FROM sockets")
+	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour)
+	s.db.Exec("DELETE FROM devices WHERE last_active < ?", thirtyDaysAgo)
+	s.db.Exec("DELETE FROM requests WHERE timestamp < ?", thirtyDaysAgo)
+	s.db.Exec("DELETE FROM offline_notifications WHERE timestamp < ?", thirtyDaysAgo)
 
-	// Migration: Add sid column if not exists
+	_, _ = s.db.Exec("DELETE FROM sockets")
 	var sidColCount int
 	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('friends') WHERE name='sid'").Scan(&sidColCount)
 	if sidColCount == 0 {
 		s.db.Exec("ALTER TABLE friends ADD COLUMN sid TEXT")
+	}
+
+	var pubKeyColCount int
+	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sockets') WHERE name='public_key'").Scan(&pubKeyColCount)
+	if pubKeyColCount == 0 {
+		s.db.Exec("ALTER TABLE sockets ADD COLUMN public_key TEXT")
+	}
+
+	var isMasterColCount int
+	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name='is_master'").Scan(&isMasterColCount)
+	if isMasterColCount == 0 {
+		s.db.Exec("ALTER TABLE devices ADD COLUMN is_master BOOLEAN DEFAULT 0")
+	}
+
+	var statusColCount int
+	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name='status'").Scan(&statusColCount)
+	if statusColCount == 0 {
+		s.db.Exec("ALTER TABLE devices ADD COLUMN status TEXT DEFAULT 'pending'")
 	}
 
 	return nil
@@ -1122,10 +1560,9 @@ func main() {
 	defer f.Close()
 
 	s := &Server{
-		clients:         make(map[string]*Client),
-		sessions:        make(map[string]*Session),
-		emailToClientId: make(map[string]string),
-		logger:          log.New(f, "", 0),
+		clients:     make(map[string]*Client),
+		sessions:    make(map[string]*Session),
+		logger:      log.New(f, "", 0),
 		rateLimiter: &RateLimiter{
 			ipAttempts: make(map[string][]time.Time),
 		},

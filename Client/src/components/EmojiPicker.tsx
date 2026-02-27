@@ -38,6 +38,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
         theme={Theme.DARK}
         onEmojiClick={onEmojiClick}
         lazyLoadEmojis={true}
+        autoFocusSearch={false}
       />
     </PickerWrapper>
   );

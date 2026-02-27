@@ -1,14 +1,19 @@
 import { EventEmitter } from "events";
 import { AuthService } from "../auth/AuthService";
 import { AccountService } from "../auth/AccountService";
-import { queryDB, executeDB } from "../storage/sqliteService";
+import {
+  queryDB,
+  executeDB,
+  addBlockedUser,
+  removeBlockedUser,
+} from "../storage/sqliteService";
 import { WorkerManager } from "../core/WorkerManager";
 import socket from "../core/SocketManager";
 import { sha256 } from "../../utils/crypto";
 import { StorageService } from "../storage/StorageService";
 
 export interface ChatSession {
-  cryptoKey: CryptoKey;
+  cryptoKeys: Record<string, CryptoKey>;
   online: boolean;
   peerEmail?: string;
   peerEmailHash?: string;
@@ -17,6 +22,8 @@ export interface ChatSession {
   peer_name_ver?: number;
   peer_avatar_ver?: number;
   isConnected?: boolean;
+  peerPubKeys?: string[];
+  ownPubKeys?: string[];
 }
 
 export class SessionService extends EventEmitter {
@@ -38,7 +45,7 @@ export class SessionService extends EventEmitter {
     sid: string,
     data: string | Uint8Array | ArrayBuffer,
     priority: number,
-  ): Promise<string> {
+  ): Promise<Record<string, string>> {
     const buffer =
       data instanceof Uint8Array ? (data.buffer as ArrayBuffer) : data;
     return WorkerManager.getInstance().encrypt(sid, buffer, priority);
@@ -67,14 +74,33 @@ export class SessionService extends EventEmitter {
         const peerEmailHash =
           row.peer_hash ||
           (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
+        const jwksMap: Record<string, any> = JSON.parse(row.keyJWK || "{}");
+        const cryptoKeysMap: Record<string, CryptoKey> = {};
+
+        for (const [pubKey, jwk] of Object.entries(jwksMap)) {
+          if (!jwk || typeof jwk !== "object") continue;
+          try {
+            cryptoKeysMap[pubKey] = await crypto.subtle.importKey(
+              "jwk",
+              jwk as JsonWebKey,
+              { name: "AES-GCM" },
+              false,
+              ["encrypt", "decrypt"],
+            );
+          } catch (importErr) {
+            console.warn(
+              `[SessionService] Skipping corrupted JWK for ${pubKey}`,
+              importErr,
+            );
+          }
+        }
+
+        const peerPubKeysList = row.peer_pub_keys
+          ? JSON.parse(row.peer_pub_keys)
+          : [];
+
         this.sessions[row.sid] = {
-          cryptoKey: await crypto.subtle.importKey(
-            "jwk",
-            JSON.parse(row.keyJWK),
-            { name: "AES-GCM" },
-            false,
-            ["encrypt", "decrypt"],
-          ),
+          cryptoKeys: cryptoKeysMap,
           online: previousSessions[row.sid]?.online || false,
           peerEmail: normalizedPeerEmail || undefined,
           peerEmailHash,
@@ -83,9 +109,10 @@ export class SessionService extends EventEmitter {
           peer_name_ver: row.peer_name_ver || 0,
           peer_avatar_ver: row.peer_avatar_ver || 0,
           isConnected: this.connectedSids.has(row.sid),
+          peerPubKeys: peerPubKeysList,
         };
-        const jwk = JSON.parse(row.keyJWK);
-        await WorkerManager.getInstance().initSession(row.sid, jwk);
+
+        await WorkerManager.getInstance().initSession(row.sid, jwksMap);
       } catch (e) {
         console.error("Failed to load session", row.sid, e);
       }
@@ -175,15 +202,29 @@ export class SessionService extends EventEmitter {
 
   public async finalizeSession(
     sid: string,
-    remotePubB64: string,
+    remotePubB64s: string[],
     peerEmail?: string,
     peerEmailHash?: string,
     peerName?: string,
     peerAvatar?: string,
     peerNameVer?: number,
     peerAvatarVer?: number,
+    ownPubKeys?: string[],
   ) {
-    const sharedKey = await this.deriveSharedKey(remotePubB64);
+    const cryptoKeysMap: Record<string, CryptoKey> = {};
+    const jwksMap: Record<string, any> = {};
+
+    const allKeysForDerivation = new Set([
+      ...remotePubB64s,
+      ...(ownPubKeys || []),
+    ]);
+
+    for (const pubB64 of allKeysForDerivation) {
+      if (!pubB64) continue;
+      const sharedKey = await this.deriveSharedKey(pubB64);
+      cryptoKeysMap[pubB64] = sharedKey;
+      jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", sharedKey);
+    }
     const normalizedPeerEmail = this.normalizeEmail(peerEmail);
     const resolvedPeerEmailHash =
       peerEmailHash ||
@@ -215,7 +256,7 @@ export class SessionService extends EventEmitter {
       : 0;
 
     this.sessions[sid] = {
-      cryptoKey: sharedKey,
+      cryptoKeys: cryptoKeysMap,
       online: true,
       peerEmail: normalizedPeerEmail || undefined,
       peerEmailHash: resolvedPeerEmailHash,
@@ -224,16 +265,19 @@ export class SessionService extends EventEmitter {
       peer_name_ver: resolvedPeerNameVer,
       peer_avatar_ver: resolvedPeerAvatarVer,
       isConnected: true,
+      peerPubKeys: remotePubB64s,
+      ownPubKeys: ownPubKeys || [],
     };
-    const jwk = await crypto.subtle.exportKey("jwk", sharedKey);
-    await WorkerManager.getInstance().initSession(sid, jwk);
+
+    await WorkerManager.getInstance().initSession(sid, jwksMap);
     await executeDB(
-      "INSERT OR IGNORE INTO sessions (sid, keyJWK) VALUES (?, ?)",
-      [sid, JSON.stringify(jwk)],
+      "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys) VALUES (?, ?, ?)",
+      [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s)],
     );
     await executeDB(
       `UPDATE sessions
        SET keyJWK = ?,
+           peer_pub_keys = ?,
            peer_email = COALESCE(?, peer_email),
            peer_hash = COALESCE(?, peer_hash),
            peer_name = COALESCE(?, peer_name),
@@ -248,7 +292,8 @@ export class SessionService extends EventEmitter {
            END
        WHERE sid = ?`,
       [
-        JSON.stringify(jwk),
+        JSON.stringify(jwksMap),
+        JSON.stringify(remotePubB64s),
         normalizedPeerEmail || null,
         resolvedPeerEmailHash || null,
         peerName || null,
@@ -299,11 +344,13 @@ export class SessionService extends EventEmitter {
     });
   }
 
-  public async sendFriendRequest(targetEmail: string, remotePubB64: string) {
+  public async sendFriendRequest(targetEmail: string, remotePubB64s: string[]) {
     try {
       if (!this.authService.userEmail) throw new Error("Not logged in");
+      if (!remotePubB64s.length) throw new Error("No remote keys provided");
 
-      const sharedKey = await this.deriveSharedKey(remotePubB64);
+      // Handshakes only need to encrypt against one known device to notify the peer.
+      const sharedKey = await this.deriveSharedKey(remotePubB64s[0]);
       const profile = await this.getLocalProfileForHandshake();
 
       const packetData = JSON.stringify({
@@ -345,11 +392,12 @@ export class SessionService extends EventEmitter {
 
   public async acceptFriend(
     targetEmail: string,
-    remotePubB64: string,
+    remotePubB64s: string[],
     senderHash: string,
   ) {
     try {
-      const sharedKey = await this.deriveSharedKey(remotePubB64);
+      if (!remotePubB64s.length) throw new Error("No remote keys provided");
+      const sharedKey = await this.deriveSharedKey(remotePubB64s[0]);
       const profile = await this.getLocalProfileForHandshake();
 
       const packetData = JSON.stringify({
@@ -380,7 +428,7 @@ export class SessionService extends EventEmitter {
 
       await this.finalizeSession(
         sid,
-        remotePubB64,
+        remotePubB64s,
         targetEmail,
         undefined,
         undefined,
@@ -413,13 +461,29 @@ export class SessionService extends EventEmitter {
     });
   }
 
-  public blockUser(targetEmail: string) {
+  public async blockUser(targetEmail: string) {
+    const norm = this.normalizeEmail(targetEmail);
+    // Send to server
     socket.send({
       t: "BLOCK_USER",
-      data: { targetEmail },
+      data: { targetEmail: norm },
       c: true,
       p: 0,
     });
+    // Store locally
+    await addBlockedUser(norm);
+  }
+
+  public async unblockUser(targetEmail: string) {
+    const norm = this.normalizeEmail(targetEmail);
+    socket.send({
+      t: "UNBLOCK_USER",
+      data: { targetEmail: norm },
+      c: true,
+      p: 0,
+    });
+    // Remove locally
+    await removeBlockedUser(norm);
   }
 
   public getSession(sid: string) {
@@ -452,6 +516,67 @@ export class SessionService extends EventEmitter {
     }
   }
 
+  public async sendDeviceLinkRequest(targetPubKey: string) {
+    try {
+      const sharedKey = await this.deriveSharedKey(targetPubKey);
+      const specs = JSON.stringify({
+        os: navigator.userAgent,
+        name: "CryptNode App",
+        timestamp: Date.now(),
+      });
+
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        sharedKey,
+        new TextEncoder().encode(specs),
+      );
+
+      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
+      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+      const encryptedSpecs = `${ivB64}.${cipherB64}`;
+
+      socket.send({
+        t: "DEVICE_LINK_REQUEST",
+        data: { targetPubKey, encryptedSpecs },
+        c: true,
+        p: 0,
+      });
+    } catch (e) {
+      console.error("Failed to send device link request", e);
+      throw e;
+    }
+  }
+
+  public async decryptDeviceLinkRequest(
+    encryptedSpecs: string,
+    senderPubKey: string,
+  ) {
+    if (!encryptedSpecs || !encryptedSpecs.includes(".")) return null;
+    try {
+      const sharedKey = await this.deriveSharedKey(senderPubKey);
+      const [ivB64, cipherB64] = encryptedSpecs.split(".");
+
+      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+      const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
+
+      const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        sharedKey,
+        cipher,
+      );
+
+      return JSON.parse(new TextDecoder().decode(decrypted)) as {
+        os: string;
+        name: string;
+        timestamp: number;
+      };
+    } catch (e) {
+      console.error("Failed to decrypt device link request", e);
+      return null;
+    }
+  }
+
   public async handleFriendAccept(data: {
     publicKey: string;
     encryptedPacket: string;
@@ -469,7 +594,7 @@ export class SessionService extends EventEmitter {
 
     await this.finalizeSession(
       sid,
-      data.publicKey,
+      [data.publicKey],
       profile.email,
       undefined,
       profile.name,
@@ -496,7 +621,13 @@ export class SessionService extends EventEmitter {
   }
 
   public handleSessionList(
-    list: { sid: string; online: boolean; peerHash: string }[],
+    list: {
+      sid: string;
+      online: boolean;
+      peerHash: string;
+      peerPubKeys?: string[];
+      ownPubKeys?: string[];
+    }[],
   ) {
     let changed = false;
     this.connectedSids = new Set(list.map((item) => item.sid));
@@ -517,11 +648,64 @@ export class SessionService extends EventEmitter {
         if (!this.sessions[item.sid].peerEmailHash && item.peerHash) {
           this.sessions[item.sid].peerEmailHash = item.peerHash;
         }
+
+        // Dynamic Key Rotation if peer app was reinstalled or devices changed
+        const currentKeys = JSON.stringify({
+          peer: this.sessions[item.sid].peerPubKeys || [],
+          own: this.sessions[item.sid].ownPubKeys || [],
+        });
+        const newKeys = JSON.stringify({
+          peer: item.peerPubKeys || [],
+          own: item.ownPubKeys || [],
+        });
+        if ((item.peerPubKeys || item.ownPubKeys) && currentKeys !== newKeys) {
+          console.log(
+            `[SessionService] PublicKeys for ${item.sid} changed. Re-deriving shared keys...`,
+          );
+          this.finalizeSession(
+            item.sid,
+            item.peerPubKeys || [],
+            this.sessions[item.sid].peerEmail,
+            this.sessions[item.sid].peerEmailHash,
+            this.sessions[item.sid].peerName,
+            this.sessions[item.sid].peerAvatar,
+            this.sessions[item.sid].peer_name_ver,
+            this.sessions[item.sid].peer_avatar_ver,
+            item.ownPubKeys || this.sessions[item.sid].ownPubKeys,
+          ).catch((e) =>
+            console.error(
+              "Failed to re-derive session key on pubKey rotation:",
+              e,
+            ),
+          );
+        }
       } else {
         console.warn(
           "[SessionService] Server has session not found locally:",
           item.sid,
         );
+        if ((item.peerPubKeys || item.ownPubKeys) && item.peerHash) {
+          console.log(
+            "[SessionService] Reconstructing missing local session from server data",
+            item.sid,
+          );
+          this.finalizeSession(
+            item.sid,
+            item.peerPubKeys || [],
+            undefined,
+            item.peerHash,
+            undefined,
+            undefined,
+            0,
+            0,
+            item.ownPubKeys,
+          ).catch((e) =>
+            console.error(
+              "Failed to auto-restore session from server list:",
+              e,
+            ),
+          );
+        }
       }
     }
     if (changed) {

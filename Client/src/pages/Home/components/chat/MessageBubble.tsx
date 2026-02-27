@@ -18,6 +18,8 @@ import {
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { Avatar } from "../../../../components/ui/Avatar";
 import { UnsafeLinkModal } from "./UnsafeLinkModal";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 
 import { AudioBubble } from "./bubbles/AudioBubble";
 import { ImageBubble } from "./bubbles/ImageBubble";
@@ -36,8 +38,6 @@ import {
   ReplyButton,
   ReplyContext,
   MediaContainer,
-  ContextMenuContainer,
-  ContextMenuItem,
   ReactionBar,
   ReactionButton,
   MoreReactionsButton,
@@ -88,10 +88,9 @@ export const MessageBubble = React.memo(
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{
-      visible: boolean;
-      x: number;
-      y: number;
-    }>({ visible: false, x: 0, y: 0 });
+      mouseX: number;
+      mouseY: number;
+    } | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(msg.text || "");
     const [pendingExternalUrl, setPendingExternalUrl] = useState<string | null>(
@@ -152,15 +151,19 @@ export const MessageBubble = React.memo(
     };
 
     useEffect(() => {
-      const handleClickOutside = () =>
-        setContextMenu({ visible: false, x: 0, y: 0 });
-      window.addEventListener("click", handleClickOutside);
-      return () => window.removeEventListener("click", handleClickOutside);
+      // MUI handles clickaway
     }, []);
 
     const handleContextMenu = (e: React.MouseEvent) => {
       e.preventDefault();
-      setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
+      setContextMenu(
+        contextMenu === null
+          ? {
+              mouseX: e.clientX,
+              mouseY: e.clientY,
+            }
+          : null,
+      );
     };
 
     const handleCopy = async () => {
@@ -184,13 +187,13 @@ export const MessageBubble = React.memo(
         }
         document.body.removeChild(textArea);
       }
-      setContextMenu({ visible: false, x: 0, y: 0 });
+      setContextMenu(null);
     };
 
     const handleEdit = () => {
       setIsEditing(true);
       setEditText(msg.text || "");
-      setContextMenu({ visible: false, x: 0, y: 0 });
+      setContextMenu(null);
     };
 
     const handleSaveEdit = () => {
@@ -208,7 +211,7 @@ export const MessageBubble = React.memo(
     const handleDelete = () => {
       if (msg.sid && msg.id) {
         ChatClient.deleteMessage(msg.sid, msg.id);
-        setContextMenu({ visible: false, x: 0, y: 0 });
+        setContextMenu(null);
       }
     };
 
@@ -569,9 +572,8 @@ export const MessageBubble = React.memo(
 
       pressTimer.current = setTimeout(() => {
         setContextMenu({
-          visible: true,
-          x: clientX,
-          y: clientY,
+          mouseX: clientX,
+          mouseY: clientY,
         });
         if (window.navigator && window.navigator.vibrate) {
           window.navigator.vibrate(50);
@@ -972,29 +974,36 @@ export const MessageBubble = React.memo(
           </ReactionBubble>
         )}
 
-        {contextMenu.visible && (
-          <React.Fragment>
-            <div
-              style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                bottom: 0,
-                right: 0,
-                zIndex: 999,
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setContextMenu({ visible: false, x: 0, y: 0 });
-              }}
-            />
-            <ContextMenuContainer
-              x={Math.min(contextMenu.x, window.innerWidth - 360)}
-              y={Math.max(
-                70,
-                Math.min(contextMenu.y, window.innerHeight - 300),
-              )}
-            >
+        {contextMenu !== null && (
+          <Menu
+            open={contextMenu !== null}
+            onClose={(e: any) => {
+              e.stopPropagation();
+              setContextMenu(null);
+            }}
+            anchorReference="anchorPosition"
+            anchorPosition={
+              contextMenu !== null
+                ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+                : undefined
+            }
+            MenuListProps={{
+              style: {
+                backgroundColor: "#1f2937",
+                color: "white",
+                borderRadius: "8px",
+              },
+            }}
+            PaperProps={{
+              style: {
+                backgroundColor: "#1f2937",
+                borderRadius: "8px",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+              },
+            }}
+          >
+            <div style={{ padding: "8px 16px", outline: "none" }}>
               <ReactionBar>
                 {recentEmojis.map((emoji) => (
                   <ReactionButton
@@ -1003,7 +1012,7 @@ export const MessageBubble = React.memo(
                       e.stopPropagation();
                       handleReaction({ emoji });
                       trackEmoji(emoji);
-                      setContextMenu({ visible: false, x: 0, y: 0 });
+                      setContextMenu(null);
                     }}
                   >
                     {emoji}
@@ -1013,58 +1022,61 @@ export const MessageBubble = React.memo(
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowPicker(true);
-                    setContextMenu({ visible: false, x: 0, y: 0 });
+                    setContextMenu(null);
                   }}
                 >
                   <Plus size={16} />
                 </MoreReactionsButton>
               </ReactionBar>
+            </div>
 
-              <ContextMenuItem
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onReply) {
+                  onReply(msg);
+                  setContextMenu(null);
+                }
+              }}
+              style={{ gap: "10px" }}
+            >
+              <Reply size={18} /> Reply
+            </MenuItem>
+
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy();
+              }}
+              style={{ gap: "10px" }}
+            >
+              <Copy size={18} /> Copy
+            </MenuItem>
+
+            {isEditable && (
+              <MenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (onReply) {
-                    onReply(msg);
-                    setContextMenu({ visible: false, x: 0, y: 0 });
-                  }
+                  handleEdit();
                 }}
+                style={{ gap: "10px" }}
               >
-                <Reply size={18} /> Reply
-              </ContextMenuItem>
+                <Edit2 size={18} /> Edit
+              </MenuItem>
+            )}
 
-              <ContextMenuItem
+            {isDeletable && (
+              <MenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleCopy();
+                  handleDelete();
                 }}
+                style={{ gap: "10px", color: "#f87171" }}
               >
-                <Copy size={18} /> Copy
-              </ContextMenuItem>
-
-              {isEditable && (
-                <ContextMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleEdit();
-                  }}
-                >
-                  <Edit2 size={18} /> Edit
-                </ContextMenuItem>
-              )}
-
-              {isDeletable && (
-                <ContextMenuItem
-                  variant="danger"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete();
-                  }}
-                >
-                  <Trash2 size={18} /> Delete
-                </ContextMenuItem>
-              )}
-            </ContextMenuContainer>
-          </React.Fragment>
+                <Trash2 size={18} /> Delete
+              </MenuItem>
+            )}
+          </Menu>
         )}
 
         {showPicker && (

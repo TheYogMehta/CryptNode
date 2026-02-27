@@ -5,6 +5,7 @@ import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
 import { AuthService } from "../auth/AuthService";
 import { SessionService } from "./SessionService";
+import { SyncManager } from "./SyncManager";
 import { TEXT_CHUNK_SIZE_CHARS } from "../core/protocolLimits";
 
 interface IMessageClient {
@@ -12,7 +13,11 @@ interface IMessageClient {
   sessionService: SessionService;
   fileTransfer: FileTransferService;
   callService: CallService;
-  encryptForSession(sid: string, data: any, priority: number): Promise<string>;
+  encryptForSession(
+    sid: string,
+    data: any,
+    priority: number,
+  ): Promise<Record<string, string>>;
   send(frame: any): void;
   emit(event: string, ...args: any[]): boolean;
   insertMessageRecord(
@@ -51,9 +56,12 @@ export class MessageService extends EventEmitter {
     }
   >();
 
+  public syncManager: SyncManager;
+
   constructor(client: IMessageClient) {
     super();
     this.client = client;
+    this.syncManager = new SyncManager(this);
   }
 
   private splitTextIntoChunks(text: string, chunkSize: number): string[] {
@@ -99,13 +107,15 @@ export class MessageService extends EventEmitter {
       timestamp: number;
       replyTo?: any;
     },
+    senderString: "me" | "other",
   ) {
     try {
       await executeDB(
-        "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'other', ?, ?, ?, 2, ?)",
+        "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, ?, ?, ?, ?, 2, ?)",
         [
           data.id,
           sid,
+          senderString,
           data.text,
           data.type.toLowerCase(),
           data.timestamp,
@@ -118,7 +128,7 @@ export class MessageService extends EventEmitter {
     this.client.emit("message", {
       sid,
       text: data.text,
-      sender: "other",
+      sender: senderString,
       type: data.type.toLowerCase(),
       id: data.id,
       replyTo: data.replyTo,
@@ -156,7 +166,7 @@ export class MessageService extends EventEmitter {
       ) {
         const chunks = this.splitTextIntoChunks(text, TEXT_CHUNK_SIZE_CHARS);
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-          const payload = await this.client.encryptForSession(
+          const payloads = await this.client.encryptForSession(
             sid,
             JSON.stringify({
               t: "MSG",
@@ -176,13 +186,13 @@ export class MessageService extends EventEmitter {
           this.client.send({
             t: "MSG",
             sid,
-            data: { payload },
+            data: { payloads },
             c: chunkIndex === chunks.length - 1,
             p: 1,
           });
         }
       } else {
-        const payload = await this.client.encryptForSession(
+        const payloads = await this.client.encryptForSession(
           sid,
           JSON.stringify({
             t: "MSG",
@@ -196,10 +206,38 @@ export class MessageService extends EventEmitter {
           }),
           1,
         );
-        this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
+        this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 1 });
       }
     } catch (e) {
       console.error("[MessageService] Failed to save sent message:", e);
+    }
+  }
+
+  public async requestSync(sid: string, lastSyncTimestamp: number) {
+    if (!this.client.sessionService.sessions[sid]) return;
+
+    try {
+      const payloads = await this.client.encryptForSession(
+        sid,
+        JSON.stringify({
+          t: "MSG",
+          data: {
+            type: "SYNC_REQ",
+            timestamp: lastSyncTimestamp,
+          },
+        }),
+        1,
+      );
+
+      this.client.send({
+        t: "MSG",
+        sid,
+        data: { payloads },
+        c: true,
+        p: 1,
+      });
+    } catch (e) {
+      console.error("[MessageService] Failed to request cross-device sync:", e);
     }
   }
 
@@ -207,7 +245,7 @@ export class MessageService extends EventEmitter {
     if (!this.client.sessionService.sessions[sid])
       throw new Error("Session not found");
 
-    const payload = await this.client.encryptForSession(
+    const payloads = await this.client.encryptForSession(
       sid,
       JSON.stringify({
         t: "MSG",
@@ -224,7 +262,7 @@ export class MessageService extends EventEmitter {
     this.client.send({
       t: "MSG",
       sid,
-      data: { payload },
+      data: { payloads },
       c: true,
       p: 1,
     });
@@ -259,7 +297,7 @@ export class MessageService extends EventEmitter {
       console.log(
         `[MessageService] Deleting my message ${messageId}, sending retraction to peer`,
       );
-      const payload = await this.client.encryptForSession(
+      const payloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({
           t: "MSG",
@@ -275,7 +313,7 @@ export class MessageService extends EventEmitter {
       this.client.send({
         t: "MSG",
         sid,
-        data: { payload },
+        data: { payloads },
         c: true,
         p: 1,
       });
@@ -314,7 +352,12 @@ export class MessageService extends EventEmitter {
     }
   }
 
-  public async handleMsg(sid: string, payload: string, priority: number = 1) {
+  public async handleMsg(
+    sid: string,
+    payload: string,
+    senderHash?: string,
+    priority: number = 1,
+  ) {
     if (!this.client.sessionService.sessions[sid]) {
       console.warn(`[MessageService] Received MSG for unknown session ${sid}`);
       return;
@@ -346,6 +389,25 @@ export class MessageService extends EventEmitter {
 
       console.log(`[MessageService] Received ${data.type}:`, data);
 
+      let isOwnMessage = false;
+      const myEmail = this.client.authService.userEmail;
+      if (myEmail && senderHash) {
+        const myHash = await crypto.subtle
+          .digest(
+            "SHA-256",
+            new TextEncoder().encode(myEmail.trim().toLowerCase()),
+          )
+          .then((b) =>
+            Array.from(new Uint8Array(b))
+              .map((x) => x.toString(16).padStart(2, "0"))
+              .join(""),
+          );
+        if (myHash.toLowerCase() === senderHash.toLowerCase()) {
+          isOwnMessage = true;
+        }
+      }
+      const senderString = isOwnMessage ? "me" : "other";
+
       switch (data.type) {
         case "MIC_STATUS":
           this.client.emit("peer_mic_status", { sid, muted: data.muted });
@@ -357,13 +419,17 @@ export class MessageService extends EventEmitter {
         case "TEXT":
         case "GIF":
         case "IMAGE":
-          await this.saveAndEmitInboundMessage(sid, {
-            id: data.id,
-            type: data.type,
-            text: data.text,
-            timestamp: data.timestamp,
-            replyTo: data.replyTo,
-          });
+          await this.saveAndEmitInboundMessage(
+            sid,
+            {
+              id: data.id,
+              type: data.type,
+              text: data.text,
+              timestamp: data.timestamp,
+              replyTo: data.replyTo,
+            },
+            senderString,
+          );
           break;
         case "TEXT_CHUNK":
           if (
@@ -412,13 +478,17 @@ export class MessageService extends EventEmitter {
             break;
           }
           this.textChunkBuffer.delete(key);
-          await this.saveAndEmitInboundMessage(sid, {
-            id: data.id,
-            type: buffer.chunkType,
-            text: buffer.parts.join(""),
-            timestamp: buffer.timestamp,
-            replyTo: buffer.replyTo,
-          });
+          await this.saveAndEmitInboundMessage(
+            sid,
+            {
+              id: data.id,
+              type: buffer.chunkType,
+              text: buffer.parts.join(""),
+              timestamp: buffer.timestamp,
+              replyTo: buffer.replyTo,
+            },
+            senderString,
+          );
           break;
         case "EDIT":
           try {
@@ -428,7 +498,7 @@ export class MessageService extends EventEmitter {
             );
             if (msgRows.length > 0) {
               const msg = msgRows[0];
-              if (msg.sid !== sid || msg.sender !== "other") {
+              if (msg.sid !== sid || msg.sender !== senderString) {
                 console.warn(
                   "[MessageService] Ignoring EDIT for message not owned by sender",
                   data.id,
@@ -474,7 +544,7 @@ export class MessageService extends EventEmitter {
             );
             if (msgRowsDelete.length > 0) {
               const msg = msgRowsDelete[0];
-              if (msg.sid !== sid || msg.sender !== "other") {
+              if (msg.sid !== sid || msg.sender !== senderString) {
                 console.warn(
                   "[MessageService] Ignoring DELETE for message not owned by sender",
                   data.id,
@@ -511,6 +581,100 @@ export class MessageService extends EventEmitter {
               "[MessageService] Failed to process DELETE message:",
               e,
             );
+          }
+          break;
+        case "SYNC_REQ":
+          console.log(
+            `[MessageService] Handling SYNC_REQ from ${sid} since ${data.timestamp}`,
+          );
+          try {
+            const rows = await queryDB(
+              "SELECT id, text, type, timestamp, reply_to, sender FROM messages WHERE sid = ? AND timestamp > ? ORDER BY timestamp ASC LIMIT 50",
+              [sid, data.timestamp || 0],
+            );
+
+            if (rows.length > 0) {
+              const payloads = await this.client.encryptForSession(
+                sid,
+                JSON.stringify({
+                  t: "MSG",
+                  data: {
+                    type: "SYNC_ACK",
+                    messages: rows,
+                  },
+                }),
+                1,
+              );
+              this.client.send({
+                t: "MSG",
+                sid,
+                data: { payloads },
+                c: true,
+                p: 1,
+              });
+            }
+          } catch (err) {
+            console.error("[MessageService] Failed sending SYNC_ACK", err);
+          }
+          break;
+        case "SYNC_ACK":
+          console.log(
+            `[MessageService] Received SYNC_ACK from ${sid} with ${
+              data.messages?.length || 0
+            } items`,
+          );
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            let maxTimestamp = 0;
+            for (const syncedMsg of data.messages) {
+              if (syncedMsg.timestamp > maxTimestamp)
+                maxTimestamp = syncedMsg.timestamp;
+
+              const existingRows = await queryDB(
+                "SELECT id, text, type FROM messages WHERE id = ?",
+                [syncedMsg.id],
+              );
+              if (existingRows.length > 0) {
+                const existing = existingRows[0];
+                if (
+                  existing.text !== syncedMsg.text ||
+                  existing.type !== syncedMsg.type
+                ) {
+                  await executeDB(
+                    "UPDATE messages SET text = ?, type = ? WHERE id = ?",
+                    [syncedMsg.text, syncedMsg.type, syncedMsg.id],
+                  );
+                  this.client.emit("message_updated", {
+                    sid,
+                    id: syncedMsg.id,
+                    text: syncedMsg.text,
+                    type: syncedMsg.type,
+                  });
+                }
+              } else {
+                await this.saveAndEmitInboundMessage(
+                  sid,
+                  {
+                    id: syncedMsg.id,
+                    type: syncedMsg.type,
+                    text: syncedMsg.text,
+                    timestamp: syncedMsg.timestamp,
+                    replyTo:
+                      typeof syncedMsg.reply_to === "string"
+                        ? JSON.parse(syncedMsg.reply_to)
+                        : syncedMsg.reply_to,
+                  },
+                  syncedMsg.sender === "me" ? "me" : "other",
+                );
+              }
+            }
+            if (maxTimestamp > 0) {
+              await this.syncManager.updateLastSync(sid, maxTimestamp);
+
+              // Depending on limits, re-queue SYNC_REQ if maxing array cap?
+              if (data.messages.length === 50) {
+                await this.requestSync(sid, maxTimestamp);
+              }
+            }
           }
           break;
         case "FILE_INFO":
@@ -626,18 +790,15 @@ export class MessageService extends EventEmitter {
             );
             if (peerRows.length) {
               const current = peerRows[0];
-              const missingProfileData =
-                (name_version > 0 && !current.peer_name) ||
-                (avatar_version > 0 && !current.peer_avatar);
               if (
                 name_version > (current.peer_name_ver || 0) ||
                 avatar_version > (current.peer_avatar_ver || 0) ||
-                missingProfileData
+                (!current.peer_name && name_version > 0)
               ) {
                 console.log(
                   `[MessageService] Peer ${sid} has newer profile (v${name_version}/${avatar_version}), requesting update...`,
                 );
-                const reqPayload = await this.client.encryptForSession(
+                const reqPayloads = await this.client.encryptForSession(
                   sid,
                   JSON.stringify({ t: "MSG", data: { type: "GET_PROFILE" } }),
                   1,
@@ -645,7 +806,7 @@ export class MessageService extends EventEmitter {
                 this.client.send({
                   t: "MSG",
                   sid,
-                  data: { payload: reqPayload },
+                  data: { payloads: reqPayloads },
                 });
               }
             }
@@ -695,7 +856,7 @@ export class MessageService extends EventEmitter {
                   ? this.splitProfileAvatarIntoChunks(avatarBase64)
                   : [];
 
-              const profilePayload = await this.client.encryptForSession(
+              const profilePayloads = await this.client.encryptForSession(
                 sid,
                 JSON.stringify({
                   t: "MSG",
@@ -715,7 +876,7 @@ export class MessageService extends EventEmitter {
               this.client.send({
                 t: "MSG",
                 sid,
-                data: { payload: profilePayload },
+                data: { payloads: profilePayloads },
               });
 
               if (avatarChunks.length && transferId) {
@@ -727,7 +888,7 @@ export class MessageService extends EventEmitter {
                   chunkIndex < avatarChunks.length;
                   chunkIndex++
                 ) {
-                  const chunkPayload = await this.client.encryptForSession(
+                  const chunkPayloads = await this.client.encryptForSession(
                     sid,
                     JSON.stringify({
                       t: "MSG",
@@ -747,7 +908,7 @@ export class MessageService extends EventEmitter {
                   this.client.send({
                     t: "MSG",
                     sid,
-                    data: { payload: chunkPayload },
+                    data: { payloads: chunkPayloads },
                     c: chunkIndex === avatarChunks.length - 1,
                     p: 1,
                   });
@@ -937,7 +1098,7 @@ export class MessageService extends EventEmitter {
           this.client.sessionService.sessions[row.sid].online
         ) {
           console.log(`[MessageService] Resending msg ${row.id} to ${row.sid}`);
-          const payload = await this.client.encryptForSession(
+          const payloads = await this.client.encryptForSession(
             row.sid,
             JSON.stringify({
               t: "MSG",
@@ -959,7 +1120,7 @@ export class MessageService extends EventEmitter {
           this.client.send({
             t: "MSG",
             sid: row.sid,
-            data: { payload },
+            data: { payloads },
             c: true,
             p: 1,
           });
@@ -989,7 +1150,7 @@ export class MessageService extends EventEmitter {
       }
     }
 
-    const payload = await this.client.encryptForSession(
+    const payloads = await this.client.encryptForSession(
       sid,
       JSON.stringify({
         t: "MSG",
@@ -1003,7 +1164,7 @@ export class MessageService extends EventEmitter {
       }),
       1,
     );
-    this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
+    this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 1 });
     try {
       if (action === "add") {
         await executeDB(
@@ -1044,7 +1205,7 @@ export class MessageService extends EventEmitter {
       for (const sid of sids) {
         if (this.client.sessionService.sessions[sid].online) {
           try {
-            const payload = await this.client.encryptForSession(
+            const payloads = await this.client.encryptForSession(
               sid,
               JSON.stringify({
                 t: "MSG",
@@ -1059,7 +1220,7 @@ export class MessageService extends EventEmitter {
             this.client.send({
               t: "MSG",
               sid,
-              data: { payload },
+              data: { payloads },
               c: true,
               p: 1,
             });

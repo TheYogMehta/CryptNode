@@ -163,7 +163,7 @@ ipcMain.handle("GoogleLogin", async () => {
     });
 
     function handleNavigation(url: string) {
-      if (url.includes("access_token=")) {
+      if (url.includes("access_token=") || url.includes("id_token=")) {
         const rawCode = /access_token=([^&]*)/.exec(url) || null;
         const accessToken = rawCode && rawCode.length > 1 ? rawCode[1] : null;
 
@@ -178,7 +178,9 @@ ipcMain.handle("GoogleLogin", async () => {
       }
     }
 
-    authWindow.on("closed", () => {});
+    authWindow.on("closed", () => {
+      resolve(null);
+    });
   });
 });
 

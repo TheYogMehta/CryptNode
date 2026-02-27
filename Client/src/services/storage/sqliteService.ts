@@ -33,7 +33,9 @@ const SCHEMA = {
       peer_email TEXT,
       peer_hash TEXT,
       peer_name_ver INTEGER DEFAULT 0,
-      peer_avatar_ver INTEGER DEFAULT 0
+      peer_avatar_ver INTEGER DEFAULT 0,
+      peer_pub_keys TEXT,
+      last_sync_timestamp INTEGER DEFAULT 0
     `,
     indices: [],
   },
@@ -111,6 +113,13 @@ const SCHEMA = {
       "CREATE INDEX IF NOT EXISTS idx_queue_priority ON queue(priority, timestamp);",
     ],
   },
+  blocked_users: {
+    columns: `
+      email TEXT PRIMARY KEY,
+      timestamp INTEGER
+    `,
+    indices: [],
+  },
 };
 
 const tableOrder = [
@@ -121,6 +130,7 @@ const tableOrder = [
   "live_shares",
   "reactions",
   "queue",
+  "blocked_users",
 ];
 
 export const getCurrentDbName = () => currentDbName;
@@ -388,4 +398,32 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
   } catch (e) {
     console.error(`[sqlite] Failed to delete database ${databaseName}`, e);
   }
+};
+
+export const getBlockedUsers = async (): Promise<
+  { email: string; timestamp: number }[]
+> => {
+  const rows = await queryDB(
+    "SELECT email, timestamp FROM blocked_users ORDER BY timestamp DESC",
+  );
+  return rows.map((r: any) => ({ email: r.email, timestamp: r.timestamp }));
+};
+
+export const addBlockedUser = async (email: string) => {
+  await executeDB(
+    "INSERT OR REPLACE INTO blocked_users (email, timestamp) VALUES (?, ?)",
+    [email, Date.now()],
+  );
+};
+
+export const removeBlockedUser = async (email: string) => {
+  await executeDB("DELETE FROM blocked_users WHERE email = ?", [email]);
+};
+
+export const isUserBlocked = async (email: string): Promise<boolean> => {
+  const rows = await queryDB(
+    "SELECT 1 FROM blocked_users WHERE email = ? LIMIT 1",
+    [email],
+  );
+  return rows.length > 0;
 };

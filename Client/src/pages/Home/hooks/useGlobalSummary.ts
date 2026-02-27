@@ -13,6 +13,14 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
     setShowSummaryModal(true);
     setGlobalSummary(null);
 
+    if (!qwenLocalService.isLoaded) {
+      setGlobalSummary(
+        "AI Model not loaded. Please initialize the AI assistant in a chat window first before using global summaries.",
+      );
+      setIsSummarizing(false);
+      return;
+    }
+
     try {
       const relevantSessions = sessions
         .filter((s) => s.unread > 0)

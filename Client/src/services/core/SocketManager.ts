@@ -99,8 +99,15 @@ class SocketManager extends EventEmitter {
       }
       this.ws.send(serialized);
     } else {
-      console.warn("WebSocket not connected. Retrying...");
-      if (this.url && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+      if (!this.url) {
+        console.warn(
+          "WebSocket not connected and no URL set. Dropping message:",
+          data,
+        );
+        return;
+      }
+      console.warn("WebSocket not connected. Retrying message...");
+      if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
         this.connect(this.url).catch(console.error);
       }
       setTimeout(() => this.send(data), 500);
@@ -115,6 +122,7 @@ class SocketManager extends EventEmitter {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
     this.stopHeartbeatWatchdog();
+    this.url = "";
     if (this.ws) {
       console.log("Disconnecting WebSocket by user request...");
       this.ws.onclose = null;

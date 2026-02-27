@@ -2,6 +2,9 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
+include ':cantoo-capacitor-llama'
+project(':cantoo-capacitor-llama').projectDir = new File('../node_modules/@cantoo/capacitor-llama/android')
+
 include ':capacitor-community-privacy-screen'
 project(':capacitor-community-privacy-screen').projectDir = new File('../node_modules/@capacitor-community/privacy-screen/android')
 

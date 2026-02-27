@@ -9,7 +9,7 @@ export interface IFileTransferClient {
     sid: string,
     data: string | Uint8Array | ArrayBuffer,
     priority: number,
-  ): Promise<string>;
+  ): Promise<Record<string, string>>;
   emit(event: string, ...args: any[]): boolean;
   insertMessageRecord(
     sid: string,
@@ -28,10 +28,17 @@ export class FileTransferService {
     this.client = client;
   }
 
-  private assertPayloadSize(payload: string, context: string): boolean {
-    if (payload.length <= MAX_ENCRYPTED_PAYLOAD_CHARS) return true;
+  private assertPayloadSize(
+    payloads: Record<string, string> | string,
+    context: string,
+  ): boolean {
+    const size =
+      typeof payloads === "string"
+        ? payloads.length
+        : JSON.stringify(payloads).length;
+    if (size <= MAX_ENCRYPTED_PAYLOAD_CHARS) return true;
     console.warn(
-      `[FileTransfer] Blocked ${context}: encrypted payload too large (${payload.length})`,
+      `[FileTransfer] Blocked ${context}: encrypted payload too large (${size})`,
     );
     this.client.emit("notification", {
       type: "error",
@@ -132,7 +139,7 @@ export class FileTransferService {
     this.client.send({
       t: "MSG",
       sid,
-      data: { payload: encryptedMetadata },
+      data: { payloads: encryptedMetadata },
       c: true,
       p: 1,
     });
@@ -210,7 +217,13 @@ export class FileTransferService {
       }),
       1,
     );
-    this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 1 });
+    this.client.send({
+      t: "MSG",
+      sid,
+      data: { payloads: payload },
+      c: true,
+      p: 1,
+    });
   }
 
   public async streamAllChunks(
@@ -271,7 +284,13 @@ export class FileTransferService {
         if (!this.assertPayloadSize(payload, "FILE_CHUNK")) {
           return;
         }
-        this.client.send({ t: "MSG", sid, data: { payload }, c: false, p: 2 });
+        this.client.send({
+          t: "MSG",
+          sid,
+          data: { payloads: payload },
+          c: false,
+          p: 2,
+        });
 
         if (!isLast) {
           await new Promise((resolve) => setTimeout(resolve, 5));

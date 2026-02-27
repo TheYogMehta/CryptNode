@@ -407,7 +407,6 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
           placeholder="Search GIFs..."
           value={search}
           onChange={handleManualSearchChange}
-          autoFocus
         />
       </SearchBar>
       <Content>

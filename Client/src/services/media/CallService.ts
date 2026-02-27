@@ -12,6 +12,7 @@ export class CallService {
   public callStartTime: number = 0;
   public currentLocalStream: MediaStream | null = null;
   public currentCallSid: string | null = null;
+  public currentCallRemotePubKey: string | null = null;
   public micStream: MediaStream | null = null;
   public cameraStream: MediaStream | null = null;
   public screenStream: MediaStream | null = null;
@@ -174,15 +175,19 @@ export class CallService {
       this.currentCallSid = sid;
       console.log("[CallService] startCall: Initiating WebRTC call to", sid);
 
-      const callStartPayload = await this.client.encryptForSession(
+      const myPubKey = await this.client.getPublicKeyString();
+      const callStartPayloads = await this.client.encryptForSession(
         sid,
-        JSON.stringify({ t: "MSG", data: { type: "CALL_START", mode } }),
+        JSON.stringify({
+          t: "MSG",
+          data: { type: "CALL_START", mode, senderPubKey: myPubKey },
+        }),
         0,
       );
       this.client.send({
         t: "MSG",
         sid,
-        data: { payload: callStartPayload },
+        data: { payloads: callStartPayloads },
         c: true,
         p: 0,
       });
@@ -199,7 +204,7 @@ export class CallService {
       const offer = await this.peerConnection!.createOffer();
       await this.peerConnection!.setLocalDescription(offer);
 
-      const offerPayload = await this.client.encryptForSession(
+      const offerPayloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({
           t: "MSG",
@@ -210,7 +215,7 @@ export class CallService {
       this.client.send({
         t: "RTC_OFFER",
         sid,
-        data: { payload: offerPayload },
+        data: { payloads: offerPayloads },
       });
 
       console.log("[CallService] Sent WebRTC offer to", sid);
@@ -400,7 +405,7 @@ export class CallService {
     const { type, sid, ...rest } = signal;
     const innerType = type === "RTC_ICE" ? "ICE_CANDIDATE" : type;
 
-    const payload = await this.client.encryptForSession(
+    const payloads = await this.client.encryptForSession(
       sid,
       JSON.stringify({
         t: "MSG",
@@ -408,7 +413,7 @@ export class CallService {
       }),
       0,
     );
-    this.client.send({ t: type, sid, data: { payload } });
+    this.client.send({ t: type, sid, data: { payloads } });
   }
 
   private attachRemoteAudio(stream: MediaStream) {
@@ -485,7 +490,7 @@ export class CallService {
       const offer = await this.peerConnection.createOffer();
       await this.peerConnection.setLocalDescription(offer);
 
-      const offerPayload = await this.client.encryptForSession(
+      const offerPayloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({
           t: "MSG",
@@ -496,7 +501,7 @@ export class CallService {
       this.client.send({
         t: "RTC_OFFER",
         sid,
-        data: { payload: offerPayload },
+        data: { payloads: offerPayloads },
       });
     } catch (e) {
       console.error("[CallService] Renegotiation failed:", e);
@@ -586,7 +591,7 @@ export class CallService {
       await this.negotiate(sid);
       const mode = this.isVideoEnabled ? "Video" : "Audio";
       console.log(`[CallService] Sending CALL_MODE: ${mode}`);
-      const modePayload = await this.client.encryptForSession(
+      const modePayloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
         0,
@@ -594,7 +599,7 @@ export class CallService {
       this.client.send({
         t: "MSG",
         sid,
-        data: { payload: modePayload },
+        data: { payloads: modePayloads },
         c: true,
         p: 0,
       });
@@ -681,7 +686,7 @@ export class CallService {
       await this.negotiate(sid);
       const mode = this.isScreenEnabled ? "Screen" : "Audio";
       console.log(`[CallService] Sending CALL_MODE: ${mode}`);
-      const modePayload = await this.client.encryptForSession(
+      const modePayloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
         0,
@@ -689,7 +694,7 @@ export class CallService {
       this.client.send({
         t: "MSG",
         sid,
-        data: { payload: modePayload },
+        data: { payloads: modePayloads },
         c: true,
         p: 0,
       });
@@ -721,12 +726,12 @@ export class CallService {
       await this.handleRTCOffer(sid, offerToProcess);
     }
 
-    const payload = await this.client.encryptForSession(
+    const payloads = await this.client.encryptForSession(
       sid,
       JSON.stringify({ t: "MSG", data: { type: "CALL_ACCEPT" } }),
       0,
     );
-    this.client.send({ t: "MSG", sid, data: { payload }, c: true, p: 0 });
+    this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 0 });
   }
 
   public async endCall(sid?: string) {
@@ -734,7 +739,7 @@ export class CallService {
     if (!targetSid) return;
 
     try {
-      const payload = await this.client.encryptForSession(
+      const payloads = await this.client.encryptForSession(
         targetSid,
         JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
         0,
@@ -743,7 +748,7 @@ export class CallService {
       this.client.send({
         t: "MSG",
         sid: targetSid,
-        data: { payload },
+        data: { payloads },
         c: true,
         p: 0,
       });
@@ -766,6 +771,7 @@ export class CallService {
     this.currentCallSid = null;
     this.isCallConnected = false;
     this.hasEmittedCallConnected = false;
+    this.currentCallRemotePubKey = null;
 
     if (this.peerConnection) {
       this.peerConnection.close();
@@ -807,7 +813,7 @@ export class CallService {
       this.isMicEnabled = !isMuted;
 
       if (this.currentCallSid) {
-        const micPayload = await this.client.encryptForSession(
+        const micPayloads = await this.client.encryptForSession(
           this.currentCallSid,
           JSON.stringify({
             t: "MSG",
@@ -818,7 +824,7 @@ export class CallService {
         this.client.send({
           t: "MSG",
           sid: this.currentCallSid,
-          data: { payload: micPayload },
+          data: { payloads: micPayloads },
           c: true,
           p: 0,
         });

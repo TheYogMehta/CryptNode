@@ -22,7 +22,7 @@ export const deriveKey = async (
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as any,
+      salt: new Uint8Array(salt),
       iterations: 100000,
       hash: "SHA-256",
     },
@@ -44,10 +44,10 @@ export const encryptData = async (
   const encrypted = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
-      iv: iv as any,
+      iv: new Uint8Array(iv),
     },
     key,
-    encodedData as any,
+    new Uint8Array(encodedData as Uint8Array),
   );
 
   return {
@@ -64,10 +64,10 @@ export const decryptData = async (
   const decrypted = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: iv as any,
+      iv: new Uint8Array(iv),
     },
     key,
-    encryptedData as any,
+    new Uint8Array(encryptedData),
   );
 
   return new Uint8Array(decrypted);
@@ -159,7 +159,7 @@ export const importAESKeyFromRaw = async (
 ): Promise<CryptoKey> => {
   return crypto.subtle.importKey(
     "raw",
-    rawData as any,
+    new Uint8Array(rawData),
     { name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"],

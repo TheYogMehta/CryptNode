@@ -35,10 +35,69 @@ export class AuthService extends EventEmitter {
       throw new Error("Missing Google id token");
     }
     this.authToken = token;
-    if (!socket.isConnected()) {
-      await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+
+    const email = this.extractEmailFromToken(token);
+    if (!email) {
+      throw new Error("Could not extract email from token");
     }
-    socket.send({ t: "AUTH", data: { token }, c: true, p: 0 });
+    this.userEmail = email.toLowerCase().trim();
+    const pubKey = await this.setupDeviceKeys(this.userEmail);
+
+    if (socket.isConnected()) {
+      socket.disconnect();
+      await new Promise((res) => setTimeout(res, 100));
+    }
+
+    await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+
+    socket.send({
+      t: "AUTH",
+      data: { token, publicKey: pubKey },
+      c: true,
+      p: 0,
+    });
+  }
+
+  private extractEmailFromToken(token: string): string | null {
+    if (token.startsWith("sess:")) {
+      const parts = token.split(":");
+      if (parts.length >= 3) return parts[2];
+      return null;
+    }
+    const claims = this.parseGoogleIdTokenClaims(token);
+    try {
+      const parts = token.split(".");
+      if (parts.length < 2) return null;
+      const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = base64.padEnd(
+        base64.length + ((4 - (base64.length % 4)) % 4),
+        "=",
+      );
+      const json = atob(padded);
+      const claims = JSON.parse(json);
+      return claims.email || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setupDeviceKeys(email: string): Promise<string> {
+    let key = await getKeyFromSecureStorage(
+      await AccountService.getStorageKey(email, "MASTER_KEY"),
+    );
+    if (!key) {
+      console.log("[AuthService] Generating new MASTER_KEY for user");
+      key = bip39.generateMnemonic(128);
+      await setKeyFromSecureStorage(
+        await AccountService.getStorageKey(email, "MASTER_KEY"),
+        key,
+      );
+    }
+    const dbName = await AccountService.getDbName(email);
+    await switchDatabase(dbName, key!);
+
+    await this.loadIdentity();
+    return await this.exportPub();
   }
 
   public async logout() {
@@ -69,27 +128,25 @@ export class AuthService extends EventEmitter {
     }
     this.authToken = tokenToUse;
 
-    const key = await getKeyFromSecureStorage(
-      await AccountService.getStorageKey(email, "MASTER_KEY"),
-    );
-    const dbName = await AccountService.getDbName(email);
-    await switchDatabase(dbName, key || undefined);
-
     this.userEmail = email;
     await setActiveUser(email);
 
-    await this.loadIdentity();
+    const pubKey = await this.setupDeviceKeys(email);
 
-    if (!socket.isConnected()) {
-      await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+    if (socket.isConnected()) {
+      socket.disconnect();
+      await new Promise((res) => setTimeout(res, 100));
     }
+
+    await socket.connect("wss://socket.cryptnode.theyogmehta.online");
+
     const waitForAuth = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error("Authentication timed out"));
       }, 10000);
 
-      const onSuccess = (authedEmail: string) => {
+      const onSuccessOrPending = (authedEmail: string) => {
         if (authedEmail !== email) return;
         cleanup();
         resolve();
@@ -102,15 +159,20 @@ export class AuthService extends EventEmitter {
 
       const cleanup = () => {
         clearTimeout(timeout);
-        this.off("auth_success", onSuccess);
+        this.off("auth_success", onSuccessOrPending);
         this.off("auth_error", onError);
+        this.off("auth_pending", onSuccessOrPending);
       };
 
-      this.on("auth_success", onSuccess);
+      this.on("auth_success", onSuccessOrPending);
+      this.on("auth_pending", onSuccessOrPending);
       this.on("auth_error", onError);
     });
 
-    socket.send({ t: "AUTH", data: { token: this.authToken } });
+    socket.send({
+      t: "AUTH",
+      data: { token: this.authToken, publicKey: pubKey },
+    });
     await waitForAuth;
   }
 
@@ -182,12 +244,16 @@ export class AuthService extends EventEmitter {
       const parts = token.split(".");
       if (parts.length < 2) return {};
       const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+      const padded = base64.padEnd(
+        base64.length + ((4 - (base64.length % 4)) % 4),
+        "=",
+      );
       const json = atob(padded);
       const claims = JSON.parse(json);
       return {
         name: typeof claims?.name === "string" ? claims.name : undefined,
-        picture: typeof claims?.picture === "string" ? claims.picture : undefined,
+        picture:
+          typeof claims?.picture === "string" ? claims.picture : undefined,
       };
     } catch (_e) {
       return {};
@@ -214,22 +280,31 @@ export class AuthService extends EventEmitter {
       );
       await setActiveUser(data.email);
 
-      let key = await getKeyFromSecureStorage(
-        await AccountService.getStorageKey(data.email, "MASTER_KEY"),
-      );
-      if (!key) {
-        console.log("[AuthService] Generating new MASTER_KEY for user");
-        key = bip39.generateMnemonic(128);
-        await setKeyFromSecureStorage(
-          await AccountService.getStorageKey(data.email, "MASTER_KEY"),
-          key,
-        );
-      }
-      const dbName = await AccountService.getDbName(data.email);
-      await switchDatabase(dbName, key);
-
-      await this.loadIdentity();
       this.emit("auth_success", data.email);
+    }
+  }
+
+  public async handleAuthPending(data: any) {
+    this.userEmail = data.email;
+    if (data.token) {
+      this.authToken = data.token;
+      const tokenKey = await AccountService.getStorageKey(
+        data.email,
+        "auth_token",
+      );
+      await setKeyFromSecureStorage(tokenKey, data.token);
+      console.log("[AuthService] Session token saved (Pending)");
+
+      const claims = this.parseGoogleIdTokenClaims(data.token);
+      await AccountService.addAccount(
+        data.email,
+        data.token,
+        claims.name,
+        claims.picture,
+      );
+      await setActiveUser(data.email);
+
+      this.emit("auth_pending", data.email);
     }
   }
 }

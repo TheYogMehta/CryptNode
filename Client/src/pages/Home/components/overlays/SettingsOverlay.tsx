@@ -15,7 +15,7 @@ import {
   setActiveUser,
 } from "../../../../services/storage/SafeStorage";
 import UserAvatar from "../../../../components/UserAvatar";
-import { ModalOverlay } from "./Overlay.styles";
+import Dialog from "@mui/material/Dialog";
 import {
   SettingsContainer,
   SettingsSidebar,
@@ -40,25 +40,44 @@ import { SecuritySettings } from "../settings/SecuritySettings";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
 import { StorageService } from "../../../../services/storage/StorageService";
 import { deleteItemsByOwner } from "../../../../utils/secureStorage";
+import { useAIStatus } from "../../hooks/useAIStatus";
+import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { DeviceManager } from "../settings/DeviceManager";
 
 interface SettingsOverlayProps {
   onClose: () => void;
   currentUserEmail: string | null;
   isMobile?: boolean;
+  onAddAccount?: () => void;
+  onSwitchAccount?: (email: string) => void;
 }
 
-type SettingsCategory = "Profile" | "Account" | "Security" | "Appearance";
+type SettingsCategory =
+  | "Profile"
+  | "Account"
+  | "Security"
+  | "Appearance"
+  | "Devices";
 
 export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   onClose,
   currentUserEmail,
   isMobile,
+  onAddAccount,
+  onSwitchAccount,
 }) => {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
     isMobile ? null : "Profile",
   );
   const [accounts, setAccounts] = useState<StoredAccount[]>([]);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  const {
+    isInstalled,
+    isLoading: isDownloadingAi,
+    progress: aiProgress,
+    hasFailed: aiFailed,
+  } = useAIStatus();
 
   useEffect(() => {
     if (!isMobile && !activeCategory) {
@@ -78,8 +97,13 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   const handleSwitchAccount = async (email: string) => {
     try {
       if (email === currentUserEmail) return;
-      await ChatClient.switchAccount(email);
-      onClose();
+      if (onSwitchAccount) {
+        onSwitchAccount(email);
+      } else {
+        await ChatClient.switchAccount(email);
+        onClose();
+        window.location.reload(); // Fallback if not controlled
+      }
     } catch (e) {
       alert("Failed to switch account: " + e);
     }
@@ -203,6 +227,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
   const menuItems: { id: SettingsCategory; label: string }[] = [
     { id: "Profile", label: "Profile" },
+    { id: "Devices", label: "Devices" },
     { id: "Appearance", label: "Appearance" },
     { id: "Security", label: "Security" },
     { id: "Account", label: "Data & Storage" },
@@ -210,6 +235,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
   const renderContent = () => {
     switch (activeCategory) {
+      case "Devices":
+        return <DeviceManager />;
       case "Appearance":
         return <AppearanceSettings />;
       case "Profile":
@@ -218,69 +245,143 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             currentUserEmail={currentUserEmail}
             accounts={accounts}
             onReloadAccounts={loadAccounts}
+            onSwitchAccount={handleSwitchAccount}
+            isDeletingAccount={isDeletingAccount}
+            onAddAccount={onAddAccount}
           />
         );
       case "Account":
         return (
           <div>
-            <h3 style={{ marginTop: 0, color: colors.text.primary }}>
-              Manage Accounts
-            </h3>
-            <div style={{ marginBottom: "30px" }}>
-              {accounts.map((acc) => (
-                <AccountItem
-                  key={acc.email}
-                  isActive={acc.email === currentUserEmail}
+            <h3 style={{ color: colors.text.primary }}>Local AI Model</h3>
+            <div
+              style={{
+                marginBottom: "30px",
+                background: colors.background.secondary,
+                padding: "16px",
+                borderRadius: "8px",
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: "12px",
+                  color: colors.text.secondary,
+                  fontSize: "14px",
+                  lineHeight: "1.5",
+                }}
+              >
+                The AI model enables Smart Compose, Summarize, and Quick Replies
+                directly on your device without sending your chats to the cloud.
+                It requires ~400MB of storage space.
+              </div>
+
+              {aiFailed && (
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    padding: "12px",
+                    borderRadius: "6px",
+                    background: "rgba(239, 68, 68, 0.1)",
+                    color: "#ef4444",
+                    fontSize: "13px",
+                  }}
                 >
+                  <strong>Error: </strong> Local AI is not supported on this
+                  device architecture.
+                </div>
+              )}
+
+              {isInstalled ? (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        color: colors.status.success,
+                        fontWeight: 500,
+                        fontSize: "14px",
+                      }}
+                    >
+                      Installed ✓
+                    </div>
+                    <div
+                      style={{ fontSize: "12px", color: colors.text.tertiary }}
+                    >
+                      ~400MB Used
+                    </div>
+                  </div>
+                  <button
+                    disabled={isDeletingAccount}
+                    onClick={() => qwenLocalService.deleteModel()}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "4px",
+                      background: "rgba(239, 68, 68, 0.1)",
+                      color: "#ef4444",
+                      border: "1px solid rgba(239, 68, 68, 0.2)",
+                      cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                      fontSize: "13px",
+                    }}
+                  >
+                    Delete Model
+                  </button>
+                </div>
+              ) : isDownloadingAi ? (
+                <div>
                   <div
                     style={{
                       display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
+                      justifyContent: "space-between",
+                      fontSize: "13px",
+                      marginBottom: "8px",
+                      color: colors.text.secondary,
                     }}
                   >
-                    <UserAvatar
-                      avatarUrl={acc.avatarUrl}
-                      name={acc.email}
-                      size={32}
-                      style={{ background: colors.background.tertiary }}
-                    />
-                    <span style={{ color: colors.text.primary }}>
-                      {acc.email}
-                    </span>
-                    {acc.email === currentUserEmail && (
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          color: colors.primary.main,
-                          background: colors.primary.subtle,
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                        }}
-                      >
-                        Current
-                      </span>
-                    )}
+                    <span>Downloading...</span>
+                    <span>{aiProgress}%</span>
                   </div>
-                  {acc.email !== currentUserEmail && (
-                    <button
-                      disabled={isDeletingAccount}
-                      onClick={() => handleSwitchAccount(acc.email)}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "6px",
+                      background: "rgba(255,255,255,0.1)",
+                      borderRadius: "3px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
                       style={{
-                        padding: "6px 12px",
-                        borderRadius: "4px",
+                        width: `${aiProgress}%`,
+                        height: "100%",
                         background: colors.primary.main,
-                        color: colors.text.inverse,
-                        border: "none",
-                        cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                        opacity: isDeletingAccount ? 0.6 : 1,
+                        transition: "width 0.2s ease",
                       }}
-                    >
-                      Switch
-                    </button>
-                  )}
-                </AccountItem>
-              ))}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <button
+                  disabled={isDeletingAccount}
+                  onClick={() => qwenLocalService.downloadModel()}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "6px",
+                    background: colors.primary.main,
+                    color: colors.text.inverse,
+                    border: "none",
+                    cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                    fontWeight: 500,
+                    width: "100%",
+                  }}
+                >
+                  Download Model (~400MB)
+                </button>
+              )}
             </div>
 
             <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
@@ -311,7 +412,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   if (isMobile) {
     if (!activeCategory) {
       return (
-        <ModalOverlay>
+        <Dialog open={true} onClose={onClose} fullScreen>
           <SettingsContainer>
             <MobileCategoryList>
               <SidebarHeader style={{ padding: "16px", marginBottom: 0 }}>
@@ -334,12 +435,12 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             </MobileCategoryList>
           </SettingsContainer>
           {deletingOverlay}
-        </ModalOverlay>
+        </Dialog>
       );
     }
 
     return (
-      <ModalOverlay>
+      <Dialog open={true} onClose={onClose} fullScreen>
         <SettingsContainer>
           <MobileHeader>
             <BackButton
@@ -355,13 +456,24 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           <SettingsContent>{renderContent()}</SettingsContent>
         </SettingsContainer>
         {deletingOverlay}
-      </ModalOverlay>
+      </Dialog>
     );
   }
 
   // Desktop Logic
   return (
-    <ModalOverlay>
+    <Dialog
+      open={true}
+      onClose={isDeletingAccount ? undefined : onClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{
+        style: {
+          backgroundColor: "transparent",
+          boxShadow: "none",
+        },
+      }}
+    >
       <SettingsContainer>
         {/* Left Sidebar */}
         <SettingsSidebar>
@@ -388,74 +500,152 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
         {/* Right Content */}
         <SettingsContent>
+          {activeCategory === "Devices" && <DeviceManager />}
           {activeCategory === "Appearance" && <AppearanceSettings />}
           {activeCategory === "Profile" && (
             <ProfileSettings
               currentUserEmail={currentUserEmail}
               accounts={accounts}
               onReloadAccounts={loadAccounts}
+              onSwitchAccount={handleSwitchAccount}
+              isDeletingAccount={isDeletingAccount}
+              onAddAccount={onAddAccount}
             />
           )}
           {activeCategory === "Account" && (
             <div>
-              <h3 style={{ marginTop: 0, color: colors.text.primary }}>
-                Manage Accounts
-              </h3>
-              <div style={{ marginBottom: "30px" }}>
-                {accounts.map((acc) => (
-                  <AccountItem
-                    key={acc.email}
-                    isActive={acc.email === currentUserEmail}
+              <h3 style={{ color: colors.text.primary }}>Local AI Model</h3>
+              <div
+                style={{
+                  marginBottom: "30px",
+                  background: colors.background.secondary,
+                  padding: "16px",
+                  borderRadius: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    color: colors.text.secondary,
+                    fontSize: "14px",
+                    lineHeight: "1.5",
+                  }}
+                >
+                  The AI model enables Smart Compose, Summarize, and Quick
+                  Replies directly on your device without sending your chats to
+                  the cloud. It requires ~400MB of storage space.
+                </div>
+
+                {aiFailed && (
+                  <div
+                    style={{
+                      marginBottom: "12px",
+                      padding: "12px",
+                      borderRadius: "6px",
+                      background: "rgba(239, 68, 68, 0.1)",
+                      color: "#ef4444",
+                      fontSize: "13px",
+                    }}
                   >
+                    <strong>Error: </strong> Local AI is not supported on this
+                    device architecture.
+                  </div>
+                )}
+
+                {isInstalled ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          color: colors.status.success,
+                          fontWeight: 500,
+                          fontSize: "14px",
+                        }}
+                      >
+                        Installed ✓
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: colors.text.tertiary,
+                        }}
+                      >
+                        ~400MB Used
+                      </div>
+                    </div>
+                    <button
+                      disabled={isDeletingAccount}
+                      onClick={() => qwenLocalService.deleteModel()}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: "4px",
+                        background: "rgba(239, 68, 68, 0.1)",
+                        color: "#ef4444",
+                        border: "1px solid rgba(239, 68, 68, 0.2)",
+                        cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                        fontSize: "13px",
+                      }}
+                    >
+                      Delete Model
+                    </button>
+                  </div>
+                ) : isDownloadingAi ? (
+                  <div>
                     <div
                       style={{
                         display: "flex",
-                        alignItems: "center",
-                        gap: "12px",
+                        justifyContent: "space-between",
+                        fontSize: "13px",
+                        marginBottom: "8px",
+                        color: colors.text.secondary,
                       }}
                     >
-                      <UserAvatar
-                        avatarUrl={acc.avatarUrl}
-                        name={acc.email}
-                        size={32}
-                        style={{ background: colors.background.tertiary }}
-                      />
-                      <span style={{ color: colors.text.primary }}>
-                        {acc.email}
-                      </span>
-                      {acc.email === currentUserEmail && (
-                        <span
-                          style={{
-                            fontSize: "12px",
-                            color: colors.primary.main,
-                            background: colors.primary.subtle,
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                          }}
-                        >
-                          Current
-                        </span>
-                      )}
+                      <span>Downloading...</span>
+                      <span>{aiProgress}%</span>
                     </div>
-                    {acc.email !== currentUserEmail && (
-                      <button
-                        disabled={isDeletingAccount}
-                        onClick={() => handleSwitchAccount(acc.email)}
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "6px",
+                        background: "rgba(255,255,255,0.1)",
+                        borderRadius: "3px",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
                         style={{
-                          padding: "6px 12px",
-                          borderRadius: "4px",
+                          width: `${aiProgress}%`,
+                          height: "100%",
                           background: colors.primary.main,
-                          color: colors.text.inverse,
-                          border: "none",
-                          cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                          opacity: isDeletingAccount ? 0.6 : 1,
+                          transition: "width 0.2s ease",
                         }}
-                      >
-                        Switch
-                      </button>
-                    )}
-                  </AccountItem>
-                ))}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    disabled={isDeletingAccount}
+                    onClick={() => qwenLocalService.downloadModel()}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "6px",
+                      background: colors.primary.main,
+                      color: colors.text.inverse,
+                      border: "none",
+                      cursor: isDeletingAccount ? "not-allowed" : "pointer",
+                      fontWeight: 500,
+                      width: "100%",
+                    }}
+                  >
+                    Download Model (~400MB)
+                  </button>
+                )}
               </div>
 
               <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
@@ -482,6 +672,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         </SettingsContent>
       </SettingsContainer>
       {deletingOverlay}
-    </ModalOverlay>
+    </Dialog>
   );
 };

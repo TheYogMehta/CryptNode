@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import debounce from "lodash.debounce";
+import toast from "react-hot-toast";
 import ChatClient from "../../../services/core/ChatClient";
 import { queryDB, executeDB } from "../../../services/storage/sqliteService";
 import { SessionData, InboundReq } from "../types";
@@ -15,17 +16,17 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
   const [error] = useState<string | null>(null);
   const [peerOnline, setPeerOnline] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [notification, setNotification] = useState<{
-    type: string;
-    message: string;
-  } | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(
     ChatClient.userEmail,
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingMasterKey, setPendingMasterKey] = useState<string | null>(null);
+  const [linkRequests, setLinkRequests] = useState<any[]>([]);
 
   const activeChatRef = useRef<string | null>(null);
   activeChatRef.current = activeChat;
+
+  const hasNotifiedPending = useRef(false);
 
   const loadSessions = useCallback(
     debounce(async () => {
@@ -86,12 +87,14 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     }
 
     const client = ChatClient;
+
     client
       .init()
       .then(() => {
         if (!client.hasToken()) {
           setIsLoading(false);
         } else {
+          client.getPendingRequests();
           setTimeout(() => {
             if (!client.userEmail) setIsLoading(false);
           }, 5000);
@@ -130,23 +133,85 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       loadSessions();
     };
 
-    const onInboundRequest = (req: InboundReq) => setInboundReq(req);
+    const onInboundRequest = (req: InboundReq) => {
+      // Just refresh the pending list
+      ChatClient.getPendingRequests();
+    };
 
     const onAuthSuccess = (email: string) => {
       setUserEmail(email);
+      setPendingMasterKey(null);
       setIsLoading(false);
       loadSessions();
     };
 
     const onAuthError = () => {
+      setIsJoining(false);
       setUserEmail(null);
+      setPendingMasterKey(null);
       setIsLoading(false);
       window.location.href = "/login";
     };
 
-    const onNotification = (notif: { type: string; message: string }) => {
-      setNotification(notif);
-      setTimeout(() => setNotification(null), 3000);
+    const onAuthPending = (masterKey: string) => {
+      setPendingMasterKey(masterKey);
+      setIsLoading(false);
+    };
+
+    const onDeviceLinkRequest = (data: any) => {
+      setLinkRequests((prev) => [...prev, data]);
+    };
+
+    const onDeviceLinkAccepted = () => {
+      window.location.reload();
+    };
+
+    const onDeviceLinkRejected = () => {
+      toast.error("Master device rejected your connection request.");
+      window.location.href = "/login";
+    };
+
+    const onDeviceNuclearSuccess = () => {
+      toast.success("Nuclear reset successful. You are now the Master Device.");
+      window.location.reload();
+    };
+
+    const onPendingRequestsList = (data: any[]) => {
+      if (
+        !hasNotifiedPending.current &&
+        Array.isArray(data) &&
+        data.length > 0
+      ) {
+        hasNotifiedPending.current = true;
+        toast.success(
+          `You have ${data.length} pending friend ${
+            data.length === 1 ? "request" : "requests"
+          }. Check the Add Friend page.`,
+        );
+      }
+    };
+
+    const onNotification = (notif: {
+      type: "info" | "success" | "warning" | "error";
+      message: string;
+    }) => {
+      setIsJoining(false); // Clear wait states on any notification toast (e.g., 'User not found' or 'Blocked')
+      if (notif.type === "error") {
+        toast.error(notif.message);
+      } else if (notif.type === "success") {
+        toast.success(notif.message);
+      } else {
+        toast(notif.message);
+      }
+    };
+
+    const onRequestSent = () => {
+      setIsJoining(false);
+      setTargetEmail("");
+    };
+
+    const onRequestFailed = () => {
+      setIsJoining(false);
     };
 
     client.on("session_updated", onSessionUpdate);
@@ -156,7 +221,15 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     client.on("inbound_request", onInboundRequest);
     client.on("auth_success", onAuthSuccess);
     client.on("auth_error", onAuthError);
+    client.on("auth_pending", onAuthPending);
+    client.on("device_link_request", onDeviceLinkRequest);
+    client.on("device_link_accepted", onDeviceLinkAccepted);
+    client.on("device_link_rejected", onDeviceLinkRejected);
+    client.on("device_nuclear_success", onDeviceNuclearSuccess);
     client.on("notification", onNotification);
+    client.on("request_sent", onRequestSent);
+    client.on("request_failed", onRequestFailed);
+    client.on("pending_requests_list", onPendingRequestsList);
 
     return () => {
       client.off("session_updated", onSessionUpdate);
@@ -166,22 +239,41 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       client.off("inbound_request", onInboundRequest);
       client.off("auth_success", onAuthSuccess);
       client.off("auth_error", onAuthError);
+      client.off("auth_pending", onAuthPending);
+      client.off("device_link_request", onDeviceLinkRequest);
+      client.off("device_link_accepted", onDeviceLinkAccepted);
+      client.off("device_link_rejected", onDeviceLinkRejected);
+      client.off("device_nuclear_success", onDeviceNuclearSuccess);
       client.off("notification", onNotification);
+      client.off("request_sent", onRequestSent);
+      client.off("request_failed", onRequestFailed);
+      client.off("pending_requests_list", onPendingRequestsList);
     };
   }, [loadSessions]);
 
   const handleConnect = async () => {
     if (!targetEmail) return;
+
+    // Check basic email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(targetEmail.trim())) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+
+    // Check against own email
+    if (targetEmail.trim().toLowerCase() === userEmail?.trim().toLowerCase()) {
+      toast.error("You cannot send a friend request to yourself.");
+      return;
+    }
+
     setIsJoining(true);
     try {
       await ChatClient.connectToPeer(targetEmail);
-      setIsJoining(false);
-      setNotification({ type: "success", message: "Connection request sent" });
-      setTargetEmail("");
     } catch (e) {
       console.error(e);
       setIsJoining(false);
-      setNotification({ type: "error", message: "Failed to send request" });
+      toast.error("Failed to send request");
     }
   };
 
@@ -197,8 +289,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     }
   };
 
-  const clearNotification = () => setNotification(null);
-
   return {
     state: {
       view,
@@ -211,9 +301,10 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       error,
       peerOnline,
       isSidebarOpen,
-      notification,
       userEmail,
       isLoading,
+      pendingMasterKey,
+      linkRequests,
     },
     refs: {
       activeChatRef,
@@ -227,9 +318,9 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setIsWaiting,
       handleConnect,
       handleSetAlias,
-      clearNotification,
       loadSessions,
       login: (token: string) => ChatClient.login(token),
+      setLinkRequests,
     },
   };
 };

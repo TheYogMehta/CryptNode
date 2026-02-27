@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { executeDB, queryDB } from "../storage/sqliteService";
+import { executeDB, queryDB, isUserBlocked } from "../storage/sqliteService";
 import socket from "./SocketManager";
 import { MessageQueue } from "../../utils/MessageQueue";
 import { sha256 } from "../../utils/crypto";
@@ -30,6 +30,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
   public callService: CallService;
 
   private messageQueue: MessageQueue;
+  private hasNotifiedPendingRequests: boolean = false;
 
   constructor() {
     super();
@@ -45,6 +46,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         await this.messageService.handleMsg(
           item.payload.sid,
           item.payload.payload,
+          item.payload.senderHash,
           item.priority,
         );
       }
@@ -148,6 +150,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
     senderHash?: string,
   ): Promise<boolean> {
     if (!senderHash) return false;
+    const myEmail = this.normalizeEmail(this.authService.userEmail);
+    if (myEmail) {
+      const myEmailHash = await sha256(myEmail);
+      if (myEmailHash.toLowerCase() === senderHash.toLowerCase()) return true;
+    }
+
     const session = this.sessionService.sessions[sid];
     if (!session) return false;
 
@@ -206,6 +214,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         ) {
           await this.authService.logout();
         }
+        if (
+          data.message?.includes("not found") ||
+          data.message?.includes("blocked")
+        ) {
+          this.emit("request_failed");
+        }
         this.emit("notification", { type: "error", message: data.message });
         break;
       case "INVITE_CODE":
@@ -219,6 +233,53 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         this.emit("auth_success", this.authService.userEmail);
         break;
+      case "AUTH_PENDING":
+        await this.authService.handleAuthPending({
+          email: data.email,
+          token: data.token,
+        });
+        this.emit("auth_pending", data.masterPubKey);
+        break;
+      case "DEVICE_LINK_REQUEST":
+        this.emit("device_link_request", data);
+        break;
+      case "DEVICE_LINK_ACCEPTED":
+        this.emit("device_link_accepted");
+        break;
+      case "DEVICE_LINK_REJECTED":
+        this.emit("device_link_rejected");
+        await this.authService.logout();
+        break;
+      case "DEVICE_NUCLEAR_SUCCESS":
+        this.emit("device_nuclear_success");
+        break;
+      case "DEVICE_LIST":
+        this.emit("device_list", data);
+        break;
+      case "PUBLIC_KEY":
+        if (data.publicKey && data.targetEmail) {
+          try {
+            await this.sessionService.sendFriendRequest(
+              data.targetEmail,
+              data.publicKey,
+            );
+          } catch (err) {
+            console.error("Failed to send encrypted friend request", err);
+            this.emit("request_failed");
+            this.emit("notification", {
+              type: "error",
+              message: "Failed to securely encrypt request.",
+            });
+          }
+        } else {
+          this.emit("request_failed");
+          this.emit("notification", {
+            type: "warning",
+            message:
+              "This user hasn't set up their profile or encryption keys yet.",
+          });
+        }
+        break;
       case "FRIEND_REQUEST":
         try {
           const req = await this.sessionService.decryptFriendRequest(
@@ -226,6 +287,17 @@ export class ChatClient extends EventEmitter implements IChatClient {
             data.publicKey,
           );
           if (req) {
+            const isBlocked = await isUserBlocked(
+              this.normalizeEmail(req.email),
+            );
+            if (isBlocked) {
+              console.log(
+                "[ChatClient] Dropping FRIEND_REQUEST from blocked user:",
+                req.email,
+              );
+              return;
+            }
+
             const myEmail = this.normalizeEmail(this.authService.userEmail);
             const otherEmail = this.normalizeEmail(req.email);
             const [u1, u2] = [myEmail, otherEmail].sort();
@@ -235,6 +307,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
               ...req,
               publicKey: data.publicKey,
               sid: computedSid,
+            });
+            this.emit("notification", {
+              type: "success",
+              message: `New friend request from ${req.name || "Unknown"}`,
             });
           }
         } catch (e) {
@@ -248,6 +324,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
       case "FRIEND_DENY":
         await this.sessionService.handleFriendDeny(data);
         this.emit("session_updated");
+        break;
+      case "USER_BLOCKED_EVENT":
+        this.emit("notification", {
+          type: "warning",
+          message: "A user has blocked you.",
+        });
         break;
       case "PROFILE_UPDATE":
         await this.sessionService.handleProfileUpdate(sid, data);
@@ -267,14 +349,78 @@ export class ChatClient extends EventEmitter implements IChatClient {
           });
           return;
         }
+
+        {
+          const session = this.sessionService.getSession(sid);
+          if (session && session.peerEmail) {
+            const isBlocked = await isUserBlocked(
+              this.normalizeEmail(session.peerEmail),
+            );
+            if (isBlocked) {
+              console.log(
+                `[ChatClient] Dropping ${t} frame from blocked user:`,
+                session.peerEmail,
+              );
+              return;
+            }
+          }
+        }
+
+        let myPayload: string | undefined;
+        if (data.payloads) {
+          const myPubKey = await this.getPublicKeyString();
+          myPayload = data.payloads[myPubKey];
+          if (!myPayload) {
+            console.warn(
+              `[ChatClient] Dropped MSG for ${sid}: missing payload for our pubkey.`,
+            );
+            return;
+          }
+        } else if (data.payload) {
+          myPayload = data.payload;
+        }
+
+        if (!myPayload) return;
+
         this.messageQueue.enqueue(
           "HANDLE_MSG",
-          { sid, payload: data.payload, priority: frame.p ?? 1 },
+          { sid, payload: myPayload, senderHash: sh, priority: frame.p ?? 1 },
           frame.p ?? 1,
         );
         break;
       case "PENDING_REQUESTS":
         this.emit("pending_requests_list", data);
+        break;
+      case "REQUEST_SENT":
+        this.emit("notification", {
+          type: "success",
+          message: "Connection request sent",
+        });
+        this.emit("request_sent");
+        break;
+      case "USER_BLOCKED":
+        if (data.targetEmail) {
+          executeDB(
+            "INSERT OR REPLACE INTO blocked_users (email, timestamp) VALUES (?, ?)",
+            [data.targetEmail, Date.now()],
+          ).catch((e) =>
+            console.error("Failed to save blocked user locally", e),
+          );
+        }
+        this.emit("notification", {
+          type: "success",
+          message: "User successfully blocked.",
+        });
+        break;
+      case "USER_UNBLOCKED":
+        if (data.targetEmail) {
+          executeDB("DELETE FROM blocked_users WHERE email = ?", [
+            data.targetEmail,
+          ]).catch((e) =>
+            console.error("Failed to remove blocked user locally", e),
+          );
+          this.emit("user_unblocked", data.targetEmail);
+        }
         break;
 
       case "FRIEND_ACCEPTED_ACK":
@@ -290,6 +436,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.sessionService.setPeerOnline(sid, true);
         this.emit("session_updated");
         this.syncPendingMessages();
+        this.messageService.syncManager.enqueueSync(sid);
         this.broadcastProfileUpdate();
         break;
       case "PEER_OFFLINE":
@@ -336,7 +483,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
     sid: string,
     data: string | Uint8Array | ArrayBuffer,
     priority: number,
-  ): Promise<string> {
+  ): Promise<Record<string, string>> {
     return this.sessionService.encrypt(sid, data, priority);
   }
 
@@ -374,15 +521,23 @@ export class ChatClient extends EventEmitter implements IChatClient {
     remotePub: string,
     senderHash: string,
   ) {
-    return this.sessionService.acceptFriend(targetEmail, remotePub, senderHash);
+    return this.sessionService.acceptFriend(
+      targetEmail,
+      [remotePub],
+      senderHash,
+    );
   }
 
   public denyFriend(targetEmail: string) {
     return this.sessionService.denyFriend(targetEmail);
   }
 
-  public blockUser(targetEmail: string) {
+  public async blockUser(targetEmail: string) {
     return this.sessionService.blockUser(targetEmail);
+  }
+
+  public async unblockUser(targetEmail: string) {
+    return this.sessionService.unblockUser(targetEmail);
   }
 
   public async sendMessage(
@@ -463,6 +618,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
   public get canScreenShare() {
     return this.callService.canUseScreenShare();
+  }
+  public async getPublicKeyString() {
+    return await this.authService.exportPub();
   }
   public get currentCallSid() {
     return this.callService.currentCallSid;

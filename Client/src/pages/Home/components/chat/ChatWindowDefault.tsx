@@ -103,7 +103,7 @@ export const ChatWindowDefault = ({
   const canScreenShare = ChatClient.canScreenShare;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isLoaded: isAiLoaded } = useAIStatus();
+  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
   const virtuosoRef = useRef<VirtuosoHandle>(null); // Replacement for scrollRef logic
   const [input, setInput] = useState("");
 
@@ -163,10 +163,11 @@ export const ChatWindowDefault = ({
   }, [showOptionsMenu]);
 
   const handleSummarize = async () => {
-    setShowSummary(true);
-    if (summary && !isSummarizing) return;
+    if (isSummarizing || messages.length === 0) return;
     setIsSummarizing(true);
+    setShowSummary(true);
     try {
+      if (!qwenLocalService.isLoaded) await qwenLocalService.init();
       const result = await qwenLocalService.summarize(messages, 5);
       setSummary(result);
     } catch (e) {
@@ -489,6 +490,7 @@ export const ChatWindowDefault = ({
 
     setIsGeneratingReplies(true);
     try {
+      if (!qwenLocalService.isLoaded) await qwenLocalService.init();
       const items = await qwenLocalService.quickReplies(messages, input, 3);
       setQuickReplies(items);
     } catch (e) {
@@ -627,13 +629,13 @@ export const ChatWindowDefault = ({
                 >
                   <Video size={18} /> Video Call
                 </button>
-                {isAiLoaded && (
+                {isAiInstalled && (
                   <button
                     onClick={() => {
                       handleSummarize();
                       setShowOptionsMenu(false);
                     }}
-                    disabled={isSummarizing}
+                    disabled={isSummarizing || qwenLocalService.isLoading}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -641,15 +643,21 @@ export const ChatWindowDefault = ({
                       padding: "10px 12px",
                       background: "transparent",
                       border: "none",
-                      color: isSummarizing ? "rgba(255,255,255,0.5)" : "#ccc",
-                      cursor: isSummarizing ? "not-allowed" : "pointer",
+                      color:
+                        isSummarizing || qwenLocalService.isLoading
+                          ? "rgba(255,255,255,0.5)"
+                          : "#ccc",
+                      cursor:
+                        isSummarizing || qwenLocalService.isLoading
+                          ? "not-allowed"
+                          : "pointer",
                       borderRadius: "4px",
                       textAlign: "left",
                       fontSize: "14px",
                       transition: "background 0.2s",
                     }}
                     onMouseOver={(e) => {
-                      if (!isSummarizing)
+                      if (!isSummarizing && !qwenLocalService.isLoading)
                         e.currentTarget.style.background =
                           "rgba(255,255,255,0.1)";
                     }}
@@ -659,9 +667,15 @@ export const ChatWindowDefault = ({
                   >
                     <FileText
                       size={18}
-                      color={isSummarizing ? "#eda515" : undefined}
+                      color={
+                        isSummarizing || qwenLocalService.isLoading
+                          ? "#eda515"
+                          : undefined
+                      }
                     />{" "}
-                    {isSummarizing ? "Summarizing..." : "Summarize Chat"}
+                    {isSummarizing || qwenLocalService.isLoading
+                      ? "Loading AI..."
+                      : "Summarize Chat"}
                   </button>
                 )}
                 {canScreenShare && (
@@ -1112,83 +1126,97 @@ export const ChatWindowDefault = ({
         </InputContainer>
       ) : (
         <InputContainer>
-          {!showAiSuggestions && !input.trim() && isAiLoaded && (
+          {!showAiSuggestions && !input.trim() && (
             <div style={{ padding: "0 8px 8px 8px" }}>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   setShowAiSuggestions(true);
+                  if (!qwenLocalService.isLoaded) await qwenLocalService.init();
                 }}
+                disabled={qwenLocalService.isLoading}
                 style={{
                   border: "1px solid rgba(255,255,255,0.2)",
                   borderRadius: 14,
-                  color: "#fff",
+                  color: qwenLocalService.isLoading
+                    ? "rgba(255,255,255,0.5)"
+                    : "#fff",
                   background: "rgba(255,255,255,0.06)",
                   padding: "5px 10px",
                   fontSize: 12,
-                  cursor: "pointer",
+                  cursor: qwenLocalService.isLoading
+                    ? "not-allowed"
+                    : "pointer",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
                 }}
               >
                 <Lightbulb size={16} />
-                Catch Up
+                {qwenLocalService.isLoading ? "Loading AI..." : "Catch Up"}
               </button>
             </div>
           )}
-          {showAiSuggestions && quickReplies.length > 0 && !isRecording && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                padding: "0 8px 8px 8px",
-              }}
-            >
-              {quickReplies.map((reply) => (
+          {isAiInstalled &&
+            showAiSuggestions &&
+            quickReplies.length > 0 &&
+            !isRecording && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  padding: "0 8px 8px 8px",
+                }}
+              >
+                {quickReplies.map((reply) => (
+                  <button
+                    key={reply}
+                    type="button"
+                    onClick={() => setInput(reply)}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: 14,
+                      color: "#fff",
+                      background: "rgba(255,255,255,0.06)",
+                      padding: "5px 10px",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {reply}
+                  </button>
+                ))}
                 <button
-                  key={reply}
                   type="button"
-                  onClick={() => setInput(reply)}
+                  onClick={() => {
+                    setShowAiSuggestions(false);
+                  }}
                   style={{
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: 14,
-                    color: "#fff",
-                    background: "rgba(255,255,255,0.06)",
-                    padding: "5px 10px",
+                    border: "none",
+                    background: "transparent",
+                    color: "rgba(255,255,255,0.65)",
                     fontSize: 12,
                     cursor: "pointer",
                   }}
                 >
-                  {reply}
+                  Hide
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAiSuggestions(false);
-                }}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.65)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Hide
-              </button>
-              {isAiLoaded && (
                 <button
                   onClick={handleSummarize}
-                  disabled={isSummarizing}
+                  disabled={isSummarizing || qwenLocalService.isLoading}
                   title="Summarize Chat"
                   style={{
                     background: "transparent",
                     border: "none",
-                    cursor: "pointer",
-                    color: "#ccc",
+                    cursor:
+                      isSummarizing || qwenLocalService.isLoading
+                        ? "not-allowed"
+                        : "pointer",
+                    color:
+                      isSummarizing || qwenLocalService.isLoading
+                        ? "rgba(255,255,255,0.5)"
+                        : "#ccc",
                     marginRight: 10,
                     display: "flex",
                     alignItems: "center",
@@ -1197,13 +1225,20 @@ export const ChatWindowDefault = ({
                 >
                   <FileText
                     size={18}
-                    color={isSummarizing ? "#eda515" : undefined}
+                    color={
+                      isSummarizing || qwenLocalService.isLoading
+                        ? "#eda515"
+                        : undefined
+                    }
                   />
-                  <span style={{ fontSize: 12 }}>Summarize Chat</span>
+                  <span style={{ fontSize: 12 }}>
+                    {isSummarizing || qwenLocalService.isLoading
+                      ? "Loading..."
+                      : "Summarize Chat"}
+                  </span>
                 </button>
-              )}
-            </div>
-          )}
+              </div>
+            )}
           <AttachmentButton
             active={showMenu}
             onClick={() => setShowMenu(!showMenu)}
@@ -1262,19 +1297,26 @@ export const ChatWindowDefault = ({
                   >
                     GIF
                   </IconButton>
-                  {isAiLoaded && (
+                  {isAiInstalled && (
                     <IconButton
                       variant="ghost"
                       size="sm"
+                      disabled={qwenLocalService.isLoading}
                       onClick={async () => {
                         if (!input.trim()) return;
+                        if (!qwenLocalService.isLoaded)
+                          await qwenLocalService.init();
                         const rewritten = await qwenLocalService.smartCompose(
                           input,
                         );
                         if (rewritten) setInput(rewritten);
                       }}
                       title="Rephrase"
-                      style={{ color: "#8b5cf6" }}
+                      style={{
+                        color: qwenLocalService.isLoading
+                          ? "rgba(139,92,246,0.5)"
+                          : "#8b5cf6",
+                      }}
                     >
                       <Wand2 size={16} />
                     </IconButton>
