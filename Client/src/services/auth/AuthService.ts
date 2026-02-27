@@ -173,11 +173,9 @@ export class AuthService extends EventEmitter {
         clearTimeout(timeout);
         this.off("auth_success", onSuccessOrPending);
         this.off("auth_error", onError);
-        this.off("auth_pending", onSuccessOrPending);
       };
 
       this.on("auth_success", onSuccessOrPending);
-      this.on("auth_pending", onSuccessOrPending);
       this.on("auth_error", onError);
     });
 
@@ -293,30 +291,6 @@ export class AuthService extends EventEmitter {
       await setActiveUser(data.email);
 
       this.emit("auth_success", data.email);
-    }
-  }
-
-  public async handleAuthPending(data: any) {
-    this.userEmail = data.email;
-    if (data.token) {
-      this.authToken = data.token;
-      const tokenKey = await AccountService.getStorageKey(
-        data.email,
-        "auth_token",
-      );
-      await setKeyFromSecureStorage(tokenKey, data.token);
-      console.log("[AuthService] Session token saved (Pending)");
-
-      const claims = this.parseGoogleIdTokenClaims(data.token);
-      await AccountService.addAccount(
-        data.email,
-        data.token,
-        claims.name,
-        claims.picture,
-      );
-      await setActiveUser(data.email);
-
-      this.emit("auth_pending", data.email);
     }
   }
 }

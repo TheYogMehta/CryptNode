@@ -1,7 +1,15 @@
 import styled from "@emotion/styled";
-import { colors, spacing, typography, radii } from "../../../../theme/design-system";
+import {
+  colors,
+  spacing,
+  typography,
+  radii,
+} from "../../../../theme/design-system";
 
-export const SidebarContainer = styled.nav<{ isOpen: boolean; isMobile: boolean }>`
+export const SidebarContainer = styled.nav<{
+  isOpen: boolean;
+  isMobile: boolean;
+}>`
   width: 320px;
   height: 100%;
   background-color: ${colors.background.secondary};
@@ -11,7 +19,9 @@ export const SidebarContainer = styled.nav<{ isOpen: boolean; isMobile: boolean 
   flex-direction: column;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  ${props => props.isMobile && `
+  ${(props) =>
+    props.isMobile &&
+    `
     position: fixed;
     top: 0;
     bottom: 0;
@@ -44,7 +54,7 @@ export const Logo = styled.h2`
   color: ${colors.primary.DEFAULT};
   margin: 0;
   cursor: pointer;
-  
+
   span {
     color: ${colors.text.primary};
   }
@@ -57,7 +67,7 @@ export const CloseButton = styled.button`
   font-size: 24px;
   cursor: pointer;
   padding: ${spacing[2]};
-  
+
   &:hover {
     color: ${colors.text.primary};
   }
@@ -77,7 +87,7 @@ export const SectionLabel = styled.p`
   margin-bottom: ${spacing[3]};
   padding-left: ${spacing[2]};
   margin-top: ${spacing[6]};
-  
+
   &:first-of-type {
     margin-top: 0;
   }
@@ -108,11 +118,14 @@ export const ItemContainer = styled.div<{ isActive: boolean }>`
   cursor: pointer;
   margin-bottom: ${spacing[1]};
   transition: all 0.2s ease;
-  background-color: ${props => props.isActive ? colors.primary.subtle : "transparent"};
-  border: 1px solid ${props => props.isActive ? colors.primary.subtle : "transparent"};
+  background-color: ${(props) =>
+    props.isActive ? colors.primary.subtle : "transparent"};
+  border: 1px solid
+    ${(props) => (props.isActive ? colors.primary.subtle : "transparent")};
 
   &:hover {
-    background-color: ${props => props.isActive ? colors.primary.subtle : colors.background.tertiary};
+    background-color: ${(props) =>
+      props.isActive ? colors.primary.subtle : colors.background.tertiary};
   }
 `;
 
@@ -133,7 +146,8 @@ export const ItemName = styled.div`
 
 export const ItemPreview = styled.div<{ isActive: boolean }>`
   font-size: ${typography.fontSize.xs};
-  color: ${props => props.isActive ? colors.primary.DEFAULT : colors.text.secondary};
+  color: ${(props) =>
+    props.isActive ? colors.primary.DEFAULT : colors.text.secondary};
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -152,4 +166,35 @@ export const UnreadBadge = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
+`;
+
+export const SyncContainer = styled.div`
+  margin: ${spacing[4]} ${spacing[4]} 0;
+  padding: ${spacing[3]};
+  background-color: ${colors.background.tertiary};
+  border-radius: ${radii.md};
+  border: 1px solid ${colors.border.subtle};
+`;
+
+export const SyncTitle = styled.div`
+  font-size: ${typography.fontSize.xs};
+  color: ${colors.text.secondary};
+  margin-bottom: ${spacing[2]};
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+export const SyncProgressBar = styled.div`
+  height: 4px;
+  background-color: ${colors.background.primary};
+  border-radius: ${radii.full};
+  overflow: hidden;
+`;
+
+export const SyncProgressFill = styled.div<{ progress: number }>`
+  height: 100%;
+  background-color: ${colors.primary.DEFAULT};
+  width: ${(props) => Math.min(Math.max(props.progress, 0), 100)}%;
+  transition: width 0.3s ease;
 `;

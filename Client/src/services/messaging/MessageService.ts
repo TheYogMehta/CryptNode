@@ -213,21 +213,47 @@ export class MessageService extends EventEmitter {
     }
   }
 
-  public async requestSync(sid: string, lastSyncTimestamp: number) {
+  public async requestSync(
+    sid: string,
+    timestamp: number,
+    direction: "ASC" | "DESC" = "ASC",
+    limit: number = 50,
+    targetPubKey?: string,
+  ) {
     if (!this.client.sessionService.sessions[sid]) return;
 
     try {
-      const payloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({
-          t: "MSG",
-          data: {
-            type: "SYNC_REQ",
-            timestamp: lastSyncTimestamp,
-          },
-        }),
-        1,
-      );
+      const payloadObj = {
+        t: "MSG",
+        data: {
+          type: "SYNC_REQ",
+          timestamp,
+          direction,
+          limit,
+        },
+      };
+
+      let payloads;
+      if (targetPubKey) {
+        // Encrypt only for the specific target device
+        payloads = await this.client.encryptForSession(
+          sid,
+          JSON.stringify(payloadObj),
+          1,
+        );
+        // Filter out other keys
+        const filteredPayloads: Record<string, string> = {};
+        if (payloads[targetPubKey]) {
+          filteredPayloads[targetPubKey] = payloads[targetPubKey];
+        }
+        payloads = filteredPayloads;
+      } else {
+        payloads = await this.client.encryptForSession(
+          sid,
+          JSON.stringify(payloadObj),
+          1,
+        );
+      }
 
       this.client.send({
         t: "MSG",
@@ -238,6 +264,74 @@ export class MessageService extends EventEmitter {
       });
     } catch (e) {
       console.error("[MessageService] Failed to request cross-device sync:", e);
+    }
+  }
+
+  public async requestSyncInfo(sid: string, targetPubKey?: string) {
+    if (!this.client.sessionService.sessions[sid]) return;
+
+    try {
+      const payloadObj = {
+        t: "MSG",
+        data: { type: "SYNC_INFO_REQ" },
+      };
+
+      let payloads = await this.client.encryptForSession(
+        sid,
+        JSON.stringify(payloadObj),
+        1,
+      );
+
+      if (targetPubKey && payloads[targetPubKey]) {
+        payloads = { [targetPubKey]: payloads[targetPubKey] };
+      }
+
+      this.client.send({
+        t: "MSG",
+        sid,
+        data: { payloads },
+        c: true,
+        p: 1,
+      });
+    } catch (e) {
+      console.error("[MessageService] Failed to request SYNC_INFO:", e);
+    }
+  }
+
+  public async broadcastSyncState(sid: string) {
+    if (!this.client.sessionService.sessions[sid]) return;
+
+    try {
+      const row = await queryDB(
+        "SELECT COUNT(*) as total, MAX(timestamp) as maxTs, MIN(timestamp) as minTs FROM messages WHERE sid = ?",
+        [sid],
+      );
+      const total = row[0]?.total || 0;
+      const maxTs = row[0]?.maxTs || 0;
+      const minTs = row[0]?.minTs || 0;
+
+      const payloads = await this.client.encryptForSession(
+        sid,
+        JSON.stringify({
+          t: "MSG",
+          data: {
+            type: "SYNC_STATE_BROADCAST",
+            total,
+            maxTs,
+            minTs,
+          },
+        }),
+        1,
+      );
+      this.client.send({
+        t: "MSG",
+        sid,
+        data: { payloads },
+        c: true,
+        p: 1,
+      });
+    } catch (e) {
+      console.error("[MessageService] Failed to broadcast sync state:", e);
     }
   }
 
@@ -583,14 +677,66 @@ export class MessageService extends EventEmitter {
             );
           }
           break;
+        case "SYNC_INFO_REQ":
+          try {
+            const row = await queryDB(
+              "SELECT COUNT(*) as total, MAX(timestamp) as maxTs, MIN(timestamp) as minTs FROM messages WHERE sid = ?",
+              [sid],
+            );
+            const total = row[0]?.total || 0;
+            const maxTs = row[0]?.maxTs || 0;
+            const minTs = row[0]?.minTs || 0;
+
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({
+                t: "MSG",
+                data: {
+                  type: "SYNC_INFO_ACK",
+                  total,
+                  maxTs,
+                  minTs,
+                },
+              }),
+              1,
+            );
+            this.client.send({
+              t: "MSG",
+              sid,
+              data: { payloads },
+              c: true,
+              p: 1,
+            });
+          } catch (err) {
+            console.error("[MessageService] Failed sending SYNC_INFO_ACK", err);
+          }
+          break;
+
+        case "SYNC_INFO_ACK":
+          if (typeof this.syncManager.handleSyncInfoAck === "function") {
+            this.syncManager.handleSyncInfoAck(
+              sid,
+              data.total,
+              data.minTs,
+              data.maxTs,
+            );
+          }
+          break;
+
         case "SYNC_REQ":
           console.log(
-            `[MessageService] Handling SYNC_REQ from ${sid} since ${data.timestamp}`,
+            `[MessageService] Handling SYNC_REQ from ${sid} timestamp ${data.timestamp} direction ${data.direction}`,
           );
           try {
+            const limit = typeof data.limit === "number" ? data.limit : 50;
+            const direction = data.direction === "DESC" ? "DESC" : "ASC";
+            const op = direction === "DESC" ? "<" : ">";
+            const ts =
+              data.timestamp || (direction === "DESC" ? Date.now() : 0);
+
             const rows = await queryDB(
-              "SELECT id, text, type, timestamp, reply_to, sender FROM messages WHERE sid = ? AND timestamp > ? ORDER BY timestamp ASC LIMIT 50",
-              [sid, data.timestamp || 0],
+              `SELECT id, text, type, timestamp, reply_to, sender FROM messages WHERE sid = ? AND timestamp ${op} ? ORDER BY timestamp ${direction} LIMIT ?`,
+              [sid, ts, limit],
             );
 
             if (rows.length > 0) {
@@ -601,6 +747,7 @@ export class MessageService extends EventEmitter {
                   data: {
                     type: "SYNC_ACK",
                     messages: rows,
+                    direction,
                   },
                 }),
                 1,
@@ -667,13 +814,14 @@ export class MessageService extends EventEmitter {
                 );
               }
             }
-            if (maxTimestamp > 0) {
+            if (typeof this.syncManager.handleSyncAck === "function") {
+              await this.syncManager.handleSyncAck(
+                sid,
+                data.messages,
+                data.direction || "ASC",
+              );
+            } else if (maxTimestamp > 0) {
               await this.syncManager.updateLastSync(sid, maxTimestamp);
-
-              // Depending on limits, re-queue SYNC_REQ if maxing array cap?
-              if (data.messages.length === 50) {
-                await this.requestSync(sid, maxTimestamp);
-              }
             }
           }
           break;

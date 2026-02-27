@@ -71,22 +71,15 @@ const DeviceName = styled.div`
   gap: 8px;
 `;
 
-const Badge = styled.span<{ $type?: "master" | "pending" }>`
+const Badge = styled.span<{ $type?: "master" }>`
   font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: 12px;
   background: ${(props) =>
     props.$type === "master"
       ? "rgba(99, 102, 241, 0.2)"
-      : props.$type === "pending"
-      ? "rgba(245, 158, 11, 0.2)"
       : "rgba(255,255,255,0.1)"};
-  color: ${(props) =>
-    props.$type === "master"
-      ? "#818cf8"
-      : props.$type === "pending"
-      ? "#fbbf24"
-      : "#a0a0b0"};
+  color: ${(props) => (props.$type === "master" ? "#818cf8" : "#a0a0b0")};
 `;
 
 const DeviceMeta = styled.div`
@@ -200,7 +193,6 @@ export const DeviceManager: React.FC = () => {
         {devices.map((device, idx) => {
           const isMe = device.publicKey === localPubKey;
           const isMaster = device.isMaster;
-          const isPending = device.status === "pending";
 
           let title = "CryptNode Client";
           if (isMe) title += " (This Device)";
@@ -215,8 +207,6 @@ export const DeviceManager: React.FC = () => {
                   <DeviceName>
                     {title}
                     {isMaster && <Badge $type="master">Master</Badge>}
-                    {isPending && <Badge $type="pending">Pending</Badge>}
-                    {!isMaster && !isPending && <Badge>Approved</Badge>}
                   </DeviceName>
                   <DeviceMeta>
                     <span>ID: {device.publicKey.substring(0, 16)}...</span>
@@ -228,7 +218,7 @@ export const DeviceManager: React.FC = () => {
                 </DeviceDetails>
               </DeviceInfo>
 
-              {!isMe && !isPending && (
+              {!isMe && (
                 <RemoveButton
                   onClick={() => handleRevoke(device.publicKey)}
                   title="Revoke Access"

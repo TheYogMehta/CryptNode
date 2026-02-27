@@ -20,8 +20,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     ChatClient.userEmail,
   );
   const [isLoading, setIsLoading] = useState(true);
-  const [pendingMasterKey, setPendingMasterKey] = useState<string | null>(null);
-  const [linkRequests, setLinkRequests] = useState<any[]>([]);
 
   const activeChatRef = useRef<string | null>(null);
   activeChatRef.current = activeChat;
@@ -140,7 +138,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
 
     const onAuthSuccess = (email: string) => {
       setUserEmail(email);
-      setPendingMasterKey(null);
       setIsLoading(false);
       loadSessions();
     };
@@ -148,25 +145,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     const onAuthError = () => {
       setIsJoining(false);
       setUserEmail(null);
-      setPendingMasterKey(null);
-      window.location.href = "/";
-    };
-
-    const onAuthPending = (masterKey: string) => {
-      setPendingMasterKey(masterKey);
-      setIsLoading(false);
-    };
-
-    const onDeviceLinkRequest = (data: any) => {
-      setLinkRequests((prev) => [...prev, data]);
-    };
-
-    const onDeviceLinkAccepted = () => {
-      window.location.reload();
-    };
-
-    const onDeviceLinkRejected = () => {
-      toast.error("Master device rejected your connection request.");
       window.location.href = "/";
     };
 
@@ -222,10 +200,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     client.on("inbound_request", onInboundRequest);
     client.on("auth_success", onAuthSuccess);
     client.on("auth_error", onAuthError);
-    client.on("auth_pending", onAuthPending);
-    client.on("device_link_request", onDeviceLinkRequest);
-    client.on("device_link_accepted", onDeviceLinkAccepted);
-    client.on("device_link_rejected", onDeviceLinkRejected);
     client.on("device_nuclear_success", onDeviceNuclearSuccess);
     client.on("notification", onNotification);
     client.on("request_sent", onRequestSent);
@@ -240,10 +214,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       client.off("inbound_request", onInboundRequest);
       client.off("auth_success", onAuthSuccess);
       client.off("auth_error", onAuthError);
-      client.off("auth_pending", onAuthPending);
-      client.off("device_link_request", onDeviceLinkRequest);
-      client.off("device_link_accepted", onDeviceLinkAccepted);
-      client.off("device_link_rejected", onDeviceLinkRejected);
       client.off("device_nuclear_success", onDeviceNuclearSuccess);
       client.off("notification", onNotification);
       client.off("request_sent", onRequestSent);
@@ -304,8 +274,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       isSidebarOpen,
       userEmail,
       isLoading,
-      pendingMasterKey,
-      linkRequests,
     },
     refs: {
       activeChatRef,
@@ -321,7 +289,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       handleSetAlias,
       loadSessions,
       login: (token: string) => ChatClient.login(token),
-      setLinkRequests,
     },
   };
 };

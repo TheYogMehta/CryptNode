@@ -16,7 +16,6 @@ import { AccountService } from "../../services/auth/AccountService";
 import ChatClient from "../../services/core/ChatClient";
 import { RenameModal } from "./components/overlays/RenameModal";
 
-import { DeviceApprovalModal } from "./components/overlays/DeviceApprovalModal";
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { Capacitor } from "@capacitor/core";
@@ -345,6 +344,7 @@ const Home = () => {
   const onSelectChat = useCallback(
     (sid: string) => {
       actions.setActiveChat(sid);
+      ChatClient.messageService?.syncManager?.prioritizeSession(sid);
       actions.setView("chat");
       actions.setIsSidebarOpen(false);
     },
@@ -556,7 +556,6 @@ const Home = () => {
               setReplyingTo={actions.setReplyingTo}
               onLoadMore={actions.loadMoreHistory}
               isRateLimited={state.isRateLimited}
-              isPending={state.pendingMasterKey !== null}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup
@@ -564,7 +563,6 @@ const Home = () => {
               setTargetEmail={actions.setTargetEmail}
               onConnect={actions.handleConnect}
               isJoining={state.isJoining}
-              isPending={state.pendingMasterKey !== null}
             />
           ) : (
             <WelcomeView onAddFriend={() => actions.setView("add")} />
@@ -605,17 +603,6 @@ const Home = () => {
           <ProfileSetup
             userEmail={state.userEmail}
             onComplete={() => setShowProfileSetup(false)}
-          />
-        )}
-
-        {state.linkRequests && state.linkRequests.length > 0 && (
-          <DeviceApprovalModal
-            requests={state.linkRequests}
-            onHandled={(pubKey) => {
-              actions.setLinkRequests((prev: any[]) =>
-                prev.filter((r) => r.senderPubKey !== pubKey),
-              );
-            }}
           />
         )}
 

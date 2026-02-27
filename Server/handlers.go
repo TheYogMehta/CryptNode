@@ -103,91 +103,56 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			eh := emailHash(email)
 
-			var deviceCount int
-			// Dead Master Override:
-			// If all approved devices are older than 30 days, we treat the account
-			// as having 0 active master devices, meaning this new device log in will
-			// automatically be promoted to a Master Device to prevent account lockouts.
-			s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ? AND status = 'approved' AND last_active >= datetime('now', '-30 days')", eh).Scan(&deviceCount)
-
-			var deviceStatus string
 			var isMaster int
-
-			if deviceCount == 0 {
-				deviceStatus = "approved"
-				isMaster = 1
+			err = s.db.QueryRow("SELECT is_master FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&isMaster)
+			if err != nil {
+				var deviceCount int
+				s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ? AND last_active >= datetime('now', '-30 days')", eh).Scan(&deviceCount)
+				isMaster = 0
+				if deviceCount == 0 {
+					isMaster = 1
+				}
 				if d.PublicKey != "" {
 					s.db.Exec(`
-						INSERT INTO devices (email_hash, public_key, last_active, is_master, status) 
-						VALUES (?, ?, ?, ?, ?)`,
-						eh, d.PublicKey, time.Now(), isMaster, deviceStatus)
+						INSERT INTO devices (email_hash, public_key, last_active, is_master) 
+						VALUES (?, ?, ?, ?)`,
+						eh, d.PublicKey, time.Now(), isMaster)
 				}
 			} else {
-				err := s.db.QueryRow("SELECT status, is_master FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&deviceStatus, &isMaster)
-				if err != nil {
-					deviceStatus = "pending"
-					isMaster = 0
-					if d.PublicKey != "" {
-						s.db.Exec(`
-							INSERT INTO devices (email_hash, public_key, last_active, is_master, status) 
-							VALUES (?, ?, ?, ?, ?)`,
-							eh, d.PublicKey, time.Now(), isMaster, deviceStatus)
-					}
-				} else {
-					s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
-				}
+				s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
 			}
 
 			s.db.Exec("INSERT INTO sockets (email_hash, socket_id, public_key) VALUES (?, ?, ?)", eh, client.id, d.PublicKey)
 
-			if deviceStatus == "approved" {
-				client.mu.Lock()
-				client.approved = true
-				client.mu.Unlock()
+			resp := map[string]string{
+				"email": email,
+				"token": sessionToken,
+			}
+			respBytes, _ := json.Marshal(resp)
+			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
 
-				resp := map[string]string{
-					"email": email,
-					"token": sessionToken,
-				}
-				respBytes, _ := json.Marshal(resp)
-				s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
-
-				go func() {
-					rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
-					if err == nil {
-						var idsToDelete []int
-						for rows.Next() {
-							var id int
-							var data string
-							if err := rows.Scan(&id, &data); err == nil {
-								var notif Frame
-								if json.Unmarshal([]byte(data), &notif) == nil {
-									s.send(client, notif)
-									idsToDelete = append(idsToDelete, id)
-								}
+			go func() {
+				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
+				if err == nil {
+					var idsToDelete []int
+					for rows.Next() {
+						var id int
+						var data string
+						if err := rows.Scan(&id, &data); err == nil {
+							var notif Frame
+							if json.Unmarshal([]byte(data), &notif) == nil {
+								s.send(client, notif)
+								idsToDelete = append(idsToDelete, id)
 							}
 						}
-						rows.Close()
-
-						for _, id := range idsToDelete {
-							s.db.Exec("DELETE FROM offline_notifications WHERE id = ?", id)
-						}
 					}
-				}()
+					rows.Close()
 
-			} else {
-				var masterPubKey string
-				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", eh).Scan(&masterPubKey)
-
-				resp := map[string]string{
-					"masterPubKey": masterPubKey,
-					"email":        email,
-					"token":        sessionToken,
+					for _, id := range idsToDelete {
+						s.db.Exec("DELETE FROM offline_notifications WHERE id = ?", id)
+					}
 				}
-				respBytes, _ := json.Marshal(resp)
-				s.send(client, Frame{T: "AUTH_PENDING", Data: json.RawMessage(respBytes)})
-				continue
-			}
+			}()
 
 			go func() {
 				rows, err := s.db.Query(`
@@ -216,13 +181,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 					isOnline := false
 					var onlineCount int
-					s.db.QueryRow("SELECT COUNT(*) FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND d.status = 'approved'", peerHash).Scan(&onlineCount)
+					s.db.QueryRow("SELECT COUNT(*) FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ?", peerHash).Scan(&onlineCount)
 					isOnline = onlineCount > 0
 
 					var peerPubKeys []string
 					if isOnline {
 						// Only transmit keys that are actively connected right now
-						keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", peerHash)
+						keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", peerHash)
 						if err == nil {
 							for keyRows.Next() {
 								var pk string
@@ -235,7 +200,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					}
 
 					var ownPubKeys []string
-					ownKeyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", eh)
+					ownKeyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", eh)
 					if err == nil {
 						for ownKeyRows.Next() {
 							var pk string
@@ -270,7 +235,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 								// Calculate sender's current active keys to broadcast to friends
 								var senderPubKeys []string
-								keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != '' AND d.status = 'approved'", eh)
+								keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", eh)
 								if err == nil {
 									for keyRows.Next() {
 										var pk string
@@ -317,93 +282,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, emailHash(client.email))
 			}
 
-		case "DEVICE_LINK_REQUEST":
-			var d struct {
-				EncryptedSpecs string `json:"encryptedSpecs"`
-				TargetPubKey   string `json:"targetPubKey"`
-			}
-			json.Unmarshal(frame.Data, &d)
-
-			eh := emailHash(client.email)
-			var senderPubKey string
-			s.db.QueryRow("SELECT public_key FROM sockets WHERE socket_id = ?", client.id).Scan(&senderPubKey)
-
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
-				s.mu.Lock()
-				if targetClient, ok := s.clients[socketID]; ok {
-					reqData, _ := json.Marshal(map[string]any{
-						"encryptedSpecs": d.EncryptedSpecs,
-						"senderPubKey":   senderPubKey,
-					})
-					s.send(targetClient, Frame{T: "DEVICE_LINK_REQUEST", Data: json.RawMessage(reqData)})
-				}
-				s.mu.Unlock()
-			}
-			rows.Close()
-
-		case "DEVICE_LINK_ACCEPT":
-			var d struct {
-				TargetPubKey string `json:"targetPubKey"`
-			}
-			json.Unmarshal(frame.Data, &d)
-			eh := emailHash(client.email)
-
-			var status string
-			s.db.QueryRow("SELECT d.status FROM devices d JOIN sockets s ON d.public_key = s.public_key WHERE s.socket_id = ?", client.id).Scan(&status)
-			if status != "approved" {
-				continue
-			}
-
-			s.db.Exec("UPDATE devices SET status = 'approved' WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
-				s.mu.Lock()
-				if targetClient, ok := s.clients[socketID]; ok {
-					s.send(targetClient, Frame{T: "DEVICE_LINK_ACCEPTED"})
-				}
-				s.mu.Unlock()
-			}
-			rows.Close()
-
-			// Broadcast DEVICE_LIST to all approved devices so their settings UI synced
-			s.broadcastDeviceList(eh)
-
-		case "DEVICE_LINK_REJECT":
-			var d struct {
-				TargetPubKey string `json:"targetPubKey"`
-			}
-			json.Unmarshal(frame.Data, &d)
-			eh := emailHash(client.email)
-
-			var status string
-			s.db.QueryRow("SELECT d.status FROM devices d JOIN sockets s ON d.public_key = s.public_key WHERE s.socket_id = ?", client.id).Scan(&status)
-			if status != "approved" {
-				continue
-			}
-
-			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
-				s.mu.Lock()
-				if targetClient, ok := s.clients[socketID]; ok {
-					s.send(targetClient, Frame{T: "DEVICE_LINK_REJECTED"})
-					targetClient.conn.Close()
-				}
-				s.mu.Unlock()
-			}
-			rows.Close()
-
-			s.broadcastDeviceList(eh)
-
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
 			rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", eh)
@@ -432,15 +310,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
 
 		case "FRIEND_REQUEST":
-			client.mu.Lock()
-			isApproved := client.approved
-			client.mu.Unlock()
-
-			if !isApproved {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval. Please sync your device in Settings."}`)})
-				continue
-			}
-
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
 				continue
@@ -852,15 +721,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			)
 
 		case "MSG":
-			client.mu.Lock()
-			isApproved := client.approved
-			client.mu.Unlock()
-
-			if !isApproved {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval. Please sync your device in Settings."}`)})
-				continue
-			}
-
 			if client.email == "" {
 				s.send(client, Frame{
 					T:    "ERROR",

@@ -22,7 +22,6 @@ func (s *Server) initDB() error {
 			public_key TEXT,
 			last_active DATETIME,
 			is_master BOOLEAN DEFAULT 0,
-			status TEXT DEFAULT 'pending',
 			PRIMARY KEY (email_hash, public_key)
 		);`,
 		`CREATE TABLE IF NOT EXISTS requests (
@@ -78,11 +77,6 @@ func (s *Server) initDB() error {
 		s.db.Exec("ALTER TABLE devices ADD COLUMN is_master BOOLEAN DEFAULT 0")
 	}
 
-	var statusColCount int
-	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name='status'").Scan(&statusColCount)
-	if statusColCount == 0 {
-		s.db.Exec("ALTER TABLE devices ADD COLUMN status TEXT DEFAULT 'pending'")
-	}
 
 	return nil
 }

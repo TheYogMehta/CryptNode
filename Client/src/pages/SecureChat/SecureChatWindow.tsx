@@ -107,14 +107,33 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
 
   const [previewFiles, setPreviewFiles] = useState<File[]>([]);
 
-  // ... (inside component)
-
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files);
       setPreviewFiles((prev) => [...prev, ...newFiles]);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.warn("Clipboard API failed, trying fallback", err);
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      } catch (fallbackErr) {
+        console.error("Fallback copy failed", fallbackErr);
+      }
+    }
   };
 
   const handleVaultFileSend = async (
@@ -312,15 +331,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
                     {mfaOnboarding.secret}
                   </code>
                   <button
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(
-                          mfaOnboarding.secret,
-                        );
-                      } catch {
-                        // no-op
-                      }
-                    }}
+                    onClick={() => copyText(mfaOnboarding.secret)}
                     aria-label="Copy secret"
                     className="secure-chat-icon-btn"
                   >
@@ -664,11 +675,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
                   </div>
                   <IonButton
                     fill="clear"
-                    onClick={() =>
-                      navigator.clipboard.writeText(
-                        viewingItem.content.username || "",
-                      )
-                    }
+                    onClick={() => copyText(viewingItem.content.username || "")}
                   >
                     <IonIcon
                       icon={copyOutline}
@@ -691,11 +698,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
                   </div>
                   <IonButton
                     fill="clear"
-                    onClick={() =>
-                      navigator.clipboard.writeText(
-                        viewingItem.content.password || "",
-                      )
-                    }
+                    onClick={() => copyText(viewingItem.content.password || "")}
                   >
                     <IonIcon
                       icon={copyOutline}

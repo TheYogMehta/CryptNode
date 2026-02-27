@@ -28,7 +28,6 @@ type Client struct {
 	msgCount    int
 	msgWindow   time.Time
 	lastConnect time.Time
-	approved    bool
 }
 
 type Session struct {

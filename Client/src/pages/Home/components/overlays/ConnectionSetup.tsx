@@ -6,7 +6,6 @@ interface ConnectionSetupProps {
   setTargetEmail: (val: string) => void;
   onConnect: () => void;
   isJoining: boolean;
-  isPending?: boolean;
 }
 
 import ChatClient from "../../../../services/core/ChatClient";
@@ -17,7 +16,6 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
   setTargetEmail,
   onConnect,
   isJoining,
-  isPending,
 }) => {
   const [pending, setPending] = React.useState<any[]>([]);
 
@@ -75,35 +73,18 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
         Enter your friend's email address to start a secure chat.
       </p>
 
-      {isPending && (
-        <div
-          style={{
-            background: "rgba(255, 165, 0, 0.1)",
-            color: "#ffa500",
-            padding: "12px",
-            borderRadius: "8px",
-            marginBottom: "16px",
-            fontSize: "0.9em",
-          }}
-        >
-          <b>Device pending approval.</b> You cannot add friends until this
-          device is synced from your Master Device settings.
-        </div>
-      )}
-
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         <InputField
           type="email"
           value={targetEmail}
           onChange={(e) => setTargetEmail(e.target.value)}
           placeholder="friend@example.com"
-          onKeyDown={(e) => e.key === "Enter" && !isPending && onConnect()}
-          disabled={!!isPending}
+          onKeyDown={(e) => e.key === "Enter" && onConnect()}
         />
 
         <PrimaryButton
           onClick={onConnect}
-          disabled={isJoining || !!isPending || !targetEmail.trim()}
+          disabled={isJoining || !targetEmail.trim()}
         >
           {isJoining ? "Sending Request..." : "Connect"}
         </PrimaryButton>

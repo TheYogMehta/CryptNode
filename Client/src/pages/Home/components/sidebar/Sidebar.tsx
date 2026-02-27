@@ -1,6 +1,7 @@
 import React from "react";
 import { SidebarItem } from "./SidebarItem";
 import { SessionData } from "../../types";
+import ChatClient from "../../../../services/core/ChatClient";
 import {
   SidebarContainer,
   MobileOverlay,
@@ -10,6 +11,10 @@ import {
   SessionList,
   SectionLabel,
   EmptyText,
+  SyncContainer,
+  SyncTitle,
+  SyncProgressBar,
+  SyncProgressFill,
   SidebarFooter,
 } from "./Sidebar.styles";
 import { Button } from "../../../../components/ui/Button";
@@ -45,6 +50,30 @@ export const Sidebar = React.memo(
     onGlobalSummary: () => void;
   }) => {
     const { isLoaded } = useAIStatus();
+    const [syncProgress, setSyncProgress] = React.useState({
+      isSyncing: false,
+      currentSession: null as string | null,
+      syncedMessages: 0,
+      totalMessages: 0,
+    });
+
+    React.useEffect(() => {
+      const handleProgress = (progress: any) => {
+        setSyncProgress(progress);
+      };
+
+      const syncManager = ChatClient.messageService?.syncManager;
+      if (syncManager) {
+        setSyncProgress(syncManager.getProgress());
+        syncManager.on("progress_update", handleProgress);
+      }
+
+      return () => {
+        if (syncManager) {
+          syncManager.off("progress_update", handleProgress);
+        }
+      };
+    }, []);
 
     return (
       <>
@@ -113,6 +142,29 @@ export const Sidebar = React.memo(
               ))
             )}
           </SessionList>
+
+          {syncProgress.isSyncing && syncProgress.totalMessages > 0 && (
+            <SyncContainer>
+              <SyncTitle>
+                <span>Syncing Messages...</span>
+                <span>
+                  {Math.round(
+                    (syncProgress.syncedMessages / syncProgress.totalMessages) *
+                      100,
+                  )}
+                  %
+                </span>
+              </SyncTitle>
+              <SyncProgressBar>
+                <SyncProgressFill
+                  progress={
+                    (syncProgress.syncedMessages / syncProgress.totalMessages) *
+                    100
+                  }
+                />
+              </SyncProgressBar>
+            </SyncContainer>
+          )}
 
           <SidebarFooter>
             <Button onClick={onAddPeer} fullWidth variant="primary">

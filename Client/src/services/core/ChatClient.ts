@@ -233,23 +233,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         this.emit("auth_success", this.authService.userEmail);
         break;
-      case "AUTH_PENDING":
-        await this.authService.handleAuthPending({
-          email: data.email,
-          token: data.token,
-        });
-        this.emit("auth_pending", data.masterPubKey);
-        break;
-      case "DEVICE_LINK_REQUEST":
-        this.emit("device_link_request", data);
-        break;
-      case "DEVICE_LINK_ACCEPTED":
-        this.emit("device_link_accepted");
-        break;
-      case "DEVICE_LINK_REJECTED":
-        this.emit("device_link_rejected");
-        await this.authService.logout();
-        break;
+
       case "DEVICE_NUCLEAR_SUCCESS":
         this.emit("device_nuclear_success");
         break;
@@ -431,17 +415,28 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "SESSION_LIST":
         this.sessionService.handleSessionList(data);
+        // Broadcast sync state to all online peers we just discovered
+        if (Array.isArray(data)) {
+          for (const sess of data) {
+            if (sess.online && sess.sid) {
+              this.messageService.broadcastSyncState(sess.sid);
+              this.messageService.syncManager.enqueueSync(sess.sid);
+            }
+          }
+        }
         break;
       case "PEER_ONLINE":
         this.sessionService.setPeerOnline(sid, true);
         this.emit("session_updated");
         this.syncPendingMessages();
         this.messageService.syncManager.enqueueSync(sid);
+        this.messageService.broadcastSyncState(sid);
         this.broadcastProfileUpdate();
         break;
       case "PEER_OFFLINE":
         this.sessionService.setPeerOnline(sid, false);
         this.emit("session_updated");
+        this.messageService.syncManager.handlePeerOffline(sid);
         break;
       case "DELIVERED":
         await executeDB(

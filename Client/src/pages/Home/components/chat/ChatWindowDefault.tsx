@@ -74,7 +74,6 @@ interface ChatWindowProps {
   setReplyingTo?: (msg: ChatMessage | null) => void;
   onLoadMore?: () => void;
   isRateLimited?: boolean;
-  isPending?: boolean;
 }
 
 interface PendingAttachment {
@@ -99,7 +98,6 @@ export const ChatWindowDefault = ({
   setReplyingTo,
   onLoadMore,
   isRateLimited,
-  isPending,
 }: ChatWindowProps) => {
   const { messageLayout } = useTheme();
   const canScreenShare = ChatClient.canScreenShare;
@@ -1242,131 +1240,112 @@ export const ChatWindowDefault = ({
               </div>
             )}
 
-          {isPending ? (
-            <div
-              style={{
-                width: "100%",
-                padding: "16px",
-                textAlign: "center",
-                background: "rgba(255, 165, 0, 0.1)",
-                color: "#ffa500",
-                borderRadius: "12px",
-                fontSize: "14px",
-                border: "1px solid rgba(255, 165, 0, 0.2)",
+          <AttachmentButton
+            active={showMenu}
+            onClick={() => setShowMenu(!showMenu)}
+          >
+            <Plus size={24} />
+          </AttachmentButton>
+
+          <InputWrapper isRateLimited={isRateLimited}>
+            <ChatInput
+              ref={textareaRef}
+              rows={1}
+              value={isRecording ? "Recording..." : input}
+              readOnly={isRecording}
+              onPaste={handlePaste}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Allow Undo/Redo to work by stopping propagation if needed
+                if (
+                  (e.ctrlKey || e.metaKey) &&
+                  (e.key === "z" ||
+                    e.key === "Z" ||
+                    e.key === "y" ||
+                    e.key === "Y")
+                ) {
+                  e.stopPropagation();
+                  return;
+                }
+
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  (input.trim() || pendingAttachments.length > 0)
+                ) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
               }}
-            >
-              <b>Device pending approval.</b> You cannot send messages until
-              this device is synced from your Master Device.
-            </div>
-          ) : (
-            <>
-              <AttachmentButton
-                active={showMenu}
-                onClick={() => setShowMenu(!showMenu)}
-              >
-                <Plus size={24} />
-              </AttachmentButton>
-
-              <InputWrapper isRateLimited={isRateLimited}>
-                <ChatInput
-                  ref={textareaRef}
-                  rows={1}
-                  value={isRecording ? "Recording..." : input}
-                  readOnly={isRecording}
-                  onPaste={handlePaste}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    // Allow Undo/Redo to work by stopping propagation if needed
-                    if (
-                      (e.ctrlKey || e.metaKey) &&
-                      (e.key === "z" ||
-                        e.key === "Z" ||
-                        e.key === "y" ||
-                        e.key === "Y")
-                    ) {
-                      e.stopPropagation();
-                      return;
-                    }
-
-                    if (
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      (input.trim() || pendingAttachments.length > 0)
-                    ) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder={isRecording ? "" : "Message..."}
-                />
-                {Capacitor.getPlatform() !== "android" &&
-                  Capacitor.getPlatform() !== "ios" && (
-                    <>
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setShowGifPicker(!showGifPicker);
-                          setShowEmojiPicker(false);
-                        }}
-                        title="GIF"
-                        style={{
-                          color: "#f59e0b",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        GIF
-                      </IconButton>
-                      {isAiInstalled && (
-                        <IconButton
-                          variant="ghost"
-                          size="sm"
-                          disabled={qwenLocalService.isLoading}
-                          onClick={async () => {
-                            if (!input.trim()) return;
-                            if (!qwenLocalService.isLoaded)
-                              await qwenLocalService.init();
-                            const rewritten =
-                              await qwenLocalService.smartCompose(input);
-                            if (rewritten) setInput(rewritten);
-                          }}
-                          title="Rephrase"
-                          style={{
-                            color: qwenLocalService.isLoading
-                              ? "rgba(139,92,246,0.5)"
-                              : "#8b5cf6",
-                          }}
-                        >
-                          <Wand2 size={16} />
-                        </IconButton>
-                      )}
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setShowEmojiPicker(!showEmojiPicker);
-                          setShowGifPicker(false);
-                        }}
-                        title="Emoji"
-                        style={{ color: "#fbbf24" }}
-                      >
-                        <Smile size={24} />
-                      </IconButton>
-                    </>
+              placeholder={isRecording ? "" : "Message..."}
+            />
+            {Capacitor.getPlatform() !== "android" &&
+              Capacitor.getPlatform() !== "ios" && (
+                <>
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowGifPicker(!showGifPicker);
+                      setShowEmojiPicker(false);
+                    }}
+                    title="GIF"
+                    style={{
+                      color: "#f59e0b",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    GIF
+                  </IconButton>
+                  {isAiInstalled && (
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      disabled={qwenLocalService.isLoading}
+                      onClick={async () => {
+                        if (!input.trim()) return;
+                        if (!qwenLocalService.isLoaded)
+                          await qwenLocalService.init();
+                        const rewritten = await qwenLocalService.smartCompose(
+                          input,
+                        );
+                        if (rewritten) setInput(rewritten);
+                      }}
+                      title="Rephrase"
+                      style={{
+                        color: qwenLocalService.isLoading
+                          ? "rgba(139,92,246,0.5)"
+                          : "#8b5cf6",
+                      }}
+                    >
+                      <Wand2 size={16} />
+                    </IconButton>
                   )}
-              </InputWrapper>
-
-              {input.trim().length > 0 || pendingAttachments.length > 0 ? (
-                <SendButton onClick={handleSendMessage}>
-                  <Send size={20} />
-                </SendButton>
-              ) : (
-                <SendButton isRecording={isRecording} onClick={handleRecord}>
-                  <Mic size={20} />
-                </SendButton>
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowEmojiPicker(!showEmojiPicker);
+                      setShowGifPicker(false);
+                    }}
+                    title="Emoji"
+                    style={{ color: "#fbbf24" }}
+                  >
+                    <Smile size={24} />
+                  </IconButton>
+                </>
               )}
-            </>
+          </InputWrapper>
+
+          {input.trim().length > 0 || pendingAttachments.length > 0 ? (
+            <SendButton onClick={handleSendMessage}>
+              <Send size={20} />
+            </SendButton>
+          ) : (
+            <SendButton isRecording={isRecording} onClick={handleRecord}>
+              <Mic size={20} />
+            </SendButton>
           )}
         </InputContainer>
       )}
