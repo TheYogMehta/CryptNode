@@ -725,6 +725,20 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key != ?", eh, myPubKey)
 			s.db.Exec("UPDATE devices SET is_master = 1, status = 'approved' WHERE email_hash = ? AND public_key = ?", eh, myPubKey)
 
+			client.mu.Lock()
+			client.approved = true
+			client.mu.Unlock()
+
+			newToken := generateSessionToken(client.email)
+			resp := map[string]string{
+				"email": client.email,
+				"token": newToken,
+			}
+			respBytes, _ := json.Marshal(resp)
+			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
+
+			time.Sleep(100 * time.Millisecond)
+
 			s.send(client, Frame{T: "DEVICE_NUCLEAR_SUCCESS"})
 			s.broadcastDeviceList(eh)
 

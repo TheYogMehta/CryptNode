@@ -172,7 +172,9 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
 
     const onDeviceNuclearSuccess = () => {
       toast.success("Nuclear reset successful. You are now the Master Device.");
-      window.location.reload();
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     };
 
     const onPendingRequestsList = (data: any[]) => {
