@@ -15,7 +15,7 @@ import LoadingScreen from "../LoadingScreen";
 import { AccountService } from "../../services/auth/AccountService";
 import ChatClient from "../../services/core/ChatClient";
 import { RenameModal } from "./components/overlays/RenameModal";
-import { DevicePendingModal } from "./components/overlays/DevicePendingModal";
+
 import { DeviceApprovalModal } from "./components/overlays/DeviceApprovalModal";
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
@@ -289,24 +289,21 @@ const Home = () => {
     }
   };
 
-  const handleUnlock = useCallback(
-    async (email: string) => {
-      try {
-        await ChatClient.switchAccount(email);
-        setIsLocked(false);
-      } catch (e) {
-        console.error("Unlock failed", e);
-        const msg = e instanceof Error ? e.message : String(e || "");
-        if (
-          msg.includes("Session expired") ||
-          msg.includes("Authentication failed")
-        ) {
-          setIsLocked(true);
-        }
+  const handleUnlock = useCallback(async (email: string) => {
+    try {
+      await ChatClient.switchAccount(email);
+      setIsLocked(false);
+    } catch (e) {
+      console.error("Unlock failed", e);
+      const msg = e instanceof Error ? e.message : String(e || "");
+      if (
+        msg.includes("Session expired") ||
+        msg.includes("Authentication failed")
+      ) {
+        setIsLocked(true);
       }
-    },
-    [],
-  );
+    }
+  }, []);
 
   useEffect(() => {
     console.log("[Home] Render state:", {
@@ -392,17 +389,6 @@ const Home = () => {
 
   if (state.isLoading) {
     return <LoadingScreen message="Checking authentication..." />;
-  }
-
-  if (state.pendingMasterKey !== null) {
-    return (
-      <DevicePendingModal
-        masterPubKey={state.pendingMasterKey}
-        onLogout={async () => {
-          await ChatClient.logout();
-        }}
-      />
-    );
   }
 
   if (isLocked) {
@@ -570,6 +556,7 @@ const Home = () => {
               setReplyingTo={actions.setReplyingTo}
               onLoadMore={actions.loadMoreHistory}
               isRateLimited={state.isRateLimited}
+              isPending={state.pendingMasterKey !== null}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup
@@ -577,6 +564,7 @@ const Home = () => {
               setTargetEmail={actions.setTargetEmail}
               onConnect={actions.handleConnect}
               isJoining={state.isJoining}
+              isPending={state.pendingMasterKey !== null}
             />
           ) : (
             <WelcomeView onAddFriend={() => actions.setView("add")} />

@@ -15,6 +15,7 @@ interface ChatWindowProps {
   setReplyingTo: (msg: ChatMessage | null) => void;
   onLoadMore: () => void;
   isRateLimited: boolean;
+  isPending?: boolean;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = (props) => {

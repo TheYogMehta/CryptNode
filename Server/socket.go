@@ -361,15 +361,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		client.mu.Lock()
-		isApproved := client.approved
-		client.mu.Unlock()
-
-		if !isApproved && frame.T != "AUTH" && frame.T != "PING" && frame.T != "DEVICE_NUCLEAR_RESET" && frame.T != "DEVICE_LINK_REQUEST" && frame.T != "DEVICE_LINK_ACCEPTED" && frame.T != "DEVICE_LINK_REJECTED" {
-			s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval"}`)})
-			continue
-		}
-
 		switch frame.T {
 		case "AUTH":
 			var d struct {
@@ -697,51 +688,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			
 			s.broadcastDeviceList(eh)
 
-		case "DEVICE_NUCLEAR_RESET":
-			eh := emailHash(client.email)
-			var myPubKey string
-			var status string
-			err := s.db.QueryRow("SELECT s.public_key, d.status FROM sockets s JOIN devices d ON s.public_key = d.public_key AND s.email_hash = d.email_hash WHERE s.socket_id = ?", client.id).Scan(&myPubKey, &status)
-			
-			log.Printf("[NUCLEAR RESET DEBUG] myPubKey=%s, status=%s, error=%v, email_hash=%s, socket_id=%s", myPubKey, status, err, eh, client.id)
-			
-			if status != "approved" {
-				log.Println("Unapproved device is performing a nuclear reset")
-			}
-
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key != ?", eh, myPubKey)
-			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
-				s.mu.Lock()
-				if targetClient, ok := s.clients[socketID]; ok {
-					s.send(targetClient, Frame{T: "DEVICE_LINK_REJECTED"})
-					targetClient.conn.Close()
-				}
-				s.mu.Unlock()
-			}
-			rows.Close()
-
-			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key != ?", eh, myPubKey)
-			s.db.Exec("UPDATE devices SET is_master = 1, status = 'approved' WHERE email_hash = ? AND public_key = ?", eh, myPubKey)
-
-			client.mu.Lock()
-			client.approved = true
-			client.mu.Unlock()
-
-			newToken := generateSessionToken(client.email)
-			resp := map[string]string{
-				"email": client.email,
-				"token": newToken,
-			}
-			respBytes, _ := json.Marshal(resp)
-			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
-
-			time.Sleep(100 * time.Millisecond)
-
-			s.send(client, Frame{T: "DEVICE_NUCLEAR_SUCCESS"})
-			s.broadcastDeviceList(eh)
-
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
 			rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", eh)
@@ -770,6 +716,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
 
 		case "FRIEND_REQUEST":
+			client.mu.Lock()
+			isApproved := client.approved
+			client.mu.Unlock()
+
+			if !isApproved {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval. Please sync your device in Settings."}`)})
+				continue
+			}
+
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
 				continue
@@ -1182,6 +1137,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			)
 
 		case "MSG":
+			client.mu.Lock()
+			isApproved := client.approved
+			client.mu.Unlock()
+
+			if !isApproved {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Device pending approval. Please sync your device in Settings."}`)})
+				continue
+			}
+
 			if client.email == "" {
 				s.send(client, Frame{
 					T:    "ERROR",
