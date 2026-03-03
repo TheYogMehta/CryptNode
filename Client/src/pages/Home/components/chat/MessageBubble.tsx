@@ -4,6 +4,7 @@ import { ChatMessage } from "../../types";
 import ChatClient from "../../../../services/core/ChatClient";
 import { StorageService } from "../../../../services/storage/StorageService";
 import { Capacitor } from "@capacitor/core";
+import { Clipboard } from "@capacitor/clipboard";
 import {
   Reply,
   Plus,
@@ -14,6 +15,10 @@ import {
   Edit2,
   Trash2,
   X,
+  Mic,
+  Pause,
+  Play,
+  Download,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { Avatar } from "../../../../components/ui/Avatar";
@@ -169,23 +174,10 @@ export const MessageBubble = React.memo(
     const handleCopy = async () => {
       const text = msg.text || "";
       try {
-        await navigator.clipboard.writeText(text);
+        await Clipboard.write({ string: text });
       } catch (err) {
-        console.warn("Clipboard API failed, trying fallback", err);
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-          document.execCommand("copy");
-        } catch (e) {
-          console.error("Fallback copy failed", e);
-          alert("Failed to copy text");
-        }
-        document.body.removeChild(textArea);
+        console.error("Clipboard copy failed", err);
+        alert("Failed to copy text");
       }
       setContextMenu(null);
     };

@@ -29,6 +29,8 @@ import { useSecureChat } from "./hooks/useSecureChat";
 import SavePasswordModal from "./SavePasswordModal";
 import { colors } from "../../theme/design-system";
 import { platformLaunchService } from "../../services/mfa/platform-launch.service";
+import { AccountService } from "../../services/auth/AccountService";
+import { Clipboard } from "@capacitor/clipboard";
 import { Capacitor } from "@capacitor/core";
 import "./SecureChatWindow.css";
 
@@ -117,22 +119,9 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
 
   const copyText = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await Clipboard.write({ string: text });
     } catch (err) {
-      console.warn("Clipboard API failed, trying fallback", err);
-      try {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textArea);
-      } catch (fallbackErr) {
-        console.error("Fallback copy failed", fallbackErr);
-      }
+      console.error("Clipboard copy failed", err);
     }
   };
 

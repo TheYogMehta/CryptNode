@@ -366,6 +366,29 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Check if we are on Electron
+    if (
+      Capacitor.getPlatform() === "electron" &&
+      (window as any).electron?.deleteDatabaseFiles
+    ) {
+      const result = await (window as any).electron.deleteDatabaseFiles(
+        databaseName,
+      );
+      if (result?.success) {
+        if (databaseName === currentDbName) {
+          dbReady = null;
+        }
+        console.log(`[sqlite] Deleted database files via electron IPC.`);
+      } else {
+        console.error(
+          `[sqlite] Failed to delete database ${databaseName} via electron IPC`,
+          result?.error,
+        );
+      }
+      return;
+    }
+
     const targets = [
       `${databaseName}SQLite.db`,
       `${databaseName}SQLite.db-journal`,

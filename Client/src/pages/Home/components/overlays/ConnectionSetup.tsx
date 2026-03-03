@@ -35,7 +35,14 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
             return { ...req, ...item };
           } catch (e) {
             console.error("Failed to decrypt pending req", e);
-            return null;
+            return {
+              failedDecryption: true,
+              senderHash: item.senderHash,
+              publicKey: item.publicKey,
+              email: `Hash ${item.senderHash.substring(0, 8)}`,
+              name: "Unknown (Key Changed)",
+              encryptedPacket: item.encryptedPacket,
+            };
           }
         }),
       );
@@ -45,7 +52,13 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
     const handleNew = (req: any) => {
       if (!mounted) return;
       setPending((prev) => {
-        if (prev.find((p) => p.email === req.email)) return prev;
+        if (
+          req.failedDecryption &&
+          prev.find((p) => p.senderHash === req.senderHash)
+        )
+          return prev;
+        if (!req.failedDecryption && prev.find((p) => p.email === req.email))
+          return prev;
         return [...prev, req];
       });
     };
@@ -168,15 +181,48 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
+                  {!req.failedDecryption && (
+                    <button
+                      onClick={() => {
+                        ChatClient.acceptFriend(
+                          req.email,
+                          req.publicKey,
+                          req.senderHash,
+                        );
+                        setPending((prev) =>
+                          prev.filter((p) => p.email !== req.email),
+                        );
+                      }}
+                      style={{
+                        background: colors.primary,
+                        border: "none",
+                        borderRadius: "4px",
+                        padding: "6px 12px",
+                        color: "#fff",
+                        cursor: "pointer",
+                        fontSize: "0.8em",
+                      }}
+                    >
+                      Accept
+                    </button>
+                  )}
                   <button
                     onClick={() => {
-                      ChatClient.acceptFriend(req.email, req.publicKey, "");
+                      if (req.failedDecryption && req.senderHash) {
+                        ChatClient.denyFriendByHash(req.senderHash);
+                      } else {
+                        ChatClient.denyFriend(req.email);
+                      }
                       setPending((prev) =>
-                        prev.filter((p) => p.email !== req.email),
+                        prev.filter(
+                          (p) =>
+                            p.email === req.email ||
+                            p.senderHash === req.senderHash,
+                        ),
                       );
                     }}
                     style={{
-                      background: colors.primary,
+                      background: "rgba(255, 255, 255, 0.15)",
                       border: "none",
                       borderRadius: "4px",
                       padding: "6px 12px",
@@ -185,13 +231,21 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                       fontSize: "0.8em",
                     }}
                   >
-                    Accept
+                    Reject
                   </button>
                   <button
                     onClick={() => {
-                      ChatClient.blockUser(req.email);
+                      if (req.failedDecryption && req.senderHash) {
+                        ChatClient.blockUserByHash(req.senderHash);
+                      } else {
+                        ChatClient.blockUser(req.email);
+                      }
                       setPending((prev) =>
-                        prev.filter((p) => p.email !== req.email),
+                        prev.filter(
+                          (p) =>
+                            p.email === req.email ||
+                            p.senderHash === req.senderHash,
+                        ),
                       );
                     }}
                     style={{

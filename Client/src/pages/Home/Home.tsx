@@ -588,7 +588,20 @@ const Home = () => {
             onClose={() => setShowSettings(false)}
             currentUserEmail={state.userEmail}
             isMobile={isMobile}
-            onAddAccount={handleGoogleSignIn}
+            onAddAccount={async () => {
+              if (state.userEmail) {
+                await ChatClient.logout();
+                setShowSettings(false);
+                setIsLocked(true);
+              } else {
+                handleGoogleSignIn();
+              }
+            }}
+            onSwitchAccount={async (email) => {
+              await ChatClient.switchAccount(email);
+              setShowSettings(false);
+              setIsLocked(true);
+            }}
           />
         )}
 

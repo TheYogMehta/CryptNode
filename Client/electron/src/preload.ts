@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("SafeStorage", {
 contextBridge.exposeInMainWorld("electron", {
   getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
   openExternal: (url: string) => ipcRenderer.invoke("open-external-url", url),
+  deleteDatabaseFiles: (dbName: string) =>
+    ipcRenderer.invoke("DeleteDatabaseFiles", dbName),
 });
 
 contextBridge.exposeInMainWorld("envConfig", {

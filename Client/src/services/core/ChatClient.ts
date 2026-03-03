@@ -270,10 +270,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
             data.publicKey,
           );
           if (req) {
-            const isBlocked = await isUserBlocked(
+            const isBlockedEmail = await isUserBlocked(
               this.normalizeEmail(req.email),
             );
-            if (isBlocked) {
+            const isBlockedHash = data.senderHash
+              ? await isUserBlocked(data.senderHash)
+              : false;
+            if (isBlockedEmail || isBlockedHash) {
               console.log(
                 "[ChatClient] Dropping FRIEND_REQUEST from blocked user:",
                 req.email,
@@ -295,6 +298,18 @@ export class ChatClient extends EventEmitter implements IChatClient {
               type: "success",
               message: `New friend request from ${req.name || "Unknown"}`,
             });
+          } else {
+            // Handle decryption failure (e.g., from old key)
+            if (data.senderHash) {
+              this.emit("inbound_request", {
+                failedDecryption: true,
+                senderHash: data.senderHash,
+                publicKey: data.publicKey,
+                email: `User Hash ${data.senderHash.substring(0, 8)}`,
+                name: "Unknown Sender (Key Changed)",
+                encryptedPacket: data.encryptedPacket,
+              });
+            }
           }
         } catch (e) {
           console.error("Failed to decrypt friend request", e);
@@ -526,8 +541,16 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.sessionService.denyFriend(targetEmail);
   }
 
+  public denyFriendByHash(targetHash: string) {
+    return this.sessionService.denyFriendByHash(targetHash);
+  }
+
   public async blockUser(targetEmail: string) {
     return this.sessionService.blockUser(targetEmail);
+  }
+
+  public async blockUserByHash(targetHash: string) {
+    return this.sessionService.blockUserByHash(targetHash);
   }
 
   public async unblockUser(targetEmail: string) {

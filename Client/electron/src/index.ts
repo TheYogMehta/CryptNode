@@ -254,3 +254,67 @@ ipcMain.handle(
     return keytar.setPassword("CryptNode", key, value);
   },
 );
+
+// ============================================================================
+// Database Cleanup
+// ============================================================================
+import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
+
+ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
+  try {
+    const dbFolderConfig = capacitorFileConfig.plugins?.CapacitorSQLite;
+    let dbFolder = "Databases";
+
+    const osType = os.type();
+    if (osType === "Darwin" && dbFolderConfig?.electronMacLocation) {
+      dbFolder = dbFolderConfig.electronMacLocation;
+    } else if (osType === "Linux" && dbFolderConfig?.electronLinuxLocation) {
+      dbFolder = dbFolderConfig.electronLinuxLocation;
+    } else if (
+      osType === "Windows_NT" &&
+      dbFolderConfig?.electronWindowsLocation
+    ) {
+      dbFolder = dbFolderConfig.electronWindowsLocation;
+    }
+
+    let databasesPath = "";
+    const appName = app.getName() || "cryptnode";
+
+    if (dbFolder.includes(path.sep)) {
+      databasesPath = dbFolder;
+      if (path.basename(dbFolder) !== appName) {
+        databasesPath = path.join(dbFolder, appName);
+      }
+    } else {
+      databasesPath = path.join(os.homedir(), dbFolder, appName);
+    }
+
+    const targets = [
+      `${dbName}SQLite.db`,
+      `${dbName}SQLite.db-journal`,
+      `${dbName}SQLite.db-wal`,
+      `${dbName}SQLite.db-shm`,
+    ];
+
+    let filesDeleted = 0;
+    for (const file of targets) {
+      const fullPath = path.join(databasesPath, file);
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          filesDeleted++;
+          console.log(`[Main] Deleted DB file via IPC: ${fullPath}`);
+        }
+      } catch (err) {
+        console.error(`[Main] Error deleting DB file ${fullPath}:`, err);
+      }
+    }
+
+    return { success: filesDeleted > 0, count: filesDeleted };
+  } catch (e) {
+    console.error("[Main] Failed to delete database files:", e);
+    return { success: false, error: String(e) };
+  }
+});

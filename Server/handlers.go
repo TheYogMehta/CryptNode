@@ -357,6 +357,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			delivered := false
 			for rows.Next() {
 				var socketID string
 				rows.Scan(&socketID)
@@ -370,10 +371,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						"publicKey":       singlePubKey,
 					})
 					s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
+					delivered = true
 				}
 				s.mu.Unlock()
 			}
 			rows.Close()
+
+			if delivered {
+				// The client received the request, no need to store it indefinitely.
+				s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
+			}
 
 			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(`{"success":true}`)})
 
@@ -410,6 +417,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
 
 			var myPubKeys []string
 			keyRows, _ := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
@@ -458,9 +466,17 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			var d struct {
 				TargetEmail string `json:"targetEmail"`
+				TargetHash  string `json:"targetHash"`
 			}
 			json.Unmarshal(frame.Data, &d)
-			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+
+			var targetHash string
+			if d.TargetEmail != "" {
+				targetHash = emailHash(normalizeEmail(d.TargetEmail))
+			} else {
+				targetHash = d.TargetHash
+			}
+
 			senderHash := emailHash(client.email)
 
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
@@ -495,9 +511,17 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			var d struct {
 				TargetEmail string `json:"targetEmail"`
+				TargetHash  string `json:"targetHash"`
 			}
 			json.Unmarshal(frame.Data, &d)
-			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+
+			var targetHash string
+			if d.TargetEmail != "" {
+				targetHash = emailHash(normalizeEmail(d.TargetEmail))
+			} else {
+				targetHash = d.TargetHash
+			}
+
 			senderHash := emailHash(client.email)
 
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)

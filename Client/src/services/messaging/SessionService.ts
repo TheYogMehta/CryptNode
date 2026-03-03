@@ -461,6 +461,15 @@ export class SessionService extends EventEmitter {
     });
   }
 
+  public denyFriendByHash(targetHash: string) {
+    socket.send({
+      t: "FRIEND_DENY",
+      data: { targetHash },
+      c: true,
+      p: 0,
+    });
+  }
+
   public async blockUser(targetEmail: string) {
     const norm = this.normalizeEmail(targetEmail);
     // Send to server
@@ -472,6 +481,16 @@ export class SessionService extends EventEmitter {
     });
     // Store locally
     await addBlockedUser(norm);
+  }
+
+  public async blockUserByHash(targetHash: string) {
+    socket.send({
+      t: "BLOCK_USER",
+      data: { targetHash },
+      c: true,
+      p: 0,
+    });
+    await addBlockedUser(targetHash);
   }
 
   public async unblockUser(targetEmail: string) {
