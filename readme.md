@@ -5,10 +5,14 @@ A privacy-first, end-to-end encrypted messaging platform with file sharing and v
 ## 🌟 Features
 
 - **End-to-End Encryption**: AES-GCM-256 for messages, ECDH P-256 for key exchange
+- **Local AI Assistant**: Qwen 0.8B model for smart compose, quick replies, and summarization
+- **Secure Vault MFA**: Local TOTP-based 2FA to protect the on-device Secure Vault
+- **Multi-Device Support**: Link multiple devices to a single account with automatic key synchronization
+- **Chat Synchronization**: Effortlessly sync missed messages across your linked devices and peers
 - **Cross-Platform**: Android, and Desktop (Electron)
 - **File Sharing**: Encrypted chunked file transfer
 - **Voice & Video Calls**: Real-time encrypted audio/video calls (WebRTC)
-- **Secure Vault**: Local encrypted storage for passwords and sensitive files
+- **Secure Vault**: Local encrypted storage for passwords and sensitive files, protected by MFA
 - **Multi-Account**: Switch between multiple Google accounts
 - **Zero Server Storage**: Messages never stored on the server
 
@@ -82,6 +86,7 @@ See the [Deployment Guide](docs/DEPLOYMENT.md) for detailed platform-specific in
 - **Capacitor** - Native bridge
 - **Vite** - Build tool
 - **Web Crypto API** - Encryption
+- **@cantoo/capacitor-llama** & **Web Workers** - Local AI Execution
 
 ### Backend
 
@@ -96,7 +101,7 @@ See the [Deployment Guide](docs/DEPLOYMENT.md) for detailed platform-specific in
 ## 🔐 Security Overview
 
 - **Encryption**: ECDH P-256 + AES-GCM-256 (Messages), DTLS-SRTP (Calls)
-- **Authentication**: Google OAuth 2.0
+- **Authentication**: Google OAuth 2.0 + TOTP Multi-Factor Authentication (MFA)
 - **Session Tokens**: HMAC-signed with SHA-256
 - **Zero Knowledge**: Server cannot decrypt messages
 - **Device-Bound Keys**: Identity keys never leave the device
@@ -132,7 +137,6 @@ See the [LICENSE](LICENSE) file for details.
 ## 🐛 Known Limitations
 
 - No perfect forward secrecy (static session keys)
-- No cross-device message synchronization
 - Single relay server (no federation)
 - Google OAuth dependency (no alternative auth methods)
 

@@ -11,6 +11,10 @@ This document provides a detailed breakdown of all features in the Secure Chat A
 5. [Profile Management](#5-profile-management)
 6. [Session Management](#6-session-management)
 7. [Multi-Account Support](#7-multi-account-support)
+8. [Local AI Assistant](#8-local-ai-assistant)
+9. [Secure Vault Multi-Factor Authentication (MFA)](#9-secure-vault-multi-factor-authentication-mfa)
+10. [Multi-Device Support](#10-multi-device-support)
+11. [Cross-Device Chat Syncing](#11-cross-device-chat-syncing)
 
 ---
 
@@ -87,7 +91,6 @@ interface ChatMessage {
 **GIF Support**:
 
 - **Tenor Integration**: Support for Tenor GIF URLs via `LinkPreview`.
-- **Privacy Proxy**: Tenor Page URLs are resolved via a privacy-preserving proxy to extract the direct image source without tracking.
 - **Display**: GIFs are rendered cleanly using an `imageOnly` mode in the link previewer, removing metadata cards for a native feel.
 
 **Message Deletion**:
@@ -281,11 +284,12 @@ Provide encrypted local storage for passwords, notes, and sensitive files.
 ### Secure Vault User Flow
 
 1. User clicks vault icon
-2. Enter PIN (App Lock PIN)
-3. PIN validates against secure storage
-4. Master Key (mnemonic) retrieved from secure storage
-5. Vault encryption key derived from Master Key
-6. Items decrypted and displayed
+2. User is presented with the Secure Vault MFA challenge
+3. User enters the 6-digit TOTP code
+4. Code validates against local secure storage
+5. Master Key (mnemonic) retrieved from secure storage
+6. Vault encryption key derived from Master Key
+7. Items decrypted and displayed
 
 ### Secure Vault Backend Flow
 
@@ -296,9 +300,9 @@ Provide encrypted local storage for passwords, notes, and sensitive files.
 **Key Derivation**:
 
 ```typescript
-// 1. Verify PIN (Access Control)
-const storedPin = await getKeyFromSecureStorage("app_lock_pin");
-if (inputPin !== storedPin) throw new Error("Invalid PIN");
+// 1. Verify MFA (Access Control)
+const isValidMfa = await mfaService.verifyUserToken(email, mfaToken);
+if (!isValidMfa) throw new Error("Invalid MFA Code");
 
 // 2. Retrieve Master Key (Encryption Key Source)
 const mnemonic = await getKeyFromSecureStorage("MASTER_KEY");
@@ -499,5 +503,102 @@ async function switchAccount(email: string) {
   ]
 }
 ```
+
+---
+
+## 8. Local AI Assistant
+
+### Local AI Purpose
+
+Provide privacy-preserving, on-device AI capabilities using the Qwen 3.5 0.8B model without sending data to external servers.
+
+### Local AI Features
+
+1. **Smart Compose**: Polishes and professionalizes drafted messages before sending.
+2. **Quick Replies**: Generates contextually relevant short replies (Positive, Negative, Interrogative) based on recent chat history.
+3. **Summarize**: Provides concise, bulleted summaries of a chat conversation.
+
+### Local AI Execution Environments
+
+- **Web/Desktop**: Uses WebAssembly (WASM) via Web Workers (`qwen.worker.ts`) for non-blocking inference.
+- **Native (Android/iOS)**: Uses `@cantoo/capacitor-llama` to map to native C++ implementations, offering significantly better performance and lower memory usage on mobile devices.
+
+### Local AI Error Handling
+
+| Error                  | Cause                             | Recovery                                           |
+| ---------------------- | --------------------------------- | -------------------------------------------------- |
+| **Download Failed**    | Network drop or no disk space     | Prompt user to retry the 500MB+ download.          |
+| **Native Init Failed** | Unsupported device architecture   | Fallback disabled; notify user device unsupported. |
+| **Generation Timeout** | Process takes too long/Out of RAM | Cancel context and notify user.                    |
+
+---
+
+## 9. Secure Vault Multi-Factor Authentication (MFA)
+
+### Secure Vault MFA Purpose
+
+Enhance local Secure Vault security by requiring a dynamically generated 6-digit code to view encrypted passwords and files.
+
+### Secure Vault MFA Flow
+
+1. **Requirement**: When the user opens the Secure Vault, the client-side app (`SecureChatWindow`) checks local storage to see if MFA is provisioned.
+2. **Prompt**: If provisioned, the user is presented with a local MFA challenge screen before they can unlock the vault.
+3. **Verification**: The user enters the 6-digit code from their authenticator app.
+4. **Acceptance**: The local app verifies the code against the stored secret returning access to the Secure Vault. **The server is completely unaware of and uninvolved in this process.**
+
+### Secure Vault MFA Implementation
+
+- **Algorithm**: Time-Based One-Time Password (TOTP) based on HMAC-SHA1.
+- **Parameters**: 6 digits, 30-second period.
+- **Storage**: The MFA secret is maintained securely in the device's native keychain (via `SafeStorage`), completely locally.
+
+### MFA Error Handling
+
+| Error              | Cause                           | Recovery                                  |
+| ------------------ | ------------------------------- | ----------------------------------------- |
+| **Invalid Code**   | Code expired, or typed wrongly. | Warn user to retry immediately.           |
+| **Desynchronized** | Device clock is out of sync.    | Code verifies via sliding Window (+/- 1). |
+
+---
+
+## 10. Multi-Device Support
+
+### Multi-Device Purpose
+
+Enable users to access their account securely across multiple authenticated devices (e.g., Phone and Desktop) without explicit device-to-device linking protocols.
+
+### Key Management
+
+- Instead of single device keys, sessions now construct robust key pools involving arrays of `ownPubKeys` and `peerPubKeys`.
+- Every authenticated device generates its own keys. On connecting to the server, the client shares its own public key to the server. The backend then routes encrypted payloads directly to all applicable devices for a user.
+
+### Multi-Device Message & Presence Flow
+
+1. **User 1 (Device A)** comes online and sends its public key to the server.
+2. **User 1 (Device B)** comes online and sends its public key to the server.
+3. **User 2 (Device A)** comes online and sends its public key to the server.
+4. The server sends an online frame for **User 1 (Device A)** to **User 2 (Device A)**, and vice versa.
+5. The server sends an online frame for **User 1 (Device B)** to **User 2 (Device A)**, and vice versa.
+6. **User 2** sends a message ("Hi"). The client encrypts the payload separately for **User 1 (Device A)** as well as **User 1 (Device B)**.
+7. If **User 1 (Device A)** goes offline, the server sends an offline packet to **User 1 (Device B)** and **User 2 (Device A)**.
+
+---
+
+## 11. Cross-Device Chat Syncing
+
+### Chat Sync Purpose
+
+Seamlessly synchronize chat history when a device has been offline, fetching histories from the user's other devices or the peer's devices.
+
+### Chat Sync Flow
+
+1. **Detection**: The `SyncManager` compares local message counts against a broadcasted state (`SYNC_STATE_BROADCAST`), or iterates through missing data chronologically on boot.
+2. **Request Information**: Device sends `SYNC_INFO_REQ` to determine the total messages held by the peer/other linked device.
+3. **Transfer Chunks**: The device requests batches of message history using `SYNC_REQ` (in ASC or DESC order).
+4. **Acknowledge and Store**: The device imports `SYNC_ACK` payloads to local SQLite storage without duplicate conflicts.
+
+### Sync Prioritization
+
+- **Own Devices First**: When syncing a session, `SyncManager` will aggressively try to target the user's _other_ own linked devices (e.g., pulling missed Desktop messages from the mobile app) before falling back to querying the peer's device.
 
 ---

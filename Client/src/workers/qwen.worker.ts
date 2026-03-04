@@ -11,7 +11,7 @@ env.allowRemoteModels = false;
 env.useBrowserCache = false;
 env.localModelPath = "/models";
 
-const MODEL_ID = "Xenova/Qwen1.5-0.5B-Chat";
+const MODEL_ID = "Qwen/Qwen3.5-0.8B";
 
 // Pipeline instance
 let generator: Promise<TextGenerationPipeline | Pipeline> | null = null;

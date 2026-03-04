@@ -13,10 +13,10 @@ declare global {
   }
 }
 
-const MODEL_ID = "Xenova/Qwen1.5-0.5B-Chat";
+const MODEL_ID = "Qwen/Qwen3.5-0.8B";
 const GGUF_URL =
-  "https://huggingface.co/Qwen/Qwen1.5-0.5B-Chat-GGUF/resolve/main/qwen1_5-0_5b-chat-q4_k_m.gguf";
-const GGUF_FILENAME = "qwen1_5-0_5b-chat-q4_k_m.gguf";
+  "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf";
+const GGUF_FILENAME = "Qwen3.5-0.8B-Q4_K_M.gguf";
 
 interface QwenGenerationOptions {
   maxNewTokens?: number;

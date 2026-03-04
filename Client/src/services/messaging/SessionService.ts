@@ -535,67 +535,6 @@ export class SessionService extends EventEmitter {
     }
   }
 
-  public async sendDeviceLinkRequest(targetPubKey: string) {
-    try {
-      const sharedKey = await this.deriveSharedKey(targetPubKey);
-      const specs = JSON.stringify({
-        os: navigator.userAgent,
-        name: "CryptNode App",
-        timestamp: Date.now(),
-      });
-
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        sharedKey,
-        new TextEncoder().encode(specs),
-      );
-
-      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
-      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-      const encryptedSpecs = `${ivB64}.${cipherB64}`;
-
-      socket.send({
-        t: "DEVICE_LINK_REQUEST",
-        data: { targetPubKey, encryptedSpecs },
-        c: true,
-        p: 0,
-      });
-    } catch (e) {
-      console.error("Failed to send device link request", e);
-      throw e;
-    }
-  }
-
-  public async decryptDeviceLinkRequest(
-    encryptedSpecs: string,
-    senderPubKey: string,
-  ) {
-    if (!encryptedSpecs || !encryptedSpecs.includes(".")) return null;
-    try {
-      const sharedKey = await this.deriveSharedKey(senderPubKey);
-      const [ivB64, cipherB64] = encryptedSpecs.split(".");
-
-      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-      const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
-
-      const decrypted = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv },
-        sharedKey,
-        cipher,
-      );
-
-      return JSON.parse(new TextDecoder().decode(decrypted)) as {
-        os: string;
-        name: string;
-        timestamp: number;
-      };
-    } catch (e) {
-      console.error("Failed to decrypt device link request", e);
-      return null;
-    }
-  }
-
   public async handleFriendAccept(data: {
     publicKey: string;
     encryptedPacket: string;
@@ -632,10 +571,45 @@ export class SessionService extends EventEmitter {
     console.log("Profile update received", sid, data);
   }
 
-  public setPeerOnline(sid: string, isOnline: boolean) {
+  public setPeerOnline(
+    sid: string,
+    isOnline: boolean,
+    newPeerPubKeys?: string[],
+  ) {
     if (this.sessions[sid]) {
       this.sessions[sid].online = isOnline;
       this.emit("session_updated");
+
+      if (isOnline && newPeerPubKeys && newPeerPubKeys.length > 0) {
+        const currentKeys = JSON.stringify({
+          peer: this.sessions[sid].peerPubKeys || [],
+        });
+        const incomingKeys = JSON.stringify({
+          peer: newPeerPubKeys,
+        });
+
+        if (currentKeys !== incomingKeys) {
+          console.log(
+            `[SessionService] PEER_ONLINE: PublicKeys for ${sid} changed. Re-deriving shared keys...`,
+          );
+          this.finalizeSession(
+            sid,
+            newPeerPubKeys,
+            this.sessions[sid].peerEmail,
+            this.sessions[sid].peerEmailHash,
+            this.sessions[sid].peerName,
+            this.sessions[sid].peerAvatar,
+            this.sessions[sid].peer_name_ver,
+            this.sessions[sid].peer_avatar_ver,
+            this.sessions[sid].ownPubKeys,
+          ).catch((e) =>
+            console.error(
+              "Failed to re-derive session key on PEER_ONLINE pubKey rotation:",
+              e,
+            ),
+          );
+        }
+      }
     }
   }
 

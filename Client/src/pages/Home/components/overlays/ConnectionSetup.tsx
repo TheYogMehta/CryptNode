@@ -32,17 +32,13 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
               item.encryptedPacket,
               item.publicKey,
             );
+            if (!req) {
+              return null;
+            }
             return { ...req, ...item };
           } catch (e) {
             console.error("Failed to decrypt pending req", e);
-            return {
-              failedDecryption: true,
-              senderHash: item.senderHash,
-              publicKey: item.publicKey,
-              email: `Hash ${item.senderHash.substring(0, 8)}`,
-              name: "Unknown (Key Changed)",
-              encryptedPacket: item.encryptedPacket,
-            };
+            return null;
           }
         }),
       );
@@ -52,13 +48,8 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
     const handleNew = (req: any) => {
       if (!mounted) return;
       setPending((prev) => {
-        if (
-          req.failedDecryption &&
-          prev.find((p) => p.senderHash === req.senderHash)
-        )
-          return prev;
-        if (!req.failedDecryption && prev.find((p) => p.email === req.email))
-          return prev;
+        if (req.failedDecryption) return prev;
+        if (prev.find((p) => p.email === req.email)) return prev;
         return [...prev, req];
       });
     };
@@ -181,38 +172,32 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  {!req.failedDecryption && (
-                    <button
-                      onClick={() => {
-                        ChatClient.acceptFriend(
-                          req.email,
-                          req.publicKey,
-                          req.senderHash,
-                        );
-                        setPending((prev) =>
-                          prev.filter((p) => p.email !== req.email),
-                        );
-                      }}
-                      style={{
-                        background: colors.primary,
-                        border: "none",
-                        borderRadius: "4px",
-                        padding: "6px 12px",
-                        color: "#fff",
-                        cursor: "pointer",
-                        fontSize: "0.8em",
-                      }}
-                    >
-                      Accept
-                    </button>
-                  )}
                   <button
                     onClick={() => {
-                      if (req.failedDecryption && req.senderHash) {
-                        ChatClient.denyFriendByHash(req.senderHash);
-                      } else {
-                        ChatClient.denyFriend(req.email);
-                      }
+                      ChatClient.acceptFriend(
+                        req.email,
+                        req.publicKey,
+                        req.senderHash,
+                      );
+                      setPending((prev) =>
+                        prev.filter((p) => p.email !== req.email),
+                      );
+                    }}
+                    style={{
+                      background: colors.primary,
+                      border: "none",
+                      borderRadius: "4px",
+                      padding: "6px 12px",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "0.8em",
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => {
+                      ChatClient.denyFriend(req.email);
                       setPending((prev) =>
                         prev.filter(
                           (p) =>
@@ -235,11 +220,7 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                   </button>
                   <button
                     onClick={() => {
-                      if (req.failedDecryption && req.senderHash) {
-                        ChatClient.blockUserByHash(req.senderHash);
-                      } else {
-                        ChatClient.blockUser(req.email);
-                      }
+                      ChatClient.blockUser(req.email);
                       setPending((prev) =>
                         prev.filter(
                           (p) =>

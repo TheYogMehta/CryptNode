@@ -299,16 +299,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
               message: `New friend request from ${req.name || "Unknown"}`,
             });
           } else {
-            // Handle decryption failure (e.g., from old key)
             if (data.senderHash) {
-              this.emit("inbound_request", {
-                failedDecryption: true,
-                senderHash: data.senderHash,
-                publicKey: data.publicKey,
-                email: `User Hash ${data.senderHash.substring(0, 8)}`,
-                name: "Unknown Sender (Key Changed)",
-                encryptedPacket: data.encryptedPacket,
-              });
+              console.log(
+                "[ChatClient] Decryption failed for inbound_request. Dropping silently.",
+              );
             }
           }
         } catch (e) {
@@ -440,7 +434,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         break;
       case "PEER_ONLINE":
-        this.sessionService.setPeerOnline(sid, true);
+        this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
         this.messageService.syncManager.enqueueSync(sid);
@@ -448,7 +442,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.broadcastProfileUpdate();
         break;
       case "PEER_OFFLINE":
-        this.sessionService.setPeerOnline(sid, false);
+        // Fallback to empty array if keys aren't provided when going completely offline
+        this.sessionService.setPeerOnline(sid, false, data?.peerPubKeys || []);
         this.emit("session_updated");
         this.messageService.syncManager.handlePeerOffline(sid);
         break;

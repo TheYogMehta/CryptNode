@@ -52,11 +52,32 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			sess.mu.Lock()
 			_, wasMember := sess.clients[client.id]
 			if wasMember {
+				// Calculate sender's remaining active keys to broadcast on offline
+				var senderPubKeys []string
+				if client.email != "" {
+					eh := emailHash(client.email)
+					keyRows, err := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", eh)
+					if err == nil {
+						for keyRows.Next() {
+							var pk string
+							if err := keyRows.Scan(&pk); err == nil {
+								senderPubKeys = append(senderPubKeys, pk)
+							}
+						}
+						keyRows.Close()
+					}
+				}
+
+				offlineData, _ := json.Marshal(map[string]any{
+					"peerPubKeys": senderPubKeys,
+				})
+
 				for _, c := range sess.clients {
 					if c.id != client.id {
 						s.send(c, Frame{
-							T:   "PEER_OFFLINE",
-							SID: sess.id,
+							T:    "PEER_OFFLINE",
+							SID:  sess.id,
+							Data: json.RawMessage(offlineData),
 						})
 					}
 				}
@@ -624,6 +645,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 			rows.Close()
+			
+			if len(pending) > 0 {
+				s.db.Exec("DELETE FROM requests WHERE target_hash = ?", myHash)
+			}
+			
 			respBytes, _ := json.Marshal(pending)
 			s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
 
@@ -717,9 +743,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					sess, ok := s.sessions[sid]
 					if ok {
 						sess.mu.Lock()
+						offlineData, _ := json.Marshal(map[string]any{
+							"peerPubKeys": []string{},
+						})
 						for _, c := range sess.clients {
 							if c.id != client.id {
-								s.send(c, Frame{T: "PEER_OFFLINE", SID: sid})
+								s.send(c, Frame{
+									T:    "PEER_OFFLINE",
+									SID:  sid,
+									Data: json.RawMessage(offlineData),
+								})
 							}
 						}
 						sess.mu.Unlock()

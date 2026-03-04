@@ -24,6 +24,7 @@ The relay server is intentionally minimal. It:
 3. **Relays Encrypted Payloads**: Forwards encrypted messages between clients in the same session
 4. **Logs Connections**: Records hashed connection attempts for security auditing
 5. **Issues Session Tokens**: Generates HMAC-signed tokens to reduce repeated OAuth calls
+6. **Hosts Static Website**: Serves an informational/landing website along with an API endpoint pointing to precompiled binaries in `releases/`.
 
 ### What the Server Cannot Do
 
@@ -92,6 +93,24 @@ primary business logic resides in singleton services that exist outside the Reac
 - **Data**: Stores plain-text (decrypted) chat history, contact lists, and session metadata.
 - **Encryption**: The database is encrypted using CapacitorSQLite's built-in encryption. Each account uses a unique 128-bit BIP39 mnemonic (12 words) as the encryption key, which is securely stored in the platform's keychain/keystore and applied via `setEncryptionSecret()` before opening the database.
 
+#### `qwenLocal.service.ts` (Local AI Assistant)
+
+- **Role**: Interface for executing the Qwen 3.5 0.8B language model entirely on-device.
+- **Execution Paths**:
+  - **Native**: Calls `@cantoo/capacitor-llama` to leverage hardware acceleration and C++ inference routines on Android/iOS via `LlamaContext`.
+  - **Web**: Uses an asynchronous Web Worker to isolate WASM execution (via Emscripten/WASM bindings) to avoid blocking the main UI thread.
+
+#### `mfa.service.ts`
+
+- **Role**: Handles Multi-Factor Authentication logic (TOTP generation and verification) exclusively for local client components like the Secure Vault. **The Relay Server is entirely uninvolved.**
+- **Core Methods**: `verifyUserToken` safely checks entered codes against a sliding window (`verifyToken`) of current tokens.
+- **Storage Strategy**: Relies on specific adapter wrappers around `SafeStorage` to compartmentalize access to MFA secrets.
+
+#### `SyncManager.ts`
+
+- **Role**: Handles cross-device chat synchronization to ensure all logged-in devices share the exact same message history.
+- **Mechanism**: Maintains a `syncQueue` of sessions. First connects to other owned devices (if any), then falls back to peer devices, using `SYNC_REQ` packets to fetch missing `messages` records in ascending or descending bulk blocks.
+
 ### component Hierarchy
 
 ```mermaid
@@ -145,15 +164,15 @@ The app uses an **Event-Driven-State-Sync** pattern.
 
 1. User A requests User B (by email).
 2. Server routes request.
-3. **Client A** generates ECDH KeyPair. Sends `Public Key A` to B.
-4. **Client B** accepts. Generates ECDH KeyPair. Sends `Public Key B` to A.
-5. Both clients use `crypto.subtle.deriveKey(ECDH, Public_Peer)` to generate a shared `AES-GCM` session key.
-6. This key is stored locally in `sessions` table. **The server never sees this key.**
+3. **Client A** generates ECDH KeyPairs for each of its linked devices. Sends `ownPubKeys` list to B.
+4. **Client B** accepts. Generates ECDH KeyPairs for its devices. Sends its own `ownPubKeys` list back to A.
+5. Both clients use `crypto.subtle.deriveKey(ECDH, Public_Peer)` to generate shared `AES-GCM` session keys for every combination of devices.
+6. These keys are stored locally in `sessions` table. **The server never sees these keys.**
 
-### C. Messaging (End-to-End Encrypted)
+### C. Messaging (End-to-End Encrypted, Multi-Device)
 
 1. User types "Hello".
-2. `ChatClient` encrypts "Hello" with the Session Key (`AES-GCM`).
-3. Payload sent to Server: `{ t: "MSG", sid: "...", data: <EncryptedBlob> }`.
-4. Server relays `<EncryptedBlob>` to Peer.
-5. Peer receives, decrypts with local Session Key, and saves "Hello" to SQLite.
+2. `ChatClient` encrypts "Hello" individually for each connected peer device and its own linked devices using the appropriate Session Keys (`AES-GCM`).
+3. Payloads sent to Server: `{ t: "MSG", sid: "...", data: <EncryptedBlob(s)> }`.
+4. Server relays `<EncryptedBlob(s)>` to the Session pool.
+5. Devices receive, decrypt with their specific local Session Key, and save "Hello" to SQLite.
