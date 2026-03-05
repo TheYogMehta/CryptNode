@@ -305,7 +305,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
-			rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", eh)
+			rows, err := s.db.Query(`
+				SELECT d.public_key, d.last_active, d.is_master, 
+				       CASE WHEN s.socket_id IS NOT NULL THEN 'online' ELSE 'offline' END as status 
+				FROM devices d 
+				LEFT JOIN sockets s ON d.public_key = s.public_key AND d.email_hash = s.email_hash 
+				WHERE d.email_hash = ? GROUP BY d.public_key`, eh)
 			if err != nil {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to get devices"}`)})
 				continue
@@ -352,9 +357,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to store request"}`)})
 				continue
 			}
-
-			// We don't send individual public keys via `FRIEND_REQUEST` anymore
-			// Instead we can send the sender's current active keys:
 			var senderPubKeys []string
 			keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
 			if err == nil {
@@ -399,7 +401,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			rows.Close()
 
 			if delivered {
-				// The client received the request, no need to store it indefinitely.
 				s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
 			}
 
@@ -545,11 +546,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			senderHash := emailHash(client.email)
 
-			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
-			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
-
-			s.db.Exec("DELETE FROM friends WHERE (user1_hash = ? AND user2_hash = ?) OR (user1_hash = ? AND user2_hash = ?)", senderHash, targetHash, targetHash, senderHash)
-
 			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
 			hasSockets := false
 			if err == nil {
@@ -652,70 +648,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			
 			respBytes, _ := json.Marshal(pending)
 			s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
-
-		case "JOIN_ACCEPT":
-			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
-				continue
-			}
-			s.mu.Lock()
-			if sess, ok := s.sessions[frame.SID]; ok {
-				sess.mu.Lock()
-				sess.clients[client.id] = client
-				var req struct {
-					PublicKey       string `json:"publicKey"`
-					SenderEmail     string `json:"senderEmail"`
-					SenderEmailHash string `json:"senderEmailHash"`
-					SenderName      string `json:"senderName"`
-					SenderAvatar    string `json:"senderAvatar"`
-					SenderNameVer   int    `json:"senderNameVer"`
-					SenderAvatarVer int    `json:"senderAvatarVer"`
-				}
-				_ = json.Unmarshal(frame.Data, &req)
-				joinData, _ := json.Marshal(map[string]any{
-					"publicKey":     req.PublicKey,
-					"email":         normalizeEmail(client.email),
-					"emailHash":     emailHash(client.email),
-					"name":          req.SenderName,
-					"avatar":        req.SenderAvatar,
-					"nameVersion":   req.SenderNameVer,
-					"avatarVersion": req.SenderAvatarVer,
-				})
-				for _, c := range sess.clients {
-					if c.id != client.id {
-						s.send(c, Frame{
-							T:    "JOIN_ACCEPT",
-							SID:  frame.SID,
-							Data: json.RawMessage(joinData),
-						})
-					}
-				}
-				sess.mu.Unlock()
-			}
-			s.mu.Unlock()
-
-		case "JOIN_DENY":
-			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
-				continue
-			}
-			s.mu.Lock()
-			if sess, ok := s.sessions[frame.SID]; ok {
-				sess.mu.Lock()
-				for _, c := range sess.clients {
-					if c.id != client.id {
-						s.send(c, Frame{T: "JOIN_DENIED", SID: frame.SID})
-					}
-				}
-				sess.mu.Unlock()
-			}
-			s.mu.Unlock()
 
 		case "DELETE_ACCOUNT":
 			if client.email == "" {

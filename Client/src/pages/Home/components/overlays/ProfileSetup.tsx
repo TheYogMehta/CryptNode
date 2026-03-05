@@ -61,19 +61,22 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
       let key = await getKeyFromSecureStorage(storageKey);
 
       if (!key) {
-        key = bip39.generateMnemonic(128);
+        // Generate new 12-word mnemonic for new accounts
+        key = bip39.generateMnemonic(128); // 12 words
         await setKeyFromSecureStorage(storageKey, key);
         setMasterKey(key);
         setStep("master_key");
         return;
       }
 
+      // Legacy hex key conversion (if any)
       if (key && !key.includes(" ") && /^[0-9a-fA-F]+$/.test(key)) {
         try {
           const mnemonic = bip39.entropyToMnemonic(key);
           setMasterKey(mnemonic);
-          setStep("master_key");
-          return;
+          // Don't trap them on login if it's just legacy conversion, only show on fresh setup
+          // but we will update it in storage quietly.
+          await setKeyFromSecureStorage(storageKey, mnemonic);
         } catch (e) {
           console.log("Failed to convert hex to mnemonic", e);
         }

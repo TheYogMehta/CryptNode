@@ -25,12 +25,26 @@ The server is a lightweight Go application.
    go mod init socket
    go get github.com/gorilla/websocket
    go get github.com/joho/godotenv
+   go get github.com/mattn/go-sqlite3
    ```
+
+### Configuration
+
+1. Copy the example environment file:
+
+   ```bash
+   cp .example.env .env
+   ```
+
+2. Ensure the following variables are configured in `.env`:
+   - `SESSION_SECRET`: Secret key for HMAC token signing.
+   - `TURN_HOST`: URL/IP for the TURN relay server (optional for local dev).
+   - `TURN_SECRET`: Secret for deriving ephemeral TURN credentials (optional).
 
 ### Running the Server
 
 ```bash
-go run socket.go
+go run .
 ```
 
 The server listens on `ws://localhost:9000`.

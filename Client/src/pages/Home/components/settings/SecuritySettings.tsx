@@ -34,6 +34,12 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
     { email: string; timestamp: number }[]
   >([]);
 
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false);
+  const [restoreBuffer, setRestoreBuffer] = useState<ArrayBuffer | null>(null);
+  const [restoreCode, setRestoreCode] = useState("");
+  const [isRestoring, setIsRestoring] = useState(false);
+
   React.useEffect(() => {
     loadBlockedUsers();
   }, []);
@@ -68,6 +74,38 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
 
   const handleGenerateBackup = () => {
     setShowBackupPinPrompt(true);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      setRestoreBuffer(arrayBuffer);
+      setShowRestorePrompt(true);
+    } catch (err) {
+      alert("Failed to read backup file.");
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRestoreSubmit = async () => {
+    if (!restoreBuffer || !restoreCode) return;
+    setIsRestoring(true);
+    try {
+      await BackupService.restoreFromEncryptedBackup(
+        restoreBuffer,
+        restoreCode,
+      );
+      alert(
+        "Backup restored successfully! The app will now reload to apply the restored data.",
+      );
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message || "Failed to restore backup.");
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   return (
@@ -171,21 +209,42 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
           Export your messages, media, and encryption keys to a secure ZIP file
           encrypted with your Master Key.
         </div>
-        <button
-          onClick={handleGenerateBackup}
-          disabled={isGenerating}
-          style={{
-            padding: "8px 16px",
-            borderRadius: "6px",
-            background: colors.background.tertiary,
-            color: colors.text.primary,
-            border: "none",
-            cursor: isGenerating ? "not-allowed" : "pointer",
-            marginBottom: "20px",
-          }}
-        >
-          {isGenerating ? "Generating Backup..." : "Generate & Download Backup"}
-        </button>
+        <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+          <button
+            onClick={handleGenerateBackup}
+            disabled={isGenerating}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              background: colors.background.tertiary,
+              color: colors.text.primary,
+              border: "none",
+              cursor: isGenerating ? "not-allowed" : "pointer",
+            }}
+          >
+            {isGenerating ? "Generating..." : "Generate & Download"}
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              background: "transparent",
+              border: "1px solid " + colors.primary.main,
+              color: colors.primary.main,
+              cursor: "pointer",
+            }}
+          >
+            Restore Backup
+          </button>
+          <input
+            type="file"
+            accept=".zip"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
+        </div>
 
         <div
           style={{
@@ -359,6 +418,103 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
             }
           }}
         />
+      )}
+
+      {showRestorePrompt && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.8)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 10000,
+          }}
+        >
+          <div
+            style={{
+              background: colors.background.secondary,
+              padding: "24px",
+              borderRadius: "12px",
+              width: "90%",
+              maxWidth: "400px",
+            }}
+          >
+            <h3 style={{ margin: "0 0 10px 0", color: colors.text.primary }}>
+              Enter Backup Code
+            </h3>
+            <p
+              style={{
+                color: colors.text.secondary,
+                fontSize: "14px",
+                marginBottom: "20px",
+              }}
+            >
+              Please enter the 12-word Master Backup Phrase to decrypt this
+              backup. Restoring will replace your current device data.
+            </p>
+            <input
+              type="text"
+              value={restoreCode}
+              onChange={(e) => setRestoreCode(e.target.value)}
+              placeholder="e.g. apple banana orange..."
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: "8px",
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(0,0,0,0.2)",
+                color: colors.text.primary,
+                marginBottom: "20px",
+                boxSizing: "border-box",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                onClick={() => {
+                  if (isRestoring) return;
+                  setShowRestorePrompt(false);
+                  setRestoreBuffer(null);
+                  setRestoreCode("");
+                }}
+                disabled={isRestoring}
+                style={{
+                  padding: "8px 16px",
+                  background: "transparent",
+                  color: colors.text.secondary,
+                  border: "none",
+                  cursor: isRestoring ? "not-allowed" : "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRestoreSubmit}
+                disabled={isRestoring}
+                style={{
+                  padding: "8px 16px",
+                  background: colors.primary.main,
+                  color: "white",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: isRestoring ? "not-allowed" : "pointer",
+                }}
+              >
+                {isRestoring ? "Restoring..." : "Decrypt & Restore"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

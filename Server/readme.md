@@ -57,7 +57,7 @@ The server is a lightweight Go application.
 ### Running the Server
 
 ```bash
-go run socket.go
+go run .
 ```
 
 The server listens on `ws://localhost:9000`.
@@ -65,7 +65,7 @@ The server listens on `ws://localhost:9000`.
 ### Building Code
 
 ```bash
- go build -o socket socket.go
+ go build -o socket
 ```
 
 > then you can can use ./socket

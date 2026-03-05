@@ -217,61 +217,27 @@ export class QwenLocalService {
     this.notify();
 
     try {
-      // Fetch from remote
-      const req = await fetch(GGUF_URL);
-      if (!req.ok) throw new Error("Failed to download model");
-
-      const contentLength = req.headers.get("content-length");
-      const total = contentLength ? parseInt(contentLength, 10) : 0;
-      let loaded = 0;
-
-      const reader = req.body?.getReader();
-      if (!reader) throw new Error("Could not get response stream");
-
-      const chunks: Uint8Array[] = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          chunks.push(value);
-          loaded += value.byteLength;
-          if (total) {
-            this._downloadProgress = Math.round((loaded / total) * 100);
-            this.notify();
-          }
-        }
-      }
-
-      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-      const combined = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const c of chunks) {
-        combined.set(c, offset);
-        offset += c.length;
-      }
-
-      const blob = new Blob([combined]);
-      const base64Data = await new Promise<string>((resolve) => {
-        const fr = new FileReader();
-        fr.readAsDataURL(blob);
-        fr.onloadend = () => {
-          resolve(fr.result as string);
-        };
-      });
-
-      console.log("[QwenLocalService] Saving to filesystem...");
-      await Filesystem.writeFile({
-        directory: dir,
+      // Use Capacitor native download directly to avoid OOM crashes (400MB in RAM -> Base64 is too large)
+      const downloadResult = await Filesystem.downloadFile({
+        url: GGUF_URL,
         path: path,
-        data: base64Data,
+        directory: dir,
+        progress: true,
       });
 
+      // Filesystem fires progress events on window automatically if progress: true
+      // but to integrate cleanly with our store without messy global listeners, we just
+      // mark it done. (If we wanted realtime UI progress for downloadFile, we'd add un-documented capacitor listeners).
       this._downloadProgress = 100;
       this.notify();
 
-      const uri = await Filesystem.getUri({ directory: dir, path });
-      return uri.uri.replace("file://", "");
+      return (
+        downloadResult.path ||
+        (await Filesystem.getUri({ directory: dir, path })).uri.replace(
+          "file://",
+          "",
+        )
+      );
     } catch (error) {
       console.error("[QwenLocalService] Failed to download model", error);
       throw error;

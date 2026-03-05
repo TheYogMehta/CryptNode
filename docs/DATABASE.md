@@ -269,7 +269,7 @@ CREATE INDEX IF NOT EXISTS idx_shares_msg ON live_shares(message_id);
 | Column       | Type    | Description                       |
 | ------------ | ------- | --------------------------------- |
 | `sid`        | TEXT    | Session ID                        |
-| `port `      | INTEGER | Local/remote port number          |
+| `port`       | INTEGER | Local/remote port number          |
 | `direction`  | TEXT    | `'incoming'` or `'outgoing'`      |
 | `message_id` | INTEGER | Foreign key to initiating message |
 
@@ -485,5 +485,46 @@ await Filesystem.writeFile({
 
 1. **Encryption**: The database stores DECRYPTED messages. Enable SQLite encryption in production.
 2. **Session Keys**: Stored in plaintext (JWK format). Relies on OS-level database encryption.
-3. **Foreign Keys**: Enabled via `PRAGMA foreign_keys = ON` to maintain referential integrity.
-4. **No Cloud Sync**: Database remains local-only. No built-in cloud backup.
+3. **No Cloud Sync**: Database remains local-only. No built-in cloud backup.
+
+## Server Database (`server.db`)
+
+The backend relay server uses an independent SQLite database (`server.db`) to manage sessions, offline queues, and device tracking. It does **not** store plaintext messages.
+
+### Server Tables
+
+1. **`devices`**: Tracks registered devices per user account.
+   - `email_hash` (TEXT): Hashed email address.
+   - `public_key` (TEXT): Device's ECDH public key.
+   - `last_active` (DATETIME): Last seen timestamp.
+   - `is_master` (BOOLEAN): Flag for the first/primary device.
+
+2. **`requests`**: Queues pending friend requests for offline users.
+   - `sender_hash` (TEXT): Sender's hashed email.
+   - `target_hash` (TEXT): Target's hashed email.
+   - `encrypted_packet` (TEXT): The encrypted profile payload.
+   - `timestamp` (DATETIME): Time the request was sent.
+
+3. **`friends`**: Persists accepted friend relationships and session IDs.
+   - `user1_hash` & `user2_hash` (TEXT): Hashed emails of the connected peers.
+   - `since` (DATETIME): Timestamp of connection.
+   - `sid` (TEXT): Deterministically generated session ID.
+
+4. **`sockets`**: Maps active WebSocket connection IDs to email hashes and device keys.
+   - `email_hash` (TEXT): Authenticated user's hash.
+   - `socket_id` (TEXT): Ephemeral connection ID.
+   - `public_key` (TEXT): The device public key for this connection.
+
+5. **`offline_notifications`**: Queues system events (e.g., friend deny, block events) for delivery when a user reconnects.
+   - `id` (INTEGER): Auto-incrementing primary key.
+   - `email_hash` (TEXT): Target user's hash.
+   - `event_data` (TEXT): Serialized JSON frame payload.
+   - `timestamp` (DATETIME): Event creation time.
+
+### Server Maintenance Task
+
+The server runs an automated **monthly cleanup worker** that automatically deletes:
+
+- Devices inactive for over 30 days.
+- Pending friend requests older than 30 days.
+- Offline notifications older than 30 days.
