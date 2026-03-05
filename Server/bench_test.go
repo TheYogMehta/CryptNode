@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,57 +15,107 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-// Mock auth token for testing
-const mockAuthToken = "mock_token"
-
 func init() {
-	// Suppress global logs from socket.go specific calls (log.Printf)
 	log.SetOutput(io.Discard)
-	// Increase rate limit for benchmarks
-	maxMsgsPerSecond = 1000000
+	maxMsgsPerSecond = 1_000_000
 }
 
-// Setup a test server
-func setupTestServer() *httptest.Server {
-	// Initialize server with mocked components if necessary
+// testEmailHash mirrors the server's emailHash utility.
+func testEmailHash(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	sum := sha256.Sum256([]byte(email))
+	return hex.EncodeToString(sum[:])
+}
+
+// testSID mirrors the production SHA-256(sorted-emails) SID derivation.
+func testSID(emailA, emailB string) string {
+	e1, e2 := emailA, emailB
+	if e1 > e2 {
+		e1, e2 = e2, e1
+	}
+	sum := sha256.Sum256([]byte(e1 + ":" + e2))
+	return hex.EncodeToString(sum[:])
+}
+
+// newTestServer creates a relay server with an isolated in-memory SQLite DB.
+// It also returns the *Server so tests can seed data directly.
+func newTestServer() (*httptest.Server, *Server) {
 	s := &Server{
-		clients:         make(map[string]*Client),
-		sessions:        make(map[string]*Session),
-		// Use a discard logger to avoid cluttering test output
-		logger: log.New(io.Discard, "", 0),
+		clients:  make(map[string]*Client),
+		sessions: make(map[string]*Session),
+		logger:   log.New(io.Discard, "", 0),
 		rateLimiter: &RateLimiter{
 			ipAttempts: make(map[string][]time.Time),
 		},
 	}
-
-	return httptest.NewServer(http.HandlerFunc(s.handle))
+	if err := s.initDBTest(); err != nil {
+		panic("bench db init: " + err.Error())
+	}
+	return httptest.NewServer(http.HandlerFunc(s.handle)), s
 }
 
-// Helper to generate a valid session token for testing
-func getTestSessionToken(email string) string {
-	// Calling the internal function from socket.go since we are in package main
-	return generateSessionToken(email)
+func (s *Server) initDBTest() error {
+	var err error
+	s.db, err = sql.Open("sqlite3", fmt.Sprintf(
+		"file:bench_%d?mode=memory&cache=private", time.Now().UnixNano()))
+	if err != nil {
+		return err
+	}
+	tables := []string{
+		`CREATE TABLE IF NOT EXISTS devices (
+			email_hash TEXT, public_key TEXT, last_active DATETIME,
+			is_master BOOLEAN DEFAULT 0,
+			PRIMARY KEY (email_hash, public_key))`,
+		`CREATE TABLE IF NOT EXISTS requests (
+			sender_hash TEXT, target_hash TEXT, encrypted_packet TEXT, timestamp DATETIME,
+			PRIMARY KEY (sender_hash, target_hash))`,
+		`CREATE TABLE IF NOT EXISTS friends (
+			user1_hash TEXT, user2_hash TEXT, since DATETIME, sid TEXT,
+			PRIMARY KEY (user1_hash, user2_hash))`,
+		`CREATE TABLE IF NOT EXISTS sockets (
+			email_hash TEXT, socket_id TEXT, public_key TEXT,
+			PRIMARY KEY (email_hash, socket_id))`,
+		`CREATE TABLE IF NOT EXISTS offline_notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_hash TEXT, event_data TEXT, timestamp DATETIME)`,
+	}
+	for _, q := range tables {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func connectClient(url, email string) (*websocket.Conn, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+// seedFriendship inserts a friends row so MSG passes the friendship guard.
+func (s *Server) seedFriendship(emailA, emailB string) string {
+	h1 := testEmailHash(emailA)
+	h2 := testEmailHash(emailB)
+	if h1 > h2 {
+		h1, h2 = h2, h1
+	}
+	sid := testSID(emailA, emailB)
+	s.db.Exec(`INSERT OR IGNORE INTO friends (user1_hash, user2_hash, since, sid) VALUES (?, ?, ?, ?)`,
+		h1, h2, time.Now(), sid)
+	return sid
+}
+
+// connectAndAuth dials the relay and authenticates. Returns the ready conn.
+func connectAndAuth(wsURL, email string) (*websocket.Conn, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	// Authenticate
-	token := getTestSessionToken(email)
-	authFrame := Frame{
+	token := generateSessionToken(email)
+	if err := conn.WriteJSON(Frame{
 		T:    "AUTH",
 		Data: json.RawMessage(fmt.Sprintf(`{"token": "%s"}`, token)),
-	}
-	if err := conn.WriteJSON(authFrame); err != nil {
+	}); err != nil {
 		return nil, err
 	}
-
-	// Read AUTH_SUCCESS
 	var resp Frame
 	if err := conn.ReadJSON(&resp); err != nil {
 		return nil, err
@@ -70,142 +123,169 @@ func connectClient(url, email string) (*websocket.Conn, error) {
 	if resp.T != "AUTH_SUCCESS" {
 		return nil, fmt.Errorf("auth failed: %v", resp)
 	}
-
 	return conn, nil
 }
 
-// Helper to read MSG frame, skipping PINGs
-func readMSG(conn *websocket.Conn) (*Frame, error) {
+// drainForever reads and discards frames until conn closes.
+func drainForever(conn *websocket.Conn) {
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+// readNextMSG blocks until a MSG frame arrives, skipping control frames.
+func readNextMSG(conn *websocket.Conn) (*Frame, error) {
 	for {
 		var f Frame
 		if err := conn.ReadJSON(&f); err != nil {
 			return nil, err
 		}
-		if f.T == "PING" {
+		switch f.T {
+		case "PING", "SESSION_LIST", "PEER_ONLINE", "PEER_OFFLINE",
+			"DELIVERED", "DELIVERED_FAILED":
 			continue
 		}
 		return &f, nil
 	}
 }
 
-// Benchmark: Connection establishment (Handshake) latency
-// This measures how fast we can open a websocket and authenticate.
-func BenchmarkConnectionHandshake(b *testing.B) {
-	// Suppress logs
-	s := &Server{
-		clients:         make(map[string]*Client),
-		sessions:        make(map[string]*Session),
-		// Use a dummy logger that writes to nowhere
-		logger: log.New(io.Discard, "", 0),
-		rateLimiter: &RateLimiter{
-			ipAttempts: make(map[string][]time.Time),
-		},
+// setupPair seeds friendship, authenticates two clients, then directly injects
+// them into a shared in-memory session to completely bypass the async
+// SESSION_LIST goroutine that would otherwise compete for s.mu and deadlock.
+//
+// cA is drained in the background so DELIVERED/PING frames from the server
+// do not block the server's goroutine.
+func setupPair(s *Server, wsURL, emailA, emailB string) (cA, cB *websocket.Conn, sid string, err error) {
+	sid = s.seedFriendship(emailA, emailB)
+
+	cA, err = connectAndAuth(wsURL, emailA)
+	if err != nil {
+		return
+	}
+	cB, err = connectAndAuth(wsURL, emailB)
+	if err != nil {
+		cA.Close()
+		return
 	}
 
-	ts := httptest.NewServer(http.HandlerFunc(s.handle))
-	defer ts.Close()
-	wsUrl := "ws" + strings.TrimPrefix(ts.URL, "http")
+	// Wait briefly for the AUTH async goroutines (offline_notifications query)
+	// to complete before we start injecting session state.
+	time.Sleep(50 * time.Millisecond)
 
-	token := getTestSessionToken("bench_user@example.com")
+	// Directly inject both clients into a shared session on the server,
+	// bypassing REATTACH (which fires a goroutine that acquires s.mu, competing
+	// with the MSG relay handler that also holds s.mu).
+	s.mu.Lock()
+	var cAClient, cBClient *Client
+	for _, c := range s.clients {
+		if c.email == emailA {
+			cAClient = c
+		}
+		if c.email == emailB {
+			cBClient = c
+		}
+	}
+	if cAClient == nil || cBClient == nil {
+		s.mu.Unlock()
+		err = fmt.Errorf("could not find clients in server map (A=%v B=%v)", cAClient, cBClient)
+		return
+	}
+	sess := &Session{
+		id:      sid,
+		clients: map[string]*Client{cAClient.id: cAClient, cBClient.id: cBClient},
+	}
+	s.sessions[sid] = sess
+	s.mu.Unlock()
+
+	// Warmup: verify relay works. cA has no drainer yet — we'll start it after.
+	warmup := json.RawMessage(`{"payloads":{"benchkey":"warmupdata"}}`)
+	var warmMsg *Frame
+	// cB reads the MSG from cA; cA reads DELIVERED which is fine (no race yet).
+	if err = cA.WriteJSON(Frame{T: "MSG", SID: sid, Data: warmup}); err != nil {
+		return
+	}
+	if warmMsg, err = readNextMSG(cB); err != nil {
+		return
+	}
+	if warmMsg.T != "MSG" {
+		err = fmt.Errorf("warmup: expected MSG, got %s (data=%s)", warmMsg.T, warmMsg.Data)
+		return
+	}
+
+	// Only start draining cA AFTER the warmup is confirmed so no race with
+	// ReadJSON calls above.
+	go drainForever(cA)
+	return
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Benchmarks
+// ─────────────────────────────────────────────────────────────────────────────
+
+// BenchmarkConnectionHandshake measures WebSocket dial + AUTH round-trip cost.
+func BenchmarkConnectionHandshake(b *testing.B) {
+	ts, _ := newTestServer()
+	defer ts.Close()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http")
+	token := generateSessionToken("bench_user@example.com")
 
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		conn, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 			b.Fatal(err)
 		}
-
-		// Send Auth
-		authFrame := Frame{
+		if err := conn.WriteJSON(Frame{
 			T:    "AUTH",
 			Data: json.RawMessage(fmt.Sprintf(`{"token": "%s"}`, token)),
-		}
-		if err := conn.WriteJSON(authFrame); err != nil {
+		}); err != nil {
 			b.Fatal(err)
 		}
-
-		// Read Response
 		var resp Frame
 		if err := conn.ReadJSON(&resp); err != nil {
 			b.Fatal(err)
 		}
-
 		conn.Close()
 	}
 }
 
-// Benchmark: Message Relay Latency (Round Trip)
-// Measures time for User A -> Server -> User B
+// BenchmarkMessageRelayLatency measures per-message relay overhead (A → server → B).
+// Auth overhead is excluded from the timer; only the relay path is measured.
 func BenchmarkMessageRelayLatency(b *testing.B) {
-	s := &Server{
-		clients:         make(map[string]*Client),
-		sessions:        make(map[string]*Session),
-		logger:          log.New(io.Discard, "", 0),
-		rateLimiter: &RateLimiter{
-			ipAttempts: make(map[string][]time.Time),
-		},
-	}
-
-	ts := httptest.NewServer(http.HandlerFunc(s.handle))
+	ts, srv := newTestServer()
 	defer ts.Close()
-	wsUrl := "ws" + strings.TrimPrefix(ts.URL, "http")
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http")
 
-	// Setup two clients
-	clientA, err := connectClient(wsUrl, "alice@example.com")
+	cA, cB, sid, err := setupPair(srv, wsURL, "alice@example.com", "bob@example.com")
 	if err != nil {
-		b.Fatal(err)
+		b.Fatal("setup:", err)
 	}
-	defer clientA.Close()
+	defer cA.Close()
+	defer cB.Close()
 
-	clientB, err := connectClient(wsUrl, "bob@example.com")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer clientB.Close()
+	payload := json.RawMessage(`{"payloads":{"benchkey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}}`)
 
-	// Establish session (simulation without full handshake flow)
-	// We just need them to be in a session on the server.
-	// We can simulate CONNECT_REQ / JOIN_ACCEPT flow or force it.
-	// Let's do the flow.
-
-	// A requests B
-	reqData := `{"targetEmail":"bob@example.com","publicKey":"keyA","senderEmail":"alice@example.com"}`
-	if err := clientA.WriteJSON(Frame{T: "CONNECT_REQ", Data: json.RawMessage(reqData)}); err != nil {
-		b.Fatal(err)
-	}
-
-	// B receives JOIN_REQUEST
-	var joinReq Frame
-	if err := clientB.ReadJSON(&joinReq); err != nil {
-		b.Fatal(err)
-	}
-	sid := joinReq.SID
-
-	// B Accepts
-	acceptData := `{"publicKey":"keyB"}`
-	if err := clientB.WriteJSON(Frame{T: "JOIN_ACCEPT", SID: sid, Data: json.RawMessage(acceptData)}); err != nil {
-		b.Fatal(err)
-	}
-
-	// Consume the loopback/ack on A side if any, or B's message to A.
-	// In socket.go: JOIN_ACCEPT forwards to requester (A).
-	// So A receives JOIN_ACCEPT.
-	var joinAccept Frame
-	if err := clientA.ReadJSON(&joinAccept); err != nil {
-		b.Fatal(err)
-	}
-
-	msgPayload := `{"payload":"encrypted_data"}`
+	// Add a timeout to dump goroutines if it hangs
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(5 * time.Second):
+			panic("benchmark relay timed out - dumping goroutines")
+		case <-done:
+		}
+	}()
+	defer close(done)
 
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		// A sends to B
-		if err := clientA.WriteJSON(Frame{T: "MSG", SID: sid, Data: json.RawMessage(msgPayload)}); err != nil {
+		if err := cA.WriteJSON(Frame{T: "MSG", SID: sid, Data: payload}); err != nil {
 			b.Fatal(err)
 		}
-
-		// B reads
-		msg, err := readMSG(clientB)
+		msg, err := readNextMSG(cB)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -215,102 +295,35 @@ func BenchmarkMessageRelayLatency(b *testing.B) {
 	}
 }
 
-// Benchmark: Throughput (Messages Per Second)
-// We'll use parallel benchmark to simulate load
+// BenchmarkMessageThroughput measures aggregate throughput under parallel load.
+// Each goroutine operates on its own isolated client pair and session.
 func BenchmarkMessageThroughput(b *testing.B) {
-	s := &Server{
-		clients:         make(map[string]*Client),
-		sessions:        make(map[string]*Session),
-		logger:          log.New(io.Discard, "", 0),
-		rateLimiter: &RateLimiter{
-			ipAttempts: make(map[string][]time.Time),
-		},
-	}
-	ts := httptest.NewServer(http.HandlerFunc(s.handle))
+	ts, srv := newTestServer()
 	defer ts.Close()
-	wsUrl := "ws" + strings.TrimPrefix(ts.URL, "http")
-
-	// We need a shared session for all parallel workers?
-	// Or each worker creates its own pair.
-	// Creating pairs is better to reduce lock contention on a single session map if we want to test server scalability.
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http")
 
 	b.RunParallel(func(pb *testing.PB) {
-		// Each worker creates a pair of users
 		id := time.Now().UnixNano()
 		emailA := fmt.Sprintf("userA_%d@example.com", id)
 		emailB := fmt.Sprintf("userB_%d@example.com", id)
 
-		cA, err := connectClient(wsUrl, emailA)
+		cA, cB, sid, err := setupPair(srv, wsURL, emailA, emailB)
 		if err != nil {
+			b.Logf("setup failed: %v", err)
+			for pb.Next() {
+			}
 			return
 		}
 		defer cA.Close()
-		cB, err := connectClient(wsUrl, emailB)
-		if err != nil {
-			return
-		}
 		defer cB.Close()
 
-		// Start a reader for cA to consume PINGs/responses and prevent blocking
-		go func() {
-			for {
-				var f Frame
-				if err := cA.ReadJSON(&f); err != nil {
-					return
-				}
-			}
-		}()
-
-		// Handshake
-		reqData := fmt.Sprintf(`{"targetEmail":"%s","publicKey":"keyA","senderEmail":"%s"}`, emailB, emailA)
-		if err := cA.WriteJSON(Frame{T: "CONNECT_REQ", Data: json.RawMessage(reqData)}); err != nil {
-			return
-		}
-
-		var joinReq Frame
-		if err := cB.ReadJSON(&joinReq); err != nil {
-			return
-		}
-		sid := joinReq.SID
-
-		if err := cB.WriteJSON(Frame{T: "JOIN_ACCEPT", SID: sid, Data: json.RawMessage(`{"publicKey":"keyB"}`)}); err != nil {
-			return
-		}
-
-		// cA logic is handled by reader goroutine above (it consumes JOIN_ACCEPT too)
-		// Wait, we need to ensure handshake completed before starting loop?
-		// cA reader consumes EVERYTHING. So we can't synchronously check for JOIN_ACCEPT.
-		// Benchmark logic assumes handshake works.
-		// Alternatively, we read explicitly UNTIL handshake done, THEN start consumer loop.
-
-		// Let's optimize:
-		// cA sends CONNECT_REQ.
-		// cB receives JOIN_REQ.
-		// cB sends JOIN_ACCEPT.
-		// cA receives JOIN_ACCEPT.
-		// AFTER this, we start the consumer loop for cA.
-		var joinAccept Frame
-		if err := cA.ReadJSON(&joinAccept); err != nil {
-			return
-		}
-
-		// Now assume session established. Start drainer.
-		go func() {
-			for {
-				var f Frame
-				if err := cA.ReadJSON(&f); err != nil {
-					return
-				}
-			}
-		}()
-
-		msgPayload := json.RawMessage(`{"payload":"data"}`)
+		payload := json.RawMessage(`{"payloads":{"benchkey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}}`)
 
 		for pb.Next() {
-			if err := cA.WriteJSON(Frame{T: "MSG", SID: sid, Data: msgPayload}); err != nil {
+			if err := cA.WriteJSON(Frame{T: "MSG", SID: sid, Data: payload}); err != nil {
 				return
 			}
-			if _, err := readMSG(cB); err != nil {
+			if _, err := readNextMSG(cB); err != nil {
 				return
 			}
 		}
