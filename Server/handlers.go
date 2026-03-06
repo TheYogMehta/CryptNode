@@ -607,45 +607,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
 
-		case "UNBLOCK_USER":
-			if client.email == "" {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
-				continue
-			}
-			var d struct {
-				TargetEmail string `json:"targetEmail"`
-			}
-			json.Unmarshal(frame.Data, &d)
-			targetHash := emailHash(normalizeEmail(d.TargetEmail))
-			senderHash := emailHash(client.email)
-
-			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
-			hasSockets := false
-			if err == nil {
-				for rows.Next() {
-					hasSockets = true
-					var socketID string
-					rows.Scan(&socketID)
-					s.mu.Lock()
-					if targetClient, ok := s.clients[socketID]; ok {
-						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
-						s.send(targetClient, Frame{T: "USER_UNBLOCKED_EVENT", Data: json.RawMessage(respData)})
-					}
-					s.mu.Unlock()
-				}
-				rows.Close()
-			}
-
-			if !hasSockets {
-				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
-				frameEvent, _ := json.Marshal(Frame{T: "USER_UNBLOCKED_EVENT", Data: json.RawMessage(respData)})
-				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now())
-			}
-
-			s.send(client, Frame{T: "USER_UNBLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
-
-
-
 		case "DELETE_ACCOUNT":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Authentication required"}`)})

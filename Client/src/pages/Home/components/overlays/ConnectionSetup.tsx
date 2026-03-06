@@ -97,10 +97,11 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                   background: "rgba(255,255,255,0.05)",
                   padding: "10px",
                   borderRadius: "8px",
+                  gap: "10px",
                 }}
               >
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                  style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0, flex: 1 }}
                 >
                   {req.avatar ? (
                     <img
@@ -134,9 +135,15 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                       {req.name?.[0]?.toUpperCase() || "?"}
                     </div>
                   )}
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div
-                      style={{ color: colors.text.primary, fontWeight: 500 }}
+                      style={{ 
+                        color: colors.text.primary, 
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
+                      }}
                     >
                       {req.name || "Unknown"}
                     </div>
@@ -144,13 +151,16 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                       style={{
                         color: colors.text.secondary,
                         fontSize: "0.8em",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
                       }}
                     >
                       {req.email || "No Email"}
                     </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
                   <button
                     onClick={() => {
                       ChatClient.acceptFriend(

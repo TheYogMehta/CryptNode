@@ -53,8 +53,8 @@ This document describes the complete organization of the project, explaining the
     ├── package.json               # NPM package manifest
     ├── package-lock.json          # NPM dependency lock file
     ├── public/                    # Static public assets
-    ├── favicon.ico            # Browser favicon
-    └── manifest.json          # PWA manifest
+    │   ├── favicon.ico            # Browser favicon
+    │   └── manifest.json          # PWA manifest
     ├── readme.md                  # Client README
     ├── src/                       # Source code (React app)
     ├── sync.cjs                   # Capacitor sync script
@@ -67,72 +67,120 @@ This document describes the complete organization of the project, explaining the
 
     ```
     src/
-    ├── App.css # Global styles
-    ├── App.tsx # Root React component
-    ├── components/ # React components
-    │ ├── AppLock.tsx # PIN/biometric lock screen
-    │ ├── CallOverlay.tsx # Voice call UI overlay
-    │ ├── ChatInput.tsx # Message input field
-    │ ├── ChatMessage.tsx # Individual message bubble
-    │ ├── ChatWindow.tsx # Main chat display area
-    │ ├── ConnectionSetup.tsx # Peer connection form
-    │ ├── FilePreview.tsx # File attachment preview
-    │ ├── MessageInput.tsx # Message composer
-    │ ├── MessageList.tsx # Scrollable message list
-    │ ├── SettingsOverlay.tsx # Settings modal
-    │ ├── Sidebar.tsx # Session list sidebar
-    │ ├── UserAvatar.tsx # User avatar component
-    │ └── ... # Other UI components
-    ├── hooks/ # Custom React hooks
-    │ ├── useChatLogic.ts # Main chat logic hook
-    │ ├── useSecureChat.ts # Secure vault hook
-    │ └── ... # Other hooks
-    ├── pages/ # Page components
-    │ └── Home.tsx # Main application page
-    ├── services/ # Business logic services
-    │ ├── AccountService.ts # Account/identity management
-    │ ├── ChatClient.ts # WebSocket client + encryption
-    │ ├── SafeStorage.ts # Secure key storage interface
-    │ └── sqliteService.ts # SQLite database wrapper
-    ├── theme/ # CSS theme variables
-    │ └── variables.css # Color schemes, spacing
-    ├── utils/ # Utility functions
-    │ ├── crypto.ts # Encryption/decryption helpers
-    │ ├── formatting.ts # Date/time formatting
-    │ └── ... # Other utilities
-    ├── main.tsx # React entry point
-    └── vite-env.d.ts # Vite type definitions
+    ├── App.tsx                    # Root React component & routing
+    ├── main.tsx                   # React entry point
+    ├── vite-env.d.ts              # Vite type definitions
+    ├── assets/                    # Bundled assets (SVGs, images)
+    ├── components/                # Shared React components
+    │   ├── EmojiPicker.tsx        # Emoji selection popover
+    │   ├── GifPicker.tsx          # Tenor GIF search & selection
+    │   ├── UserAvatar.tsx         # User avatar with presence indicator
+    │   └── ui/                    # Low-level UI primitives
+    │       ├── Avatar.tsx         # Base avatar element
+    │       ├── Button.tsx         # Button variants
+    │       ├── Card.tsx           # Card layout container
+    │       └── IconButton.tsx     # Icon-only button
+    ├── hooks/                     # Shared custom React hooks
+    │   └── useRecentEmojis.ts     # Persists recently used emojis
+    ├── pages/                     # Page-level components
+    │   ├── Home/                  # Main chat page
+    │   │   ├── Home.tsx           # Root layout: sidebar + chat window
+    │   │   ├── Home.styles.ts     # Styled-component definitions
+    │   │   ├── types.ts           # Shared TypeScript interfaces (ChatMessage, etc.)
+    │   │   ├── components/        # Home-specific sub-components
+    │   │   └── hooks/             # Home-specific hooks (chat logic, calls, etc.)
+    │   ├── SecureChat/            # Secure Vault page
+    │   │   ├── SecureChatWindow.tsx  # Vault UI (passwords, files, notes)
+    │   │   ├── SecureChatWindow.css  # Vault styles
+    │   │   ├── SavePasswordModal.tsx # Password save dialog
+    │   │   └── hooks/             # Vault-specific hooks
+    │   ├── LoadingScreen.tsx      # Splash/loading screen
+    │   └── Login.styles.ts        # Login page styles
+    ├── services/                  # Business logic (organized by domain)
+    │   ├── ai/
+    │   │   └── qwenLocal.service.ts   # On-device Qwen LLM inference (WASM + Native)
+    │   ├── auth/
+    │   │   ├── AccountService.ts      # Account lifecycle (add, switch, remove)
+    │   │   └── AuthService.ts         # Google OAuth token management
+    │   ├── core/
+    │   │   ├── ChatClient.ts          # WebSocket client, encryption, message routing
+    │   │   ├── SocketManager.ts       # Raw WebSocket connection management
+    │   │   ├── WorkerManager.ts       # Crypto Web Worker pool
+    │   │   ├── interfaces.ts          # Core TypeScript interfaces
+    │   │   └── protocolLimits.ts      # Frame size / rate-limit constants
+    │   ├── media/
+    │   │   ├── CallService.ts         # WebRTC voice & video call management
+    │   │   ├── CompressionService.ts  # Image/file compression before upload
+    │   │   ├── FileTransferService.ts # Chunked encrypted file send/receive
+    │   │   └── audioWorkletProcessor.js  # Audio processing worklet
+    │   ├── messaging/
+    │   │   ├── MessageService.ts      # Message send, receive, deletion, reactions, sync
+    │   │   └── SessionService.ts      # Session creation, listing, reattachment
+    │   ├── mfa/
+    │   │   ├── mfa.service.ts              # TOTP generation & verification
+    │   │   ├── platform-launch.service.ts  # Platform-specific deep link launcher
+    │   │   ├── qr.service.ts               # QR code generation for MFA setup
+    │   │   └── secure-storage.adapter.ts   # MFA secret storage adapter
+    │   └── storage/
+    │       ├── BackupService.ts       # Encrypted ZIP backup & restore
+    │       ├── PlatformStorage.ts     # Platform-aware storage abstraction
+    │       ├── SafeStorage.ts         # Secure key storage (Keychain/Keystore)
+    │       ├── StorageService.ts      # General app settings & preferences
+    │       ├── StorageUtils.ts        # Storage path/key constants
+    │       └── sqliteService.ts       # SQLite database wrapper & schema
+    ├── theme/                     # CSS design tokens
+    │   └── variables.css          # Color schemes, spacing, typography
+    ├── types/                     # Global TypeScript type declarations
+    ├── utils/                     # Pure utility functions
+    │   ├── crypto.ts              # Encryption/decryption helpers (ECDH, AES-GCM)
+    │   ├── imageUtils.ts          # Image resizing, thumbnail generation
+    │   ├── MessageQueue.ts        # Offline message queue implementation
+    │   ├── secureStorage.ts       # Low-level Capacitor SecureStorage wrapper
+    │   └── trustedDomains.ts      # Allowlist for link previews
+    └── workers/                   # Web Workers (off-main-thread processing)
+        ├── crypto.worker.ts       # Parallel encryption/decryption worker
+        └── qwen.worker.ts         # Qwen WASM inference worker
     ```
 
 ## Server Directory (`/Server`)
 
     ```
     Server/
-    ├── socket.go # Main WebSocket server
-    ├── go.mod # Go module definition
-    ├── go.sum # Go dependency checksums
-    ├── server.log # Server logs (generated)
-    └── README.md # Server README
+    ├── main.go              # Entry point – bootstraps server and DB
+    ├── server.go            # WebSocket upgrade, connection registry, hub
+    ├── handlers.go          # Frame handler dispatch for all message types
+    ├── auth.go              # Session token validation & Google OAuth verify
+    ├── db.go                # SQLite schema init & query helpers
+    ├── types.go             # Shared Go structs (Frame, Client, etc.)
+    ├── utils.go             # Utility helpers (ID generation, etc.)
+    ├── bench_test.go        # Benchmark tests
+    ├── relay_check_test.go  # Integration tests for relay correctness
+    ├── go.mod               # Go module definition
+    ├── go.sum               # Go dependency checksums
+    ├── .env                 # Server environment variables (KEEP SECRET!)
+    ├── .example.env         # Environment variable template
+    ├── website/             # Static landing page assets
+    └── readme.md            # Server README
     ```
 
 ## Documentation (`/docs`)
 
     ```
-
     docs/
-    ├── OVERVIEW.md # Application overview
-    ├── ARCHITECTURE.md # System architecture
-    ├── USER_FLOWS.md # User journey flows
-    ├── AUTHENTICATION.md # Auth system details
-    ├── FEATURES.md # Feature-by-feature breakdown
-    ├── WEBSOCKET_PROTOCOL.md # Protocol specification
-    ├── DATABASE.md # Database schema
-    ├── SECURITY.md # Security protocols
-    ├── DEPLOYMENT.md # Deployment guide
-    ├── FOLDER_STRUCTURE.md # This file
-    ├── GLOSSARY.md # Terms and definitions
-    └── SETUP.md # Build & run instructions
-
+    ├── OVERVIEW.md                  # Application overview & target users
+    ├── ARCHITECTURE.md              # System architecture & component diagram
+    ├── USER_FLOWS.md                # User journey flows with flowcharts
+    ├── AUTHENTICATION.md            # Auth system, OAuth, session management
+    ├── FEATURES.md                  # Feature-by-feature breakdown
+    ├── WEBSOCKET_PROTOCOL.md        # Protocol specification & frame types
+    ├── DATABASE.md                  # Database schema, tables, ER diagrams
+    ├── SECURITY.md                  # Security protocols & threat model
+    ├── DEPLOYMENT.md                # Deployment guide (Android, Electron, server)
+    ├── SETUP.md                     # Build & run instructions
+    ├── FOLDER_STRUCTURE.md          # This file
+    ├── EXPERIMENTAL_VALIDATION.md   # Performance benchmarks & validation results
+    ├── ACADEMIC_PROJECT_REPORT.md   # Full academic project report
+    └── images/                      # SVG/PNG diagrams referenced by docs
     ```
 
 ## Key File Purposes
@@ -153,6 +201,7 @@ This document describes the complete organization of the project, explaining the
 | File                   | Purpose                                  | Keep Secret? |
 | ---------------------- | ---------------------------------------- | ------------ |
 | `google-services.json` | Google OAuth/Firebase config for Android | No           |
+| `.env`                 | Server environment variables             | **Yes**      |
 | `package-lock.json`    | Locks NPM dependency versions            | No           |
 | `go.sum`               | Locks Go dependency versions             | No           |
 
@@ -160,31 +209,39 @@ This document describes the complete organization of the project, explaining the
 
 ### Service Layer (`/Client/src/services`)
 
-Singleton services that manage core application state:
+Services are organized into domain-specific subdirectories. All services exist outside the React component tree and communicate via events or direct calls.
 
-- **ChatClient.ts**: Central hub for WebSocket, encryption, and messaging
-- **AccountService.ts**: User account lifecycle (login, switch, logout)
-- **SafeStorage.ts**: Platform-agnostic secure storage wrapper
-- **sqliteService.ts**: Database operations and schema management
+| Subdirectory   | Responsibility                                                  |
+| -------------- | --------------------------------------------------------------- |
+| `ai/`          | On-device LLM inference (Qwen via WASM or native Llama)        |
+| `auth/`        | Google OAuth, account lifecycle, token management               |
+| `core/`        | WebSocket hub, encryption routing, worker pool                  |
+| `media/`       | WebRTC calls, file transfer, image compression                  |
+| `messaging/`   | Message sending/receiving, sessions, sync, reactions            |
+| `mfa/`         | TOTP generation/verification, QR codes, secure secret storage   |
+| `storage/`     | SQLite, secure key storage, backup/restore, app preferences     |
 
-**Design Pattern**: Services exist outside React component tree, communicate via events.
+**Design Pattern**: Services are singletons, communicate via custom event emitters.
 
 ### Component Layer (`/Client/src/components`)
 
 React components organized by functionality:
 
-- **Layout**: `Sidebar.tsx`, `ChatWindow.tsx`
-- **Messaging**: `ChatMessage.tsx`, `MessageList.tsx`, `MessageInput.tsx`
-- **Modals/Overlays**: `CallOverlay.tsx`, `SettingsOverlay.tsx`, `ConnectionSetup.tsx`
-- **Atoms**: `UserAvatar.tsx`, `FilePreview.tsx`
+- **Shared atoms**: `EmojiPicker.tsx`, `GifPicker.tsx`, `UserAvatar.tsx`
+- **UI primitives** (`ui/`): `Avatar.tsx`, `Button.tsx`, `Card.tsx`, `IconButton.tsx`
+- **Page-specific** components live co-located inside `pages/Home/components/` or `pages/SecureChat/`
 
 **Design Pattern**: Presentational components receive data via props, emit events via callbacks.
 
-### Hook Layer (`/Client/src/hooks`)
+### Worker Layer (`/Client/src/workers`)
 
-Custom hooks bridge services and components:
+Web Workers offload heavy CPU-bound operations from the main thread:
 
-- **useChatLogic.ts**: Subscribes to ChatClient events, provides message state to UI
-- **useSecureChat.ts**: Manages vault state and passphrase
+- **`crypto.worker.ts`**: Parallel encryption/decryption for message payloads
+- **`qwen.worker.ts`**: Qwen 3.5 0.8B WASM inference for Web/Desktop platforms
+
+### Hook Layer (`/Client/src/hooks` and page-level `hooks/`)
+
+Custom hooks bridge services and components. Page-specific hooks live co-located with their page component rather than in the global hooks directory.
 
 **Design Pattern**: Hooks encapsulate side effects (subscriptions, local state).

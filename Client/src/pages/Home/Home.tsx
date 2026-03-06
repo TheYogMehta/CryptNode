@@ -348,7 +348,6 @@ const Home = () => {
   const onSelectChat = useCallback(
     (sid: string) => {
       actions.setActiveChat(sid);
-      ChatClient.messageService?.syncManager?.prioritizeSession(sid);
       actions.setView("chat");
       actions.setIsSidebarOpen(false);
     },

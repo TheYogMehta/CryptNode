@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import debounce from "lodash.debounce";
 import toast from "react-hot-toast";
 import ChatClient from "../../../services/core/ChatClient";
-import { queryDB, executeDB } from "../../../services/storage/sqliteService";
+import { queryDB, executeDB, setSessionAlias } from "../../../services/storage/sqliteService";
 import { SessionData, InboundReq } from "../types";
 
 export const useSessionLogic = (shouldInit: boolean = true) => {
@@ -248,11 +248,9 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
 
   const handleSetAlias = async (sid: string, name: string) => {
     try {
-      await executeDB("UPDATE sessions SET alias_name = ? WHERE sid = ?", [
-        name,
-        sid,
-      ]);
+      await setSessionAlias(sid, name, "");
       loadSessions();
+      ChatClient.messageService.broadcastManifestToOwnDevices().catch(() => {});
     } catch (e) {
       console.error("Failed to set alias", e);
     }

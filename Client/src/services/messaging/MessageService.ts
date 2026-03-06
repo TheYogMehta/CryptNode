@@ -1,11 +1,10 @@
 import { EventEmitter } from "events";
-import { queryDB, executeDB } from "../storage/sqliteService";
+import { queryDB, executeDB, getAllBlockEntries, getBlockedUsers, getAllPendingRequestsEntries, getMyProfileAndVersions, getAllAliasesEntries, getLastManifestSync, getMessagesSince, updateLastManifestSync } from "../storage/sqliteService";
 import { StorageService } from "../storage/StorageService";
 import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
 import { AuthService } from "../auth/AuthService";
 import { SessionService } from "./SessionService";
-import { SyncManager } from "./SyncManager";
 import { TEXT_CHUNK_SIZE_CHARS } from "../core/protocolLimits";
 
 interface IMessageClient {
@@ -56,12 +55,9 @@ export class MessageService extends EventEmitter {
     }
   >();
 
-  public syncManager: SyncManager;
-
   constructor(client: IMessageClient) {
     super();
     this.client = client;
-    this.syncManager = new SyncManager(this);
   }
 
   private splitTextIntoChunks(text: string, chunkSize: number): string[] {
@@ -134,6 +130,7 @@ export class MessageService extends EventEmitter {
       replyTo: data.replyTo,
       timestamp: data.timestamp,
     });
+    this.broadcastManifestToOwnDevices().catch(() => {});
   }
 
   public async sendMessage(
@@ -211,6 +208,7 @@ export class MessageService extends EventEmitter {
     } catch (e) {
       console.error("[MessageService] Failed to save sent message:", e);
     }
+    this.broadcastManifestToOwnDevices().catch(() => {});
   }
 
   public async requestSync(
@@ -677,154 +675,168 @@ export class MessageService extends EventEmitter {
             );
           }
           break;
-        case "SYNC_INFO_REQ":
+
+        // ── Own-device manifest sync ──────────────────────────────────────
+        // Single encrypted MANIFEST sent by both devices on connect.
+        // Extensible named sections — each section merged independently.
+        // Server only ever sees encrypted bytes.
+
+        case "MANIFEST": {
           try {
-            const row = await queryDB(
-              "SELECT COUNT(*) as total, MAX(timestamp) as maxTs, MIN(timestamp) as minTs FROM messages WHERE sid = ?",
-              [sid],
-            );
-            const total = row[0]?.total || 0;
-            const maxTs = row[0]?.maxTs || 0;
-            const minTs = row[0]?.minTs || 0;
+            const manifest = data.manifest as {
+              blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
+              requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
+              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number }[];
+              profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
+              messages?: any[];
+            };
+            if (!manifest || typeof manifest !== "object") break;
 
-            const payloads = await this.client.encryptForSession(
-              sid,
-              JSON.stringify({
-                t: "MSG",
-                data: {
-                  type: "SYNC_INFO_ACK",
-                  total,
-                  maxTs,
-                  minTs,
-                },
-              }),
-              1,
-            );
-            this.client.send({
-              t: "MSG",
-              sid,
-              data: { payloads },
-              c: true,
-              p: 1,
-            });
-          } catch (err) {
-            console.error("[MessageService] Failed sending SYNC_INFO_ACK", err);
-          }
-          break;
-
-        case "SYNC_INFO_ACK":
-          if (typeof this.syncManager.handleSyncInfoAck === "function") {
-            this.syncManager.handleSyncInfoAck(
-              sid,
-              data.total,
-              data.minTs,
-              data.maxTs,
-            );
-          }
-          break;
-
-        case "SYNC_REQ":
-          console.log(
-            `[MessageService] Handling SYNC_REQ from ${sid} timestamp ${data.timestamp} direction ${data.direction}`,
-          );
-          try {
-            const limit = typeof data.limit === "number" ? data.limit : 50;
-            const direction = data.direction === "DESC" ? "DESC" : "ASC";
-            const op = direction === "DESC" ? "<" : ">";
-            const ts =
-              data.timestamp || (direction === "DESC" ? Date.now() : 0);
-
-            const rows = await queryDB(
-              `SELECT id, text, type, timestamp, reply_to, sender FROM messages WHERE sid = ? AND timestamp ${op} ? ORDER BY timestamp ${direction} LIMIT ?`,
-              [sid, ts, limit],
-            );
-
-            if (rows.length > 0) {
-              const payloads = await this.client.encryptForSession(
-                sid,
-                JSON.stringify({
-                  t: "MSG",
-                  data: {
-                    type: "SYNC_ACK",
-                    messages: rows,
-                    direction,
-                  },
-                }),
-                1,
-              );
-              this.client.send({
-                t: "MSG",
-                sid,
-                data: { payloads },
-                c: true,
-                p: 1,
-              });
-            }
-          } catch (err) {
-            console.error("[MessageService] Failed sending SYNC_ACK", err);
-          }
-          break;
-        case "SYNC_ACK":
-          console.log(
-            `[MessageService] Received SYNC_ACK from ${sid} with ${
-              data.messages?.length || 0
-            } items`,
-          );
-          if (Array.isArray(data.messages) && data.messages.length > 0) {
-            let maxTimestamp = 0;
-            for (const syncedMsg of data.messages) {
-              if (syncedMsg.timestamp > maxTimestamp)
-                maxTimestamp = syncedMsg.timestamp;
-
-              const existingRows = await queryDB(
-                "SELECT id, text, type FROM messages WHERE id = ?",
-                [syncedMsg.id],
-              );
-              if (existingRows.length > 0) {
-                const existing = existingRows[0];
+            // ── blocks section ──
+            if (Array.isArray(manifest.blocks)) {
+              for (const entry of manifest.blocks) {
+                if (!entry.email || !entry.action) continue;
+                const existing = await queryDB(
+                  "SELECT timestamp FROM blocked_users WHERE email = ? LIMIT 1",
+                  [entry.email],
+                );
                 if (
-                  existing.text !== syncedMsg.text ||
-                  existing.type !== syncedMsg.type
+                  existing.length === 0 ||
+                  entry.timestamp > (existing[0].timestamp ?? 0)
                 ) {
                   await executeDB(
-                    "UPDATE messages SET text = ?, type = ? WHERE id = ?",
-                    [syncedMsg.text, syncedMsg.type, syncedMsg.id],
+                    "INSERT OR REPLACE INTO blocked_users (email, action, timestamp) VALUES (?, ?, ?)",
+                    [entry.email, entry.action, entry.timestamp],
                   );
-                  this.client.emit("message_updated", {
-                    sid,
-                    id: syncedMsg.id,
-                    text: syncedMsg.text,
-                    type: syncedMsg.type,
-                  });
                 }
-              } else {
-                await this.saveAndEmitInboundMessage(
-                  sid,
-                  {
-                    id: syncedMsg.id,
-                    type: syncedMsg.type,
-                    text: syncedMsg.text,
-                    timestamp: syncedMsg.timestamp,
-                    replyTo:
-                      typeof syncedMsg.reply_to === "string"
-                        ? JSON.parse(syncedMsg.reply_to)
-                        : syncedMsg.reply_to,
-                  },
-                  syncedMsg.sender === "me" ? "me" : "other",
+              }
+              this.client.emit("block_list_updated");
+            }
+
+            // ── requests section ──
+            if (Array.isArray(manifest.requests)) {
+              let changed = false;
+              for (const entry of manifest.requests) {
+                if (!entry.email || !entry.action) continue;
+                const existing = await queryDB(
+                  "SELECT timestamp FROM pending_requests WHERE email = ? LIMIT 1",
+                  [entry.email],
                 );
+                if (
+                  existing.length === 0 ||
+                  entry.timestamp > (existing[0].timestamp ?? 0)
+                ) {
+                  await executeDB(
+                    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                      entry.email,
+                      entry.name || "",
+                      entry.avatar || "",
+                      entry.publicKey || "",
+                      entry.senderHash || "",
+                      entry.action,
+                      entry.timestamp,
+                    ],
+                  );
+                  changed = true;
+                }
+              }
+              if (changed) {
+                this.client.emit("pending_requests_updated");
               }
             }
-            if (typeof this.syncManager.handleSyncAck === "function") {
-              await this.syncManager.handleSyncAck(
-                sid,
-                data.messages,
-                data.direction || "ASC",
-              );
-            } else if (maxTimestamp > 0) {
-              await this.syncManager.updateLastSync(sid, maxTimestamp);
+
+            // ── aliases section ──
+            if (Array.isArray(manifest.aliases)) {
+              let changed = false;
+              for (const entry of manifest.aliases) {
+                if (!entry.sid || !entry.timestamp) continue;
+                const existing = await queryDB(
+                  "SELECT alias_timestamp FROM sessions WHERE sid = ? LIMIT 1",
+                  [entry.sid],
+                );
+                if (
+                  existing.length > 0 &&
+                  entry.timestamp > (existing[0].alias_timestamp ?? 0)
+                ) {
+                  await executeDB(
+                    "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
+                    [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
+                  );
+                  changed = true;
+                }
+              }
+              if (changed) {
+                this.client.emit("session_updated");
+              }
             }
+
+            // ── profile section ──
+            if (manifest.profile && typeof manifest.profile === "object") {
+              const myProfile = await getMyProfileAndVersions();
+              let changed = false;
+
+              if (
+                manifest.profile.nameVersion &&
+                myProfile &&
+                manifest.profile.nameVersion > myProfile.nameVersion
+              ) {
+                await executeDB(
+                  "UPDATE me SET public_name = ?, name_version = ? WHERE id = 1",
+                  [manifest.profile.name, manifest.profile.nameVersion],
+                );
+                changed = true;
+              }
+
+              if (
+                manifest.profile.avatarVersion &&
+                myProfile &&
+                manifest.profile.avatarVersion > myProfile.avatarVersion
+              ) {
+                await executeDB(
+                  "UPDATE me SET public_avatar = ?, avatar_version = ? WHERE id = 1",
+                  [manifest.profile.avatar, manifest.profile.avatarVersion],
+                );
+                changed = true;
+              }
+
+              if (changed) {
+                this.client.emit("profile_updated");
+              }
+            }
+
+            // ── messages section ──
+            if (Array.isArray(manifest.messages) && manifest.messages.length > 0) {
+              for (const msg of manifest.messages) {
+                // Ensure required fields
+                if (!msg.id || !msg.sid || !msg.timestamp) continue;
+                await executeDB(
+                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 1, 2, ?)",
+                  [
+                    msg.id,
+                    msg.sid,
+                    msg.sender || "unknown",
+                    msg.text || "",
+                    msg.type || "text",
+                    msg.timestamp,
+                    msg.reply_to || null,
+                  ]
+                );
+              }
+              this.client.emit("session_updated");
+            }
+
+            // Record that we successfully received a manifest from this own-device peer up to Date.now()
+            // so we don't accidentally push it back redundantly if they connect later.
+            await updateLastManifestSync(sid, Date.now());
+
+            console.log(`[MessageService] Applied MANIFEST from ${sid}`);
+          } catch (e) {
+            console.warn("[MessageService] Error applying MANIFEST", e);
           }
           break;
+        }
+
         case "FILE_INFO":
           await this.client.fileTransfer.handleFileInfo(sid, data);
           break;
@@ -1384,6 +1396,126 @@ export class MessageService extends EventEmitter {
       console.error("[MessageService] Failed to broadcast profile update", e);
     }
   }
+
+  /**
+   * Sends the full device manifest to all own-device sessions (peerEmailHash === myEmailHash).
+   * Manifest is an extensible object with named sections (blocks, profile, etc.).
+   * Both sides send on connect; receiver merges each section independently by timestamp.
+   * The server only sees encrypted bytes — zero plaintext leakage.
+   */
+  public async broadcastManifestToOwnDevices() {
+    try {
+      const myEmail = this.client.authService.userEmail;
+      if (!myEmail) return;
+
+      const myHash = await crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+        .then((b) =>
+          Array.from(new Uint8Array(b))
+            .map((x) => x.toString(16).padStart(2, "0"))
+            .join(""),
+        );
+
+      // Build the extensible manifest
+      const blocks = await getAllBlockEntries();
+      const requests = await getAllPendingRequestsEntries();
+      const aliases = await getAllAliasesEntries();
+      const profile = await getMyProfileAndVersions();
+
+      const manifest = {
+        blocks, // { email, action: 'block'|'unblock', timestamp }
+        requests, // { email, name, ..., action: 'pending'|'accepted'|'denied', timestamp }
+        aliases, // { sid, aliasName, aliasAvatar, timestamp }
+        profile: profile || undefined, // { name, avatar, nameVersion, avatarVersion }
+      };
+
+      const sessions = this.client.sessionService.sessions;
+      for (const [sid, session] of Object.entries(sessions)) {
+        if (
+          (session as any).peerEmailHash &&
+          (session as any).peerEmailHash.toLowerCase() === myHash.toLowerCase() &&
+          (session as any).online
+        ) {
+          try {
+            // Determine what messages this specific peer is missing
+            const lastSync = await getLastManifestSync(sid);
+            const messages = await getMessagesSince(lastSync);
+
+            // Construct peer-specific manifest by cloning the base sections and adding their messages
+            const peerManifest = {
+              ...manifest,
+              messages,
+            };
+
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: peerManifest } }),
+              0,
+            );
+            if (Object.keys(payloads).length > 0) {
+              this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+              console.log(`[MessageService] Sent MANIFEST to own device session ${sid} (included ${messages.length} messages since ${lastSync})`);
+              
+              // Only update lastSync after successful encryption and enqueue to socket
+              await updateLastManifestSync(sid, Date.now());
+            }
+          } catch (e) {
+            console.warn(`[MessageService] Failed to send MANIFEST for ${sid}`, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[MessageService] broadcastManifestToOwnDevices failed", e);
+    }
+  }
+
+  /**
+   * Pushes all new messages since the last manifest sync to the specific peer.
+   * Both sides do this on connection, creating a symmetric, seamless sync.
+   */
+  public async sendManifestToPeer(sid: string) {
+    try {
+      const session = this.client.sessionService.sessions[sid] as any;
+      if (!session || !session.online) return;
+
+      const myEmail = this.client.authService.userEmail;
+      if (myEmail) {
+        const myHash = await crypto.subtle
+          .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+          .then((b) =>
+            Array.from(new Uint8Array(b))
+              .map((x) => x.toString(16).padStart(2, "0"))
+              .join(""),
+          );
+        if (session.peerEmailHash && session.peerEmailHash.toLowerCase() === myHash.toLowerCase()) {
+          // Own devices are handled by broadcastManifestToOwnDevices
+          return;
+        }
+      }
+
+      const lastSync = await getLastManifestSync(sid);
+      const messages = await getMessagesSince(lastSync, sid);
+
+      if (messages.length === 0) return; // Nothing new to push
+
+      const manifest = { messages };
+
+      const payloads = await this.client.encryptForSession(
+        sid,
+        JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest } }),
+        0,
+      );
+
+      if (Object.keys(payloads).length > 0) {
+        this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+        console.log(`[MessageService] Pushed ${messages.length} messages to peer ${sid} via MANIFEST`);
+        await updateLastManifestSync(sid, Date.now());
+      }
+    } catch (e) {
+      console.warn(`[MessageService] Failed to send MANIFEST to peer ${sid}`, e);
+    }
+  }
+
   public async insertMessageRecord(
     sid: string,
     text: string,
@@ -1406,6 +1538,7 @@ export class MessageService extends EventEmitter {
         replyTo ? JSON.stringify(replyTo) : null,
       ],
     );
+    this.broadcastManifestToOwnDevices().catch(() => {});
     return id;
   }
 }

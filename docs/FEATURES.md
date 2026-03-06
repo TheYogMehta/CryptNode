@@ -15,6 +15,7 @@ This document provides a detailed breakdown of all features in the Secure Chat A
 9. [Secure Vault Multi-Factor Authentication (MFA)](#9-secure-vault-multi-factor-authentication-mfa)
 10. [Multi-Device Support](#10-multi-device-support)
 11. [Cross-Device Chat Syncing](#11-cross-device-chat-syncing)
+12. [Backup & Restore](#12-backup--restore)
 
 ---
 
@@ -510,7 +511,7 @@ async function switchAccount(email: string) {
 
 ### Local AI Purpose
 
-Provide privacy-preserving, on-device AI capabilities using the Qwen 3.5 0.8B model without sending data to external servers.
+Provide privacy-preserving, on-device AI capabilities using the **Qwen3.5 0.8B** model (Q4_K_M GGUF quantization) without sending data to external servers.
 
 ### Local AI Features
 
@@ -588,17 +589,149 @@ Enable users to access their account securely across multiple authenticated devi
 
 ### Chat Sync Purpose
 
-Seamlessly synchronize chat history when a device has been offline, fetching histories from the user's other devices or the peer's devices.
+Seamlessly synchronize app state — messages, block list, contact aliases, pending requests, and profile — across a user's own linked devices using a single encrypted **MANIFEST** frame. The `SYNC_STATE_BROADCAST` / `SYNC_INFO_REQ` / `SYNC_REQ` / `SYNC_ACK` protocol and the `SyncManager` class have been replaced by this simpler, more comprehensive approach.
 
-### Chat Sync Flow
+### Two MANIFEST Sync Paths
 
-1. **Detection**: The `SyncManager` compares local message counts against a broadcasted state (`SYNC_STATE_BROADCAST`), or iterates through missing data chronologically on boot.
-2. **Request Information**: Device sends `SYNC_INFO_REQ` to determine the total messages held by the peer/other linked device.
-3. **Transfer Chunks**: The device requests batches of message history using `SYNC_REQ` (in ASC or DESC order).
-4. **Acknowledge and Store**: The device imports `SYNC_ACK` payloads to local SQLite storage without duplicate conflicts.
+MANIFEST is used for **two distinct relationships**: own linked devices and peer contacts. The same frame type is used but the payload content differs.
 
-### Sync Prioritization
+#### Path 1 — Own-Device Full Sync (`broadcastManifestToOwnDevices`)
 
-- **Own Devices First**: When syncing a session, `SyncManager` will aggressively try to target the user's _other_ own linked devices (e.g., pulling missed Desktop messages from the mobile app) before falling back to querying the peer's device.
+Sent only to sessions where `peerEmailHash` matches the current user's own email hash (i.e. the user's other linked devices). Carries **all sections**:
+
+| Section     | Contents                                                                      | Merge Strategy         |
+| ----------- | ----------------------------------------------------------------------------- | ---------------------- |
+| `blocks`    | All block/unblock entries (`action`: `block`\|`unblock`) with timestamps       | Newer timestamp wins   |
+| `requests`  | All pending requests (`action`: `pending`\|`accepted`\|`denied`) with timestamps | Newer timestamp wins |
+| `aliases`   | Per-session custom names/avatars with timestamps                              | Newer timestamp wins   |
+| `profile`   | Display name, avatar, and version numbers                                     | Highest version wins   |
+| `messages`  | All messages newer than `last_manifest_sync` for that own-device session      | Insert-or-ignore on ID |
+
+#### Path 2 — Peer Message Push (`sendManifestToPeer`)
+
+When a **peer contact (Client B)** comes online, Client A pushes any messages the peer may have missed while offline — and Client B does the same back. Only the `messages` section is sent (no blocks, aliases, or profile). This is **symmetric**: both sides push, both sides merge.
+
+```
+Client A (online)                    Client B (just came online)
+     |                                         |
+     |<-------- PEER_ONLINE (sid) -------------|  (server notifies both)
+     |                                         |
+     |-- MANIFEST { messages: [...] } -------->|  Client A pushes missed msgs
+     |<-- MANIFEST { messages: [...] } --------|  Client B pushes missed msgs
+     |                                         |
+     |   Both sides INSERT OR IGNORE by msg ID |
+```
+
+If a device has no new messages since `last_manifest_sync`, it skips sending (no empty pushes).
+
+### When MANIFEST Is Sent
+
+| Trigger                        | Function called                         | Path              |
+| ------------------------------ | --------------------------------------- | ----------------- |
+| `SESSION_LIST` received        | `broadcastManifestToOwnDevices` + `sendManifestToPeer` per online peer | Own + Peers |
+| `PEER_ONLINE` received         | `broadcastManifestToOwnDevices` + `sendManifestToPeer(sid)` | Own + Peer |
+| After sending a message        | `broadcastManifestToOwnDevices`         | Own devices only  |
+| After receiving a message      | `broadcastManifestToOwnDevices`         | Own devices only  |
+| Block / unblock action         | `broadcastManifestToOwnDevices`         | Own devices only  |
+| Profile update                 | `broadcastManifestToOwnDevices`         | Own devices only  |
+| New session created            | `sendManifestToPeer(sid)`               | Peer only         |
+
+### Handling a Received MANIFEST
+
+`MessageService` processes only the sections present in the received manifest:
+
+1. **`blocks`**: Each entry upserted into `blocked_users` if timestamp is newer. Emits `block_list_updated`.
+2. **`requests`**: Each entry upserted into `pending_requests` if timestamp is newer. Emits `pending_requests_updated`.
+3. **`aliases`**: Updates session rows via `alias_timestamp` guard.
+4. **`profile`**: Updated only if incoming version numbers exceed local.
+5. **`messages`**: Each message inserted with `INSERT OR IGNORE` — safe to receive duplicates.
+
+### Schema Changes Supporting MANIFEST Sync
+
+```sql
+-- New columns in the sessions table:
+alias_timestamp INTEGER DEFAULT 0       -- Last-write timestamp for alias merging
+last_manifest_sync INTEGER DEFAULT 0   -- Last time a manifest was sent TO this session
+
+-- New column in blocked_users:
+action TEXT DEFAULT 'block'  -- 'block' | 'unblock' (tombstone so unblocks propagate across devices)
+
+-- New column in pending_requests:
+action TEXT DEFAULT 'pending'  -- 'pending' | 'accepted' | 'denied'
+```
+
+---
+
+## 12. Backup & Restore
+
+### Backup & Restore Purpose
+
+Allow users to export all local app data (messages, vault media, cryptographic keys) into a single encrypted file, and later restore it on a new device or after reinstallation.
+
+### Backup & Restore User Flow
+
+**Creating a backup:**
+
+1. User opens Settings and selects "Create Backup".
+2. User enters a backup passphrase (or PIN).
+3. `BackupService.generateEncryptedBackup()` builds a ZIP containing:
+   - Full SQLite database export (`db_export.json`) for all tables.
+   - Cryptographic identity keys (`master_key.txt`, `identity_priv.json`, `identity_pub.json`).
+   - All encrypted vault media files (`media/` folder).
+   - Account metadata (`metadata.json`).
+4. The ZIP is encrypted with AES-GCM-256 using a PBKDF2-derived key (100,000 iterations, SHA-256) from the passphrase.
+5. Final file format: `[16-byte salt] + [12-byte IV] + [AES-GCM ciphertext]`.
+6. The encrypted blob is saved to the device (via browser download or Capacitor Filesystem).
+
+**Restoring from backup:**
+
+1. User opens the app (on a new/reinstalled device) and selects "Restore from Backup".
+2. User selects the `.bak` file and enters the backup passphrase.
+3. `BackupService.restoreFromEncryptedBackup()` decrypts and unzips the file.
+4. Account email is read from `metadata.json`.
+5. Master Key is restored to `SafeStorage` and the per-account SQLite database is initialized.
+6. All database tables are cleared and repopulated from the exported JSON in dependency order.
+7. Identity keys are restored to `SafeStorage`.
+8. All vault media files are restored to the `VAULT_DIR` on the Capacitor Filesystem.
+9. A stub account entry is added so the account is recognized at next login.
+
+### Backup & Restore Encryption Details
+
+```typescript
+// Key derivation
+const aesKey = await crypto.subtle.deriveKey(
+  { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+  await crypto.subtle.importKey("raw", passwordBytes, { name: "PBKDF2" }, false, ["deriveKey"]),
+  { name: "AES-GCM", length: 256 },
+  false,
+  ["encrypt", "decrypt"],
+);
+
+// File format: salt (16) + iv (12) + ciphertext
+const finalBuffer = new Uint8Array(16 + 12 + encryptedData.byteLength);
+finalBuffer.set(salt, 0);
+finalBuffer.set(iv, 16);
+finalBuffer.set(new Uint8Array(encryptedData), 28);
+```
+
+### Backup & Restore Data Coverage
+
+| Content              | Included in Backup                                |
+| -------------------- | --------------------------------------------------|
+| Chat history         | ✅ Yes (`messages`, `sessions`, `media` tables)   |
+| Vault passwords/notes| ✅ Yes (included in `messages`/`media` DB export) |
+| Vault media files    | ✅ Yes (raw encrypted blobs from Filesystem)      |
+| Identity keys        | ✅ Yes (`master_key`, `identity_priv/pub`)        |
+| Auth session tokens  | ❌ No (user must sign in again after restore)     |
+| Server-side data     | ❌ N/A (zero server storage)                      |
+
+### Backup & Restore Error Handling
+
+| Error                   | Cause                                | Recovery                                          |
+| ----------------------- | ------------------------------------ | --------------------------------------------------|
+| **Wrong passphrase**    | AES-GCM decryption fails             | Throw "Decryption failed. Incorrect backup code." |
+| **Corrupt backup file** | File truncated or tampered           | Throw decryption or ZIP parse error               |
+| **Missing email**       | `metadata.json` absent or malformed  | Throw "Could not find account email in backup"    |
+| **Storage error**       | Filesystem write failure             | Surface underlying Capacitor error                |
 
 ---

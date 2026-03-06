@@ -10,7 +10,7 @@ import {
 } from "../storage/sqliteService";
 import { WorkerManager } from "../core/WorkerManager";
 import socket from "../core/SocketManager";
-import { sha256 } from "../../utils/crypto";
+import { sha256, bufferToBase64 } from "../../utils/crypto";
 import { StorageService } from "../storage/StorageService";
 
 export interface ChatSession {
@@ -211,6 +211,7 @@ export class SessionService extends EventEmitter {
     peerNameVer?: number,
     peerAvatarVer?: number,
     ownPubKeys?: string[],
+    online: boolean = true,
   ) {
     const cryptoKeysMap: Record<string, CryptoKey> = {};
     const jwksMap: Record<string, any> = {};
@@ -258,7 +259,7 @@ export class SessionService extends EventEmitter {
 
     this.sessions[sid] = {
       cryptoKeys: cryptoKeysMap,
-      online: true,
+      online,
       peerEmail: normalizedPeerEmail || undefined,
       peerEmailHash: resolvedPeerEmailHash,
       peerName: peerName || undefined,
@@ -371,8 +372,8 @@ export class SessionService extends EventEmitter {
       );
 
       // Format: Base64(IV) + "." + Base64(Cipher)
-      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
-      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+      const ivB64 = bufferToBase64(new Uint8Array(iv));
+      const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
       const encryptedPacket = `${ivB64}.${cipherB64}`;
 
       socket.send({
@@ -417,8 +418,8 @@ export class SessionService extends EventEmitter {
         new TextEncoder().encode(packetData),
       );
 
-      const ivB64 = btoa(String.fromCharCode(...new Uint8Array(iv)));
-      const cipherB64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+      const ivB64 = bufferToBase64(new Uint8Array(iv));
+      const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
       const encryptedPacket = `${ivB64}.${cipherB64}`;
 
       // Derive SID deterministically
@@ -479,7 +480,6 @@ export class SessionService extends EventEmitter {
 
   public async blockUser(targetEmail: string) {
     const norm = this.normalizeEmail(targetEmail);
-    // Send to server
     socket.send({
       t: "BLOCK_USER",
       data: { targetEmail: norm },
@@ -489,6 +489,7 @@ export class SessionService extends EventEmitter {
     // Store locally
     await addBlockedUser(norm);
     await removePendingRequest(norm);
+    this.emit("block_list_changed");
   }
 
   public async blockUserByHash(targetHash: string) {
@@ -502,18 +503,13 @@ export class SessionService extends EventEmitter {
     await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
       targetHash,
     ]);
+    this.emit("block_list_changed");
   }
 
   public async unblockUser(targetEmail: string) {
     const norm = this.normalizeEmail(targetEmail);
-    socket.send({
-      t: "UNBLOCK_USER",
-      data: { targetEmail: norm },
-      c: true,
-      p: 0,
-    });
-    // Remove locally
     await removeBlockedUser(norm);
+    this.emit("block_list_changed");
   }
 
   public getSession(sid: string) {
@@ -703,6 +699,7 @@ export class SessionService extends EventEmitter {
             0,
             0,
             item.ownPubKeys,
+            item.online,  // Respect actual online status from server
           ).catch((e) =>
             console.error(
               "Failed to auto-restore session from server list:",

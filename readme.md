@@ -5,7 +5,7 @@ A privacy-first, end-to-end encrypted messaging platform with file sharing and v
 ## 🌟 Features
 
 - **End-to-End Encryption**: AES-GCM-256 for messages, ECDH P-256 for key exchange
-- **Local AI Assistant**: Qwen 0.8B model for smart compose, quick replies, and summarization
+- **Local AI Assistant**: Qwen3.5 0.8B model for smart compose, quick replies, and summarization
 - **Secure Vault MFA**: Local TOTP-based 2FA to protect the on-device Secure Vault
 - **Multi-Device Support**: Link multiple devices to a single account with automatic key synchronization
 - **Chat Synchronization**: Effortlessly sync missed messages across your linked devices and peers
@@ -14,6 +14,7 @@ A privacy-first, end-to-end encrypted messaging platform with file sharing and v
 - **Voice & Video Calls**: Real-time encrypted audio/video calls (WebRTC)
 - **Secure Vault**: Local encrypted storage for passwords and sensitive files, protected by MFA
 - **Multi-Account**: Switch between multiple Google accounts
+- **Backup & Restore**: Encrypted local backup of all messages, vault files, and identity keys
 - **Zero Server Storage**: Messages never stored on the server
 
 ## 📚 Documentation
@@ -150,7 +151,6 @@ For issues, questions, or feature requests, please open an issue on the reposito
 - [ ] Add Users With QR Code
 - [ ] Add Users With Bluetooth
 - [ ] Add Users With NFC
-- [ ] Backup & Restore
 - [ ] Custom Quick Response
 
 ## 📖 Additional Resources

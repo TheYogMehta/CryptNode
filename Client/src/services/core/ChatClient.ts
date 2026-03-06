@@ -2,8 +2,13 @@ import { EventEmitter } from "events";
 import {
   executeDB,
   queryDB,
+  addBlockedUser,
+  removeBlockedUser,
   isUserBlocked,
   addPendingRequest,
+  getPendingRequests,
+  removePendingRequest,
+  acceptPendingRequest,
 } from "../storage/sqliteService";
 import socket from "./SocketManager";
 import { MessageQueue } from "../../utils/MessageQueue";
@@ -77,7 +82,19 @@ export class ChatClient extends EventEmitter implements IChatClient {
           e,
         ),
       );
+      this.messageService.broadcastManifestToOwnDevices().catch(() => {});
+      this.messageService.sendManifestToPeer(sid).catch((e) =>
+        console.warn("[ChatClient] Failed to push manifest to peer", e),
+      );
       this.emit("session_created", sid);
+    });
+    this.sessionService.on("block_list_changed", () => {
+      this.messageService.broadcastManifestToOwnDevices().catch((e) =>
+        console.warn("[ChatClient] Failed to sync manifest to own devices", e),
+      );
+    });
+    this.messageService.on("block_list_updated", () => {
+      this.emit("block_list_updated");
     });
 
     socket.on("message", (frame) => {
@@ -266,25 +283,22 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "FRIEND_REQUEST":
         try {
+          if (data.senderHash) {
+            const isBlockedHash = await isUserBlocked(data.senderHash);
+            if (isBlockedHash) {
+              console.log(
+                "[ChatClient] Dropping FRIEND_REQUEST from blocked hash before decryption:",
+                data.senderHash,
+              );
+              return;
+            }
+          }
+
           const req = await this.sessionService.decryptFriendRequest(
             data.encryptedPacket,
             data.publicKey,
           );
           if (req) {
-            const isBlockedEmail = await isUserBlocked(
-              this.normalizeEmail(req.email),
-            );
-            const isBlockedHash = data.senderHash
-              ? await isUserBlocked(data.senderHash)
-              : false;
-            if (isBlockedEmail || isBlockedHash) {
-              console.log(
-                "[ChatClient] Dropping FRIEND_REQUEST from blocked user:",
-                req.email,
-              );
-              return;
-            }
-
             const myEmail = this.normalizeEmail(this.authService.userEmail);
             const otherEmail = this.normalizeEmail(req.email);
             const [u1, u2] = [myEmail, otherEmail].sort();
@@ -390,7 +404,50 @@ export class ChatClient extends EventEmitter implements IChatClient {
         );
         break;
       case "PENDING_REQUESTS":
-        this.emit("pending_requests_list", data);
+        if (Array.isArray(data)) {
+          let processedCount = 0;
+          for (const reqData of data) {
+            try {
+              if (reqData.senderHash) {
+                const isBlockedHash = await isUserBlocked(reqData.senderHash);
+                if (isBlockedHash) continue;
+              }
+
+              const req = await this.sessionService.decryptFriendRequest(
+                reqData.encryptedPacket,
+                reqData.publicKey,
+              );
+
+              if (req) {
+                await addPendingRequest(
+                  req.email,
+                  req.name || "Unknown",
+                  req.avatar || "",
+                  reqData.publicKey,
+                  reqData.senderHash || "",
+                );
+
+                const myEmail = this.normalizeEmail(this.authService.userEmail);
+                const otherEmail = this.normalizeEmail(req.email);
+                const [u1, u2] = [myEmail, otherEmail].sort();
+                const computedSid = await sha256(u1 + ":" + u2);
+
+                this.emit("inbound_request", {
+                  ...req,
+                  publicKey: reqData.publicKey,
+                  sid: computedSid,
+                });
+
+                processedCount++;
+              }
+            } catch (e) {
+              console.error("Failed to decrypt pending offline request", e);
+            }
+          }
+          if (processedCount > 0) {
+            this.emit("pending_requests_list", new Array(processedCount));
+          }
+        }
         break;
       case "REQUEST_SENT":
         this.emit("notification", {
@@ -432,29 +489,31 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "SESSION_LIST":
         this.sessionService.handleSessionList(data);
-        // Broadcast sync state to all online peers we just discovered
         if (Array.isArray(data)) {
           for (const sess of data) {
             if (sess.online && sess.sid) {
               this.messageService.broadcastSyncState(sess.sid);
-              this.messageService.syncManager.enqueueSync(sess.sid);
+              this.messageService.sendManifestToPeer(sess.sid).catch(() => {});
             }
           }
         }
+        // Sync manifest to own devices that are now reachable
+        this.messageService.broadcastManifestToOwnDevices().catch(() => {});
         break;
       case "PEER_ONLINE":
         this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
-        this.messageService.syncManager.enqueueSync(sid);
+        this.messageService.sendManifestToPeer(sid).catch(() => {});
         this.messageService.broadcastSyncState(sid);
         this.broadcastProfileUpdate();
+        // Sync manifest in case this is an own-device session coming online
+        this.messageService.broadcastManifestToOwnDevices().catch(() => {});
         break;
       case "PEER_OFFLINE":
         // Fallback to empty array if keys aren't provided when going completely offline
         this.sessionService.setPeerOnline(sid, false, data?.peerPubKeys || []);
         this.emit("session_updated");
-        this.messageService.syncManager.handlePeerOffline(sid);
         break;
       case "DELIVERED":
         await executeDB(
@@ -571,6 +630,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async broadcastProfileUpdate() {
+    this.messageService.broadcastManifestToOwnDevices().catch(() => {});
     return this.messageService.broadcastProfileUpdate();
   }
 

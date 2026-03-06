@@ -52,9 +52,6 @@ interface Frame {
 | `BLOCK_USER`           | Client → Server | Block user                      | Yes           | No           |
 | `USER_BLOCKED`         | Server → Client | Block acknowledged by server    | N/A           | No           |
 | `USER_BLOCKED_EVENT`   | Server → Client | Peer blocked you                | N/A           | No           |
-| `UNBLOCK_USER`         | Client → Server | Unblock user                    | Yes           | No           |
-| `USER_UNBLOCKED`       | Server → Client | Unblock acknowledged by server  | N/A           | No           |
-| `USER_UNBLOCKED_EVENT` | Server → Client | Peer unblocked you              | N/A           | No           |
 | `PENDING_REQUESTS`     | Server → Client | Received stored offline reqs    | N/A           | No           |
 | `GET_DEVICES`          | Client → Server | Fetch all registered devices    | Yes           | No           |
 | `DEVICE_LIST`          | Server → Client | List of registered devices      | N/A           | No           |
@@ -209,23 +206,23 @@ interface Frame {
 - Deletes the stored request.
 - Forwards `FRIEND_DENIED` to target socket, or queues in `offline_notifications` table.
 
-#### `BLOCK_USER` & `UNBLOCK_USER` (Client → Server → Target Client)
+#### `BLOCK_USER` (Client → Server → Target Client)
 
-**Purpose**: Blacklist / whitelist users. The server does NOT mutate the friendship DB; it simply relays the event so the clients can handle it.
+**Purpose**: Blacklist a user. The server does NOT mutate the friendship DB; it simply relays the event so the target client can handle it. **Unblocking is now a local-only operation** — it updates the local `blocked_users` table and propagates the change to own linked devices via the `MANIFEST` frame (see below); no `UNBLOCK_USER` frame is sent to the server.
 
 **Request**:
 
 ```json
 {
-  "t": "BLOCK_USER", // or UNBLOCK_USER
+  "t": "BLOCK_USER",
   "data": { "targetEmail": "requester@example.com" }
 }
 ```
 
 **Server Logic**:
 
-- Emits `USER_BLOCKED_EVENT` or `USER_UNBLOCKED_EVENT` to the peer (queues if offline).
-- Acknowledges with `USER_BLOCKED` or `USER_UNBLOCKED` to the initiator.
+- Emits `USER_BLOCKED_EVENT` to the peer (queues if offline).
+- Acknowledges with `USER_BLOCKED` to the initiator.
 
 ### 3. Session & Sync Management Frames
 
@@ -289,6 +286,7 @@ interface Frame {
 
 - Update UI (show "online" indicator)
 - Trigger pending message sync
+- Send `MANIFEST` to sync own-device state if applicable
 
 #### `PEER_OFFLINE` (Server → Client)
 
@@ -435,39 +433,42 @@ The payload, when decrypted, contains a JSON object with its own type:
   }
 }
 
-// Cross-Device Chat Sync Protocol
+// Cross-Device State Sync (MANIFEST)
+// Sent encrypted to own linked devices whenever local state changes.
+// Each section is merged independently (last-write-wins by timestamp).
 {
   "t": "MSG",
   "data": {
-    "type": "SYNC_STATE_BROADCAST",
-    "total": 542
-  }
-}
-
-{
-  "t": "MSG",
-  "data": {
-    "type": "SYNC_INFO_REQ"
-  }
-}
-
-{
-  "t": "MSG",
-  "data": {
-    "type": "SYNC_REQ",
-    "start": 0,
-    "limit": 50,
-    "order": "ASC"
-  }
-}
-
-{
-  "t": "MSG",
-  "data": {
-    "type": "SYNC_ACK",
-    "messages": [
-       // List of ChatMessage JSON objects
-    ]
+    "type": "MANIFEST",
+    "manifest": {
+      "blocks": [
+        { "email": "blocked@example.com", "action": "block", "timestamp": 1704067200000 },
+        { "email": "unblocked@example.com", "action": "unblock", "timestamp": 1704067300000 }
+      ],
+      "requests": [
+        {
+          "email": "peer@example.com",
+          "name": "Peer Name",
+          "avatar": "data:image/png;base64,...",
+          "publicKey": "YjY3ZD...",
+          "senderHash": "a3f...",
+          "action": "pending",
+          "timestamp": 1704067200000
+        }
+      ],
+      "aliases": [
+        { "sid": "session_id", "aliasName": "Work Friend", "aliasAvatar": "", "timestamp": 1704067200000 }
+      ],
+      "profile": {
+        "name": "Yog Mehta",
+        "avatar": "data:image/png;base64,...",
+        "nameVersion": 2,
+        "avatarVersion": 1
+      },
+      "messages": [
+        // Recent ChatMessage objects for new-device bootstrap
+      ]
+    }
   }
 }
 ```

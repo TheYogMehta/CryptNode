@@ -35,7 +35,9 @@ const SCHEMA = {
       peer_name_ver INTEGER DEFAULT 0,
       peer_avatar_ver INTEGER DEFAULT 0,
       peer_pub_keys TEXT,
-      last_sync_timestamp INTEGER DEFAULT 0
+      last_sync_timestamp INTEGER DEFAULT 0,
+      alias_timestamp INTEGER DEFAULT 0,
+      last_manifest_sync INTEGER DEFAULT 0
     `,
     indices: [],
   },
@@ -116,6 +118,7 @@ const SCHEMA = {
   blocked_users: {
     columns: `
       email TEXT PRIMARY KEY,
+      action TEXT DEFAULT 'block',
       timestamp INTEGER
     `,
     indices: [],
@@ -127,6 +130,7 @@ const SCHEMA = {
       avatar TEXT,
       publicKey TEXT,
       senderHash TEXT,
+      action TEXT DEFAULT 'pending',
       timestamp INTEGER
     `,
     indices: [],
@@ -328,6 +332,42 @@ async function syncTableSchema(tableName: string, targetColumnsRaw: string) {
   }
 }
 
+export const getMessagesSince = async (
+  timestamp: number,
+  sid?: string,
+): Promise<any[]> => {
+  if (sid) {
+    return await queryDB(
+      "SELECT * FROM messages WHERE sid = ? AND timestamp > ? ORDER BY timestamp ASC",
+      [sid, timestamp],
+    );
+  }
+  return await queryDB(
+    "SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC",
+    [timestamp],
+  );
+};
+
+export const getMediaSince = async (timestamp: number): Promise<any[]> => {
+  const rows = await queryDB(
+    "SELECT * FROM media m JOIN messages msg ON m.message_id = msg.id WHERE msg.timestamp > ?",
+    [timestamp],
+  );
+  return rows;
+};
+
+export const updateMessageMetadata = async (
+  sid: string,
+  limit: number = 50,
+  offset: number = 0,
+): Promise<any[]> => {
+  const res = await queryDB(
+    "SELECT * FROM messages WHERE sid = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+    [sid, limit, offset],
+  );
+  return res ? res.reverse() : [];
+};
+
 export const getMessages = async (
   sid: string,
   limit: number = 50,
@@ -435,32 +475,119 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
   }
 };
 
+export const getMyProfileAndVersions = async (): Promise<{
+  name: string;
+  avatar: string;
+  nameVersion: number;
+  avatarVersion: number;
+} | null> => {
+  const rows = await queryDB(
+    "SELECT public_name, public_avatar, name_version, avatar_version FROM me WHERE id = 1 LIMIT 1",
+  );
+  if (rows.length === 0) return null;
+  return {
+    name: rows[0].public_name || "",
+    avatar: rows[0].public_avatar || "",
+    nameVersion: rows[0].name_version || 1,
+    avatarVersion: rows[0].avatar_version || 1,
+  };
+};
+
+export const getAllAliasesEntries = async (): Promise<{
+  sid: string;
+  aliasName: string;
+  aliasAvatar: string;
+  timestamp: number;
+}[]> => {
+  const rows = await queryDB(
+    "SELECT sid, alias_name, alias_avatar, alias_timestamp FROM sessions WHERE alias_timestamp > 0",
+  );
+  return rows.map((r: any) => ({
+    sid: r.sid,
+    aliasName: r.alias_name || "",
+    aliasAvatar: r.alias_avatar || "",
+    timestamp: r.alias_timestamp,
+  }));
+};
+
+export const updateLastManifestSync = async (
+  sid: string,
+  timestamp: number = Date.now(),
+) => {
+  await executeDB("UPDATE sessions SET last_manifest_sync = ? WHERE sid = ?", [
+    timestamp,
+    sid,
+  ]);
+};
+
+export const getLastManifestSync = async (sid: string): Promise<number> => {
+  const rows = await queryDB(
+    "SELECT last_manifest_sync FROM sessions WHERE sid = ? LIMIT 1",
+    [sid],
+  );
+  return rows[0]?.last_manifest_sync ?? 0;
+};
+
+export const setSessionAlias = async (
+  sid: string,
+  aliasName: string,
+  aliasAvatar: string,
+  timestamp: number = Date.now(),
+) => {
+  await executeDB(
+    "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
+    [aliasName, aliasAvatar, timestamp, sid],
+  );
+};
+
+/** Returns all active (currently blocked) users for UI display. */
 export const getBlockedUsers = async (): Promise<
   { email: string; timestamp: number }[]
 > => {
   const rows = await queryDB(
-    "SELECT email, timestamp FROM blocked_users ORDER BY timestamp DESC",
+    "SELECT email, timestamp FROM blocked_users WHERE action = 'block' ORDER BY timestamp DESC",
   );
   return rows.map((r: any) => ({ email: r.email, timestamp: r.timestamp }));
 };
 
+/**
+ * Returns ALL block/unblock entries (both actions) for the cross-device manifest.
+ * The receiving device merges by keeping the higher-timestamp action per email.
+ */
+export const getAllBlockEntries = async (): Promise<
+  { email: string; action: "block" | "unblock"; timestamp: number }[]
+> => {
+  const rows = await queryDB(
+    "SELECT email, action, timestamp FROM blocked_users ORDER BY timestamp DESC",
+  );
+  return rows.map((r: any) => ({
+    email: r.email,
+    action: r.action as "block" | "unblock",
+    timestamp: r.timestamp,
+  }));
+};
+
 export const addBlockedUser = async (email: string) => {
   await executeDB(
-    "INSERT OR REPLACE INTO blocked_users (email, timestamp) VALUES (?, ?)",
+    "INSERT OR REPLACE INTO blocked_users (email, action, timestamp) VALUES (?, 'block', ?)",
     [email, Date.now()],
   );
 };
 
+/** Marks the user as unblocked (keeps the row so the timestamp can be used in manifest merge). */
 export const removeBlockedUser = async (email: string) => {
-  await executeDB("DELETE FROM blocked_users WHERE email = ?", [email]);
+  await executeDB(
+    "INSERT OR REPLACE INTO blocked_users (email, action, timestamp) VALUES (?, 'unblock', ?)",
+    [email, Date.now()],
+  );
 };
 
 export const isUserBlocked = async (email: string): Promise<boolean> => {
   const rows = await queryDB(
-    "SELECT 1 FROM blocked_users WHERE email = ? LIMIT 1",
+    "SELECT action FROM blocked_users WHERE email = ? LIMIT 1",
     [email],
   );
-  return rows.length > 0;
+  return rows.length > 0 && rows[0].action === "block";
 };
 
 export const addPendingRequest = async (
@@ -471,14 +598,14 @@ export const addPendingRequest = async (
   senderHash: string,
 ) => {
   await executeDB(
-    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
     [email, name, avatar, publicKey, senderHash, Date.now()],
   );
 };
 
 export const getPendingRequests = async (): Promise<any[]> => {
   const rows = await queryDB(
-    "SELECT * FROM pending_requests ORDER BY timestamp DESC",
+    "SELECT * FROM pending_requests WHERE action = 'pending' ORDER BY timestamp DESC",
   );
   return rows.map((r: any) => ({
     email: r.email,
@@ -486,10 +613,38 @@ export const getPendingRequests = async (): Promise<any[]> => {
     avatar: r.avatar,
     publicKey: r.publicKey,
     senderHash: r.senderHash,
+    action: r.action,
+    timestamp: r.timestamp,
+  }));
+};
+
+/** Returns all request entries including accepted/denied tombstones for manifest sync */
+export const getAllPendingRequestsEntries = async (): Promise<any[]> => {
+  const rows = await queryDB(
+    "SELECT email, name, avatar, publicKey, senderHash, action, timestamp FROM pending_requests ORDER BY timestamp DESC",
+  );
+  return rows.map((r: any) => ({
+    email: r.email,
+    name: r.name,
+    avatar: r.avatar,
+    publicKey: r.publicKey,
+    senderHash: r.senderHash,
+    action: r.action,
     timestamp: r.timestamp,
   }));
 };
 
 export const removePendingRequest = async (email: string) => {
-  await executeDB("DELETE FROM pending_requests WHERE email = ?", [email]);
+  // Tombstone the row as denied instead of deleting it, so the sync can propagate the denial
+  await executeDB(
+    "UPDATE pending_requests SET action = 'denied', timestamp = ? WHERE email = ?",
+    [Date.now(), email],
+  );
+};
+
+export const acceptPendingRequest = async (email: string) => {
+  await executeDB(
+    "UPDATE pending_requests SET action = 'accepted', timestamp = ? WHERE email = ?",
+    [Date.now(), email],
+  );
 };

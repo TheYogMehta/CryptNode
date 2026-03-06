@@ -95,9 +95,11 @@ export const generateRandomPassword = (length: number = 16): string => {
 };
 
 export function bufferToBase64(buf: Uint8Array): string {
-  const binString = Array.from(buf, (byte) => String.fromCodePoint(byte)).join(
-    "",
-  );
+  let binString = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < buf.length; i += chunkSize) {
+    binString += String.fromCharCode.apply(null, buf.subarray(i, i + chunkSize) as any);
+  }
   return btoa(binString);
 }
 

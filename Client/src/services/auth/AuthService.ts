@@ -13,6 +13,7 @@ export class AuthService extends EventEmitter {
   public userEmail: string | null = null;
   private authToken: string | null = null;
   public identityKeyPair: CryptoKeyPair | null = null;
+  private _loginInFlight: Promise<string> | null = null;
 
   constructor() {
     super();
@@ -34,34 +35,48 @@ export class AuthService extends EventEmitter {
     if (!token || !String(token).trim()) {
       throw new Error("Missing Google id token");
     }
-    this.authToken = token;
 
-    const email = this.extractEmailFromToken(token);
-    if (!email) {
-      throw new Error("Could not extract email from token");
-    }
-    this.userEmail = email.toLowerCase().trim();
-    const pubKey = await this.setupDeviceKeys(this.userEmail);
-
-    if (socket.isConnected()) {
-      socket.disconnect();
-      await new Promise((res) => setTimeout(res, 100));
+    // Deduplicate concurrent calls (e.g. React StrictMode double-invoke)
+    if (this._loginInFlight) {
+      console.warn("[AuthService] login() called while already in flight, deduplicating");
+      return this._loginInFlight;
     }
 
-    const isDev =
-      import.meta.env.VITE_DEV_SOCKET ||
-      (window as any).envConfig?.USE_DEV_SOCKET;
-    const wsUrl = isDev
-      ? "ws://localhost:9000"
-      : "wss://socket.cryptnode.theyogmehta.online";
-    await socket.connect(wsUrl);
+    this._loginInFlight = (async () => {
+      try {
+        this.authToken = token;
+        const email = this.extractEmailFromToken(token);
+        if (!email) throw new Error("Could not extract email from token");
+        this.userEmail = email.toLowerCase().trim();
+        const pubKey = await this.setupDeviceKeys(this.userEmail);
 
-    socket.send({
-      t: "AUTH",
-      data: { token, publicKey: pubKey },
-      c: true,
-      p: 0,
-    });
+        if (socket.isConnected()) {
+          socket.disconnect();
+          await new Promise((res) => setTimeout(res, 100));
+        }
+
+        const isDev =
+          import.meta.env.VITE_DEV_SOCKET ||
+          (window as any).envConfig?.USE_DEV_SOCKET;
+        const wsUrl = isDev
+          ? "ws://localhost:9000"
+          : "wss://socket.cryptnode.theyogmehta.online";
+        await socket.connect(wsUrl);
+
+        socket.send({
+          t: "AUTH",
+          data: { token, publicKey: pubKey },
+          c: true,
+          p: 0,
+        });
+
+        return pubKey;
+      } finally {
+        this._loginInFlight = null;
+      }
+    })();
+
+    return this._loginInFlight;
   }
 
   private extractEmailFromToken(token: string): string | null {
