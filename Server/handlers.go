@@ -177,6 +177,42 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			go func() {
 				rows, err := s.db.Query(`
+					SELECT r.sender_hash, r.encrypted_packet, r.timestamp 
+					FROM requests r 
+					WHERE r.target_hash = ?`, eh)
+				if err != nil {
+					return
+				}
+				var pending []map[string]any
+				for rows.Next() {
+					var senderHash, packet string
+					var ts time.Time
+					rows.Scan(&senderHash, &packet, &ts)
+
+					var pubKey string
+					err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&pubKey)
+					if err != nil || pubKey == "" {
+						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&pubKey)
+					}
+
+					pending = append(pending, map[string]any{
+						"senderHash":      senderHash,
+						"encryptedPacket": packet,
+						"timestamp":       ts,
+						"publicKey":       pubKey,
+					})
+				}
+				rows.Close()
+				
+				if len(pending) > 0 {
+					s.db.Exec("DELETE FROM requests WHERE target_hash = ?", eh)
+					respBytes, _ := json.Marshal(pending)
+					s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
+				}
+			}()
+
+			go func() {
+				rows, err := s.db.Query(`
 					SELECT sid, user1_hash, user2_hash 
 					FROM friends 
 					WHERE (user1_hash = ? OR user2_hash = ?) AND sid IS NOT NULL
@@ -608,46 +644,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			s.send(client, Frame{T: "USER_UNBLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
 
-		case "GET_PENDING_REQUESTS":
-			if client.email == "" {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
-				continue
-			}
-			myHash := emailHash(client.email)
-			rows, err := s.db.Query(`
-				SELECT r.sender_hash, r.encrypted_packet, r.timestamp 
-				FROM requests r 
-				WHERE r.target_hash = ?`, myHash)
-			if err != nil {
-				continue
-			}
-			var pending []map[string]any
-			for rows.Next() {
-				var senderHash, packet string
-				var ts time.Time
-				rows.Scan(&senderHash, &packet, &ts)
 
-				var pubKey string
-				err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&pubKey)
-				if err != nil || pubKey == "" {
-					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&pubKey)
-				}
-
-				pending = append(pending, map[string]any{
-					"senderHash":      senderHash,
-					"encryptedPacket": packet,
-					"timestamp":       ts,
-					"publicKey":       pubKey,
-				})
-			}
-			rows.Close()
-			
-			if len(pending) > 0 {
-				s.db.Exec("DELETE FROM requests WHERE target_hash = ?", myHash)
-			}
-			
-			respBytes, _ := json.Marshal(pending)
-			s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
 
 		case "DELETE_ACCOUNT":
 			if client.email == "" {

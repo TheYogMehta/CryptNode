@@ -37,16 +37,10 @@ func init() {
 }
 
 func main() {
-	f, err := os.OpenFile("connections.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("error opening file: %v", err)
-	}
-	defer f.Close()
-
 	s := &Server{
 		clients:  make(map[string]*Client),
 		sessions: make(map[string]*Session),
-		logger:   log.New(f, "", 0),
+		logger:   log.New(os.Stdout, "", log.LstdFlags),
 		rateLimiter: &RateLimiter{
 			ipAttempts: make(map[string][]time.Time),
 		},

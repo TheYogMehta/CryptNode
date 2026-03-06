@@ -6,6 +6,7 @@ import {
   executeDB,
   addBlockedUser,
   removeBlockedUser,
+  removePendingRequest,
 } from "../storage/sqliteService";
 import { WorkerManager } from "../core/WorkerManager";
 import socket from "../core/SocketManager";
@@ -445,6 +446,8 @@ export class SessionService extends EventEmitter {
         p: 0,
       });
 
+      await removePendingRequest(targetEmail);
+
       return sid;
     } catch (e) {
       console.error("Failed to accept friend", e);
@@ -452,22 +455,26 @@ export class SessionService extends EventEmitter {
     }
   }
 
-  public denyFriend(targetEmail: string) {
+  public async denyFriend(targetEmail: string) {
     socket.send({
       t: "FRIEND_DENY",
       data: { targetEmail },
       c: true,
       p: 0,
     });
+    await removePendingRequest(targetEmail);
   }
 
-  public denyFriendByHash(targetHash: string) {
+  public async denyFriendByHash(targetHash: string) {
     socket.send({
       t: "FRIEND_DENY",
       data: { targetHash },
       c: true,
       p: 0,
     });
+    await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+      targetHash,
+    ]);
   }
 
   public async blockUser(targetEmail: string) {
@@ -481,6 +488,7 @@ export class SessionService extends EventEmitter {
     });
     // Store locally
     await addBlockedUser(norm);
+    await removePendingRequest(norm);
   }
 
   public async blockUserByHash(targetHash: string) {
@@ -491,6 +499,9 @@ export class SessionService extends EventEmitter {
       p: 0,
     });
     await addBlockedUser(targetHash);
+    await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+      targetHash,
+    ]);
   }
 
   public async unblockUser(targetEmail: string) {

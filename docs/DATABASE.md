@@ -275,6 +275,36 @@ CREATE INDEX IF NOT EXISTS idx_shares_msg ON live_shares(message_id);
 
 **Usage**: Currently unused in standard chat flow. Reserved for future port forwarding/screen sharing features.
 
+### 6. `pending_requests` Table
+
+Caches decrypted incoming friend requests to persist them across app restarts without needing to fetch from the server again.
+
+```sql
+CREATE TABLE pending_requests (
+    email TEXT PRIMARY KEY,
+    name TEXT,
+    avatar TEXT,
+    publicKey TEXT,
+    senderHash TEXT,
+    timestamp INTEGER
+);
+```
+
+| Column       | Type    | Description                       |
+| ------------ | ------- | --------------------------------- |
+| `email`      | TEXT    | Requester's email address         |
+| `name`       | TEXT    | Requester's display name          |
+| `avatar`     | TEXT    | Data URL/path to requester avatar |
+| `publicKey`  | TEXT    | Requester's public key            |
+| `senderHash` | TEXT    | Requester's hashed email          |
+| `timestamp`  | INTEGER | Time request was received         |
+
+**Usage**:
+
+- Inserted when an incoming `FRIEND_REQUEST` packet is delivered and decrypted.
+- Rendered in the UI until accepted, denied, or blocked.
+- Removed locally when acted upon.
+
 ## Data Lifecycle
 
 ### On First Login
@@ -510,12 +540,17 @@ The backend relay server uses an independent SQLite database (`server.db`) to ma
    - `since` (DATETIME): Timestamp of connection.
    - `sid` (TEXT): Deterministically generated session ID.
 
-4. **`sockets`**: Maps active WebSocket connection IDs to email hashes and device keys.
+4. **`connections`**: Audit log of established connections between users.
+   - `initiator_hash` (TEXT): Person who initiated the request.
+   - `target_hash` (TEXT): Person who accepted.
+   - `timestamp` (DATETIME): When the connection was established.
+
+5. **`sockets`**: Maps active WebSocket connection IDs to email hashes and device keys.
    - `email_hash` (TEXT): Authenticated user's hash.
    - `socket_id` (TEXT): Ephemeral connection ID.
    - `public_key` (TEXT): The device public key for this connection.
 
-5. **`offline_notifications`**: Queues system events (e.g., friend deny, block events) for delivery when a user reconnects.
+6. **`offline_notifications`**: Queues system events (e.g., friend deny, block events) for delivery when a user reconnects.
    - `id` (INTEGER): Auto-incrementing primary key.
    - `email_hash` (TEXT): Target user's hash.
    - `event_data` (TEXT): Serialized JSON frame payload.

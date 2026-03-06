@@ -75,6 +75,15 @@ func (s *Server) logConnection(initiator, target string) {
 	tHash := hex.EncodeToString(h2[:])
 
 	s.logger.Printf("CONNECTION: %s requested connection to %s on %s", iHash, tHash, time.Now().Format(time.RFC3339))
+	
+	_, err := s.db.Exec(`
+		INSERT INTO connections (initiator_hash, target_hash, timestamp)
+		VALUES (?, ?, ?)`,
+		iHash, tHash, time.Now())
+		
+	if len(initiator) > 0 && len(target) > 0 && err != nil {
+		s.logger.Printf("Failed to insert connection into db: %v", err)
+	}
 }
 
 func (s *Server) broadcastDeviceList(emailHash string) {

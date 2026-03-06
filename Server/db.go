@@ -17,6 +17,11 @@ func (s *Server) initDB() error {
 
 	// Create tables
 	queries := []string{
+		`CREATE TABLE IF NOT EXISTS connections (
+			initiator_hash TEXT,
+			target_hash TEXT,
+			timestamp DATETIME
+		);`,
 		`CREATE TABLE IF NOT EXISTS devices (
 			email_hash TEXT,
 			public_key TEXT,

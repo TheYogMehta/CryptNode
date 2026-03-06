@@ -9,6 +9,7 @@ interface ConnectionSetupProps {
 }
 
 import ChatClient from "../../../../services/core/ChatClient";
+import { getPendingRequests } from "../../../../services/storage/sqliteService";
 import { colors } from "../../../../theme/colors";
 
 export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
@@ -22,48 +23,26 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
   React.useEffect(() => {
     let mounted = true;
 
-    const handleList = async (list: any[]) => {
-      if (!Array.isArray(list)) return;
-      const decrypted = await Promise.all(
-        list.map(async (item) => {
-          try {
-            if (!item.encryptedPacket || !item.publicKey) return null;
-            const req = await ChatClient.sessionService.decryptFriendRequest(
-              item.encryptedPacket,
-              item.publicKey,
-            );
-            if (!req) {
-              return null;
-            }
-            return { ...req, ...item };
-          } catch (e) {
-            console.error("Failed to decrypt pending req", e);
-            return null;
-          }
-        }),
-      );
-      if (mounted) setPending(decrypted.filter(Boolean));
+    const loadRequests = async () => {
+      try {
+        const reqs = await getPendingRequests();
+        if (mounted) setPending(reqs);
+      } catch (err) {
+        console.error("Failed to load local friend requests", err);
+      }
     };
 
-    const handleNew = (req: any) => {
+    const handleNew = () => {
       if (!mounted) return;
-      setPending((prev) => {
-        if (req.failedDecryption) return prev;
-        if (prev.find((p) => p.email === req.email)) return prev;
-        return [...prev, req];
-      });
+      loadRequests();
     };
 
-    ChatClient.on("pending_requests_list", handleList);
     ChatClient.on("inbound_request", handleNew);
 
-    if (ChatClient.hasToken()) {
-      ChatClient.getPendingRequests();
-    }
+    loadRequests();
 
     return () => {
       mounted = false;
-      ChatClient.off("pending_requests_list", handleList);
       ChatClient.off("inbound_request", handleNew);
     };
   }, []);

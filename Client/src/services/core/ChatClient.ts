@@ -1,5 +1,10 @@
 import { EventEmitter } from "events";
-import { executeDB, queryDB, isUserBlocked } from "../storage/sqliteService";
+import {
+  executeDB,
+  queryDB,
+  isUserBlocked,
+  addPendingRequest,
+} from "../storage/sqliteService";
 import socket from "./SocketManager";
 import { MessageQueue } from "../../utils/MessageQueue";
 import { sha256 } from "../../utils/crypto";
@@ -83,7 +88,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
       console.log("[ChatClient] WS Connected");
       if (this.authService.hasToken()) {
         try {
-          await this.sessionService.loadSessions();
           await this.sessionService.loadSessions();
         } catch (e) {
           console.error("[ChatClient] Failed to load/reattach sessions", e);
@@ -227,10 +231,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "AUTH_SUCCESS":
         await this.authService.handleAuthSuccess(data);
-        {
-          await this.sessionService.loadSessions();
-          await this.sessionService.loadSessions();
-        }
+        await this.sessionService.loadSessions();
         this.emit("auth_success", this.authService.userEmail);
         break;
 
@@ -288,6 +289,14 @@ export class ChatClient extends EventEmitter implements IChatClient {
             const otherEmail = this.normalizeEmail(req.email);
             const [u1, u2] = [myEmail, otherEmail].sort();
             const computedSid = await sha256(u1 + ":" + u2);
+
+            await addPendingRequest(
+              req.email,
+              req.name || "Unknown",
+              req.avatar || "",
+              data.publicKey,
+              data.senderHash || "",
+            );
 
             this.emit("inbound_request", {
               ...req,
@@ -510,14 +519,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
   // --- Actions ---
   public async connectToPeer(targetEmail: string) {
     return this.sessionService.connectToPeer(targetEmail);
-  }
-
-  public getPendingRequests() {
-    socket.send({
-      t: "GET_PENDING_REQUESTS",
-      c: true,
-      p: 0,
-    });
   }
 
   public async acceptFriend(

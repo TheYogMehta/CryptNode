@@ -55,7 +55,6 @@ interface Frame {
 | `UNBLOCK_USER`         | Client → Server | Unblock user                    | Yes           | No           |
 | `USER_UNBLOCKED`       | Server → Client | Unblock acknowledged by server  | N/A           | No           |
 | `USER_UNBLOCKED_EVENT` | Server → Client | Peer unblocked you              | N/A           | No           |
-| `GET_PENDING_REQUESTS` | Client → Server | Fetch offline requests          | Yes           | No           |
 | `PENDING_REQUESTS`     | Server → Client | Received stored offline reqs    | N/A           | No           |
 | `GET_DEVICES`          | Client → Server | Fetch all registered devices    | Yes           | No           |
 | `DEVICE_LIST`          | Server → Client | List of registered devices      | N/A           | No           |
@@ -127,6 +126,7 @@ interface Frame {
 - Initialize/switch SQLite database
 - Load identity keys
 - Emit `auth_success` event to UI
+- Receive `SESSION_LIST` and automated `PENDING_REQUESTS` push immediately afterwards
 
 ### 2. Connection Establishment Frames
 

@@ -25,6 +25,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
   activeChatRef.current = activeChat;
 
   const hasNotifiedPending = useRef(false);
+  const hasRequestedPending = useRef(false);
 
   const loadSessions = useCallback(
     debounce(async () => {
@@ -92,7 +93,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
         if (!client.hasToken()) {
           setIsLoading(false);
         } else {
-          client.getPendingRequests();
           setTimeout(() => {
             if (!client.userEmail) setIsLoading(false);
           }, 5000);
@@ -132,8 +132,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     };
 
     const onInboundRequest = (req: InboundReq) => {
-      // Just refresh the pending list
-      ChatClient.getPendingRequests();
     };
 
     const onAuthSuccess = (email: string) => {

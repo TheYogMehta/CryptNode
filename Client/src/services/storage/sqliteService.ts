@@ -120,6 +120,17 @@ const SCHEMA = {
     `,
     indices: [],
   },
+  pending_requests: {
+    columns: `
+      email TEXT PRIMARY KEY,
+      name TEXT,
+      avatar TEXT,
+      publicKey TEXT,
+      senderHash TEXT,
+      timestamp INTEGER
+    `,
+    indices: [],
+  },
 };
 
 const tableOrder = [
@@ -131,6 +142,7 @@ const tableOrder = [
   "reactions",
   "queue",
   "blocked_users",
+  "pending_requests",
 ];
 
 export const getCurrentDbName = () => currentDbName;
@@ -449,4 +461,35 @@ export const isUserBlocked = async (email: string): Promise<boolean> => {
     [email],
   );
   return rows.length > 0;
+};
+
+export const addPendingRequest = async (
+  email: string,
+  name: string,
+  avatar: string,
+  publicKey: string,
+  senderHash: string,
+) => {
+  await executeDB(
+    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+    [email, name, avatar, publicKey, senderHash, Date.now()],
+  );
+};
+
+export const getPendingRequests = async (): Promise<any[]> => {
+  const rows = await queryDB(
+    "SELECT * FROM pending_requests ORDER BY timestamp DESC",
+  );
+  return rows.map((r: any) => ({
+    email: r.email,
+    name: r.name,
+    avatar: r.avatar,
+    publicKey: r.publicKey,
+    senderHash: r.senderHash,
+    timestamp: r.timestamp,
+  }));
+};
+
+export const removePendingRequest = async (email: string) => {
+  await executeDB("DELETE FROM pending_requests WHERE email = ?", [email]);
 };
