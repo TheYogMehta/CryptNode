@@ -15,8 +15,13 @@ const slideUp = keyframes`
 `;
 
 const scaleIn = keyframes`
-  from { opacity: 0; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1); }
+  0% { opacity: 0; transform: scale(0.6); }
+  100% { opacity: 1; transform: scale(1); }
+`;
+
+const scaleOut = keyframes`
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.6); }
 `;
 
 const pulse = keyframes`
@@ -98,9 +103,9 @@ export const HeaderStatus = styled.div<{ isOnline?: boolean }>`
     height: 8px;
     border-radius: ${radii.full};
     background-color: ${(props) =>
-      props.isOnline ? colors.status.success : colors.text.tertiary};
+    props.isOnline ? colors.status.success : colors.text.tertiary};
     box-shadow: ${(props) =>
-      props.isOnline ? `0 0 8px ${colors.status.success}` : "none"};
+    props.isOnline ? `0 0 8px ${colors.status.success}` : "none"};
   }
 `;
 
@@ -169,10 +174,10 @@ export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
 
   &:focus-within {
     border-color: ${(props) =>
-      props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
+    props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
     box-shadow: 0 0 0 2px
       ${(props) =>
-        props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
+    props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
   }
 `;
 
@@ -193,9 +198,9 @@ export const ChatInput = styled.textarea`
   }
 `;
 
-export const SendButton = styled.button<{ isRecording?: boolean }>`
-  width: 40px;
-  height: 40px;
+export const SendButton = styled.button<{ isRecording?: boolean; isChangingState?: boolean }>`
+  width: 44px;
+  height: 44px;
   border-radius: ${radii.full};
   border: none;
   background-color: ${(props) =>
@@ -205,8 +210,14 @@ export const SendButton = styled.button<{ isRecording?: boolean }>`
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+
+  svg {
+    animation: ${(props) => (props.isChangingState ? scaleOut : scaleIn)} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
   ${(props) =>
     props.isRecording &&
     css`
@@ -214,13 +225,15 @@ export const SendButton = styled.button<{ isRecording?: boolean }>`
     `}
 
   &:hover {
-    transform: scale(1.05);
+    transform: scale(1.05) translateY(-2px);
     background-color: ${(props) =>
-      props.isRecording ? colors.status.error : colors.primary.hover};
+    props.isRecording ? colors.status.error : colors.primary.hover};
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
   }
 
   &:active {
     transform: scale(0.95);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   }
 `;
 
@@ -536,7 +549,7 @@ export const PlayPauseBtn = styled.div<{ isMe: boolean }>`
   &:hover {
     transform: scale(1.05);
     background-color: ${(props) =>
-      props.isMe ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)"};
+    props.isMe ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.2)"};
   }
 `;
 
@@ -564,8 +577,8 @@ export const WaveformBar = styled.div<{
         ? "#a5b4fc"
         : "#64748b"
       : props.isMe
-      ? "rgba(255, 255, 255, 0.4)"
-      : "rgba(0, 0, 0, 0.1)"};
+        ? "rgba(255, 255, 255, 0.4)"
+        : "rgba(0, 0, 0, 0.1)"};
 `;
 
 export const SpeedButton = styled.div`

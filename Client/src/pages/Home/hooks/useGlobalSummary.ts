@@ -5,21 +5,31 @@ import { SessionData } from "../types";
 
 export const useGlobalSummary = (sessions: SessionData[]) => {
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isInitializingModel, setIsInitializingModel] = useState(false);
+  const [summaryElapsedMs, setSummaryElapsedMs] = useState<number | null>(null);
   const [globalSummary, setGlobalSummary] = useState<string | null>(null);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
 
   const generateGlobalSummary = async () => {
-    setIsSummarizing(true);
+    setSummaryElapsedMs(null);
     setShowSummaryModal(true);
     setGlobalSummary(null);
+    const startTime = Date.now();
 
     if (!qwenLocalService.isLoaded) {
-      setGlobalSummary(
-        "AI Model not loaded. Please initialize the AI assistant in a chat window first before using global summaries.",
-      );
-      setIsSummarizing(false);
-      return;
+      setIsInitializingModel(true);
+      try {
+        await qwenLocalService.init();
+      } catch (e) {
+        console.error("Model init failed", e);
+        setGlobalSummary("Failed to initialise AI model. Please try again.");
+        setIsInitializingModel(false);
+        return;
+      }
+      setIsInitializingModel(false);
     }
+
+    setIsSummarizing(true);
 
     try {
       const relevantSessions = sessions
@@ -56,39 +66,29 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
         return;
       }
 
-      const prompt = `Task: Create a cynical, ultra-concise digest of these messages.
-Rules:
-1. NO meta-talk (e.g., "The sender said", "Here is a summary").
-2. NO bullet points or numbering characters at the start of lines.
-3. OUTPUT ONLY the facts in subject-verb format.
-4. If a message is a question, mark it with [?] at the start.
-5. Max 15 words per line.
-
-Example Input:
-[Messages from John]:
-- I'll be there at 5.
-- Did you bring the keys?
-
-Example Output:
-John is arriving at 5.
-[?] John asked about keys.
-
-Input:
-${context}
-
-Output:`;
+      const prompt =
+        `Example:\n` +
+        `[Messages from Sarah]:\n- meeting pushed to Friday\n- can you send the slides?\n` +
+        `[Messages from Tom]:\n- I'll be 10 mins late\n\n` +
+        `Digest:\n` +
+        `Sarah: Meeting moved to Friday. Wants slides.\n` +
+        `Tom: Arriving 10 minutes late.\n\n` +
+        `Now write a digest for these messages (one line per person, only facts stated):\n` +
+        `${context}\n` +
+        `Digest:\n`;
 
       const summary = await qwenLocalService.generate(
         [
           {
             role: "system",
             content:
-              "You are a personal digest tool. Summarize incoming messages directly. No meta-talk.",
+              "You write a one-line-per-person digest of chat messages. " +
+              "Only use facts from the messages. Never invent anything.",
           },
           { role: "user", content: prompt },
         ],
         {
-          maxNewTokens: 256,
+          maxNewTokens: 200,
           temperature: 0.1,
           onToken: (token) => {
             setGlobalSummary(token);
@@ -97,6 +97,9 @@ Output:`;
       );
 
       setGlobalSummary(summary);
+      setSummaryElapsedMs(Date.now() - startTime);
+
+
     } catch (e) {
       console.error("Global summary failed", e);
       setGlobalSummary("Failed to generate summary. Please try again.");
@@ -112,6 +115,8 @@ Output:`;
 
   return {
     isSummarizing,
+    isInitializingModel,
+    summaryElapsedMs,
     globalSummary,
     showSummaryModal,
     generateGlobalSummary,

@@ -14,6 +14,7 @@ import {
   SidebarFooter,
 } from "./Sidebar.styles";
 import { Button } from "../../../../components/ui/Button";
+import { SidebarSkeleton } from "../../../../components/ui/Skeleton";
 
 import { useAIStatus } from "../../hooks/useAIStatus";
 
@@ -101,7 +102,7 @@ export const Sidebar = React.memo(
             <SectionLabel>SECURE SESSIONS</SectionLabel>
 
             {sessions.length === 0 ? (
-              <EmptyText>No active links</EmptyText>
+               <SidebarSkeleton />
             ) : (
               sessions.map((session) => (
                 <SidebarItem

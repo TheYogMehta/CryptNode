@@ -12,9 +12,18 @@ import { SettingsOverlay } from "./components/overlays/SettingsOverlay";
 import { ProfileSetup } from "./components/overlays/ProfileSetup";
 import { AppLockScreen } from "./components/overlays/AppLockScreen";
 import LoadingScreen from "../LoadingScreen";
+import { ConnectionBanner } from "./components/overlays/ConnectionBanner";
 import { AccountService } from "../../services/auth/AccountService";
 import ChatClient from "../../services/core/ChatClient";
 import { RenameModal } from "./components/overlays/RenameModal";
+import { SidebarSkeleton } from "../../components/ui/Skeleton";
+import {
+  SidebarContainer,
+  SidebarHeader,
+  Logo,
+  SessionList,
+  SectionLabel,
+} from "./components/sidebar/Sidebar.styles";
 
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
@@ -74,6 +83,8 @@ const Home = () => {
   } | null>(null);
   const {
     isSummarizing,
+    isInitializingModel,
+    summaryElapsedMs,
     globalSummary,
     showSummaryModal,
     generateGlobalSummary,
@@ -93,7 +104,7 @@ const Home = () => {
         try {
           localStorage.removeItem("OAUTH_STATE_KEY");
           localStorage.removeItem("oauth_state");
-        } catch (_e) {}
+        } catch (_e) { }
         setSocialLoginInitialized(true);
         return;
       }
@@ -294,14 +305,18 @@ const Home = () => {
 
   const handleUnlock = useCallback(async (email: string) => {
     try {
-      await ChatClient.switchAccount(email);
+      const { pubKey, token } = await ChatClient.switchAccountLocal(email);
+
+      await ChatClient.switchAccountConnect(email, pubKey, token);
+
       setIsLocked(false);
     } catch (e) {
       console.error("Unlock failed", e);
       const msg = e instanceof Error ? e.message : String(e || "");
       if (
         msg.includes("Session expired") ||
-        msg.includes("Authentication failed")
+        msg.includes("Authentication failed") ||
+        msg.includes("WebSocket timeout")
       ) {
         setIsLocked(true);
       }
@@ -391,7 +406,22 @@ const Home = () => {
   }, []);
 
   if (state.isLoading) {
-    return <LoadingScreen message="Checking authentication..." />;
+    return (
+      <AppContainer>
+        <SidebarContainer isOpen={true} isMobile={isMobile}>
+          <SidebarHeader>
+            <Logo>
+              Crypt<span>Node</span>
+            </Logo>
+          </SidebarHeader>
+          <SessionList>
+            <SectionLabel>SECURE SESSIONS</SectionLabel>
+            <SidebarSkeleton />
+          </SessionList>
+        </SidebarContainer>
+        <MainContent />
+      </AppContainer>
+    );
   }
 
   if (isLocked) {
@@ -401,7 +431,7 @@ const Home = () => {
         accounts={storedAccounts}
         onUnlockAccount={handleUnlock}
         onAddAccount={handleGoogleSignIn}
-        onSuccess={() => {}}
+        onSuccess={() => { }}
       />
     );
   }
@@ -466,7 +496,18 @@ const Home = () => {
               </button>
             </div>
 
-            {isSummarizing ? (
+            {isInitializingModel ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "40px 0",
+                  color: "#ccc",
+                }}
+              >
+                <div style={{ fontSize: "1.5rem", marginBottom: "10px" }}>⚙️</div>
+                <p>Initialising model...</p>
+              </div>
+            ) : isSummarizing ? (
               <div
                 style={{
                   textAlign: "center",
@@ -475,9 +516,9 @@ const Home = () => {
                 }}
               >
                 <div className="spinner" style={{ marginBottom: "10px" }}>
-                  Generating...
+                  ✨
                 </div>
-                <p>Analyzing your chats...</p>
+                <p>Generating...</p>
               </div>
             ) : (
               <div
@@ -490,6 +531,18 @@ const Home = () => {
                 }}
               >
                 {globalSummary || "No updates found."}
+                {summaryElapsedMs !== null && globalSummary && (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      fontSize: "11px",
+                      color: "rgba(255,255,255,0.3)",
+                      textAlign: "right",
+                    }}
+                  >
+                    Generated in {(summaryElapsedMs / 1000).toFixed(1)}s
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -501,6 +554,7 @@ const Home = () => {
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
+        <ConnectionBanner />
         {state.error && <ErrorToast>{state.error}</ErrorToast>}
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
 

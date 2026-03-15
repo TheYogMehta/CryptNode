@@ -14,6 +14,8 @@ export class AuthService extends EventEmitter {
   private authToken: string | null = null;
   public identityKeyPair: CryptoKeyPair | null = null;
   private _loginInFlight: Promise<string> | null = null;
+  /** True once the local DB is unlocked for the current user (server may still be connecting). */
+  public isLocallyReady: boolean = false;
 
   constructor() {
     super();
@@ -136,7 +138,12 @@ export class AuthService extends EventEmitter {
     this.emit("auth_error");
   }
 
-  public async switchAccount(email: string) {
+  /**
+   * Phase 1 (offline-safe): Unlock the local DB for a returning user.
+   * Resolves immediately without touching the network — call this to unblock the UI.
+   * Follow up with switchAccountConnect() in the background.
+   */
+  public async switchAccountLocal(email: string): Promise<{ pubKey: string; token: string }> {
     const accounts = await AccountService.getAccounts();
     const account = accounts.find((a) => a.email === email);
     if (!account) throw new Error("Account not found");
@@ -147,58 +154,112 @@ export class AuthService extends EventEmitter {
     if (!tokenToUse) {
       throw new Error("Session expired. Please login again.");
     }
-    this.authToken = tokenToUse;
 
+    this.authToken = tokenToUse;
     this.userEmail = email;
+    this.isLocallyReady = true;
     await setActiveUser(email);
 
     const pubKey = await this.setupDeviceKeys(email);
+    return { pubKey, token: tokenToUse };
+  }
 
-    if (socket.isConnected()) {
-      socket.disconnect();
-      await new Promise((res) => setTimeout(res, 100));
+  /**
+   * Phase 2 (background): Connect the WebSocket and authenticate with the server.
+   * Safe to call fire-and-forget — errors are caught and logged, not thrown.
+   * On success emits "auth_success"; on failure emits "auth_error".
+   */
+  public async switchAccountConnect(email: string, pubKey?: string, token?: string): Promise<void> {
+    try {
+      // If phase 1 wasn't called separately (e.g. internal use), resolve credentials now.
+      if (!pubKey || !token) {
+        const result = await this.switchAccountLocal(email);
+        pubKey = result.pubKey;
+        token = result.token;
+      }
+
+      if (socket.isConnected()) {
+        socket.disconnect();
+        await new Promise((res) => setTimeout(res, 100));
+      }
+
+      const isDev =
+        import.meta.env.VITE_DEV_SOCKET ||
+        (window as any).envConfig?.USE_DEV_SOCKET;
+      const wsUrl = isDev
+        ? "ws://localhost:9000"
+        : "wss://socket.cryptnode.theyogmehta.online";
+      await socket.connect(wsUrl);
+
+      socket.send({
+        t: "AUTH",
+        data: { token, publicKey: pubKey },
+      });
+
+      // Wait for server confirmation (best-effort, 15s timeout).
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("Authentication timed out"));
+        }, 15000);
+
+        const onSuccess = (authedEmail: string) => {
+          if (authedEmail !== email) return;
+          cleanup();
+          resolve();
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error("Authentication failed"));
+        };
+        const cleanup = () => {
+          clearTimeout(timeout);
+          this.off("auth_success", onSuccess);
+          this.off("auth_error", onError);
+        };
+        this.on("auth_success", onSuccess);
+        this.on("auth_error", onError);
+      });
+    } catch (err) {
+      console.warn("[AuthService] Background server auth failed (will retry via WS reconnect):", err);
+      // Do not re-throw — this runs fire-and-forget from Home.tsx.
+      // SocketManager's reconnect loop will re-establish the connection.
     }
+  }
 
-    const isDev =
-      import.meta.env.VITE_DEV_SOCKET ||
-      (window as any).envConfig?.USE_DEV_SOCKET;
-    const wsUrl = isDev
-      ? "ws://localhost:9000"
-      : "wss://socket.cryptnode.theyogmehta.online";
-    await socket.connect(wsUrl);
-
-    const waitForAuth = new Promise<void>((resolve, reject) => {
+  /**
+   * Full blocking switchAccount — used for explicit account switching in Settings
+   * where we want a clean reconnect and a guaranteed connected state before returning.
+   */
+  public async switchAccount(email: string) {
+    const { pubKey, token } = await this.switchAccountLocal(email);
+    // Wait for server auth so callers know the session is fully established.
+    await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error("Authentication timed out"));
       }, 10000);
 
-      const onSuccessOrPending = (authedEmail: string) => {
+      const onSuccess = (authedEmail: string) => {
         if (authedEmail !== email) return;
         cleanup();
         resolve();
       };
-
       const onError = () => {
         cleanup();
         reject(new Error("Authentication failed"));
       };
-
       const cleanup = () => {
         clearTimeout(timeout);
-        this.off("auth_success", onSuccessOrPending);
+        this.off("auth_success", onSuccess);
         this.off("auth_error", onError);
       };
-
-      this.on("auth_success", onSuccessOrPending);
+      this.on("auth_success", onSuccess);
       this.on("auth_error", onError);
-    });
 
-    socket.send({
-      t: "AUTH",
-      data: { token: this.authToken, publicKey: pubKey },
+      // Kick off connection after listeners are registered.
+      this.switchAccountConnect(email, pubKey, token).catch(() => {});
     });
-    await waitForAuth;
   }
 
   public async loadIdentity() {

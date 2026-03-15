@@ -9,19 +9,19 @@ export interface Reaction {
 export interface ChatMessage {
   sid: string;
   sender: "me" | "other" | "system";
-  status?: 1 | 2 | 3;
+  status?: 0 | 1 | 2 | 3;
   timestamp: number;
 
   type:
-    | "text"
-    | "image"
-    | "audio"
-    | "file"
-    | "video"
-    | "sticker"
-    | "live share port"
-    | "system"
-    | "deleted";
+  | "text"
+  | "image"
+  | "audio"
+  | "file"
+  | "video"
+  | "sticker"
+  | "live share port"
+  | "system"
+  | "deleted";
 
   text?: string;
 
@@ -41,11 +41,11 @@ export interface ChatMessage {
   thumbnail?: string;
   tempUrl?: string;
   mediaStatus?:
-    | "pending"
-    | "downloading"
-    | "downloaded"
-    | "error"
-    | "uploading";
+  | "pending"
+  | "downloading"
+  | "downloaded"
+  | "error"
+  | "uploading";
   mediaFilename?: string;
   mediaTotalSize?: number;
   mediaCurrentSize?: number;
@@ -96,4 +96,5 @@ export interface SessionData {
   peer_avatar?: string;
   peerEmail?: string;
   isConnected?: boolean;
+  notes?: string;
 }

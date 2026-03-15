@@ -60,6 +60,7 @@ import {
 import { IconButton } from "../../../../components/ui/IconButton";
 import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
+import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -143,6 +144,8 @@ export const ChatWindowDefault = ({
   const [showSummary, setShowSummary] = useState(false);
   const [summary, setSummary] = useState("");
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isInitializingModel, setIsInitializingModel] = useState(false);
+  const [summaryElapsedMs, setSummaryElapsedMs] = useState<number | null>(null);
 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
@@ -163,34 +166,48 @@ export const ChatWindowDefault = ({
   }, [showOptionsMenu]);
 
   const handleSummarize = async () => {
-    if (isSummarizing || messages.length === 0) return;
-    setIsSummarizing(true);
+    if (isSummarizing || isInitializingModel || messages.length === 0) return;
+    setSummaryElapsedMs(null);
     setShowSummary(true);
+    const startTime = Date.now();
     try {
-      if (!qwenLocalService.isLoaded) await qwenLocalService.init();
+      if (!qwenLocalService.isLoaded) {
+        setIsInitializingModel(true);
+        await qwenLocalService.init();
+        setIsInitializingModel(false);
+      }
+      setIsSummarizing(true);
       const result = await qwenLocalService.summarize(messages, 5);
       setSummary(result);
+      setSummaryElapsedMs(Date.now() - startTime);
     } catch (e) {
       console.error("Summarization failed", e);
       setSummary("Failed to generate summary.");
     } finally {
+      setIsInitializingModel(false);
       setIsSummarizing(false);
     }
   };
 
   useEffect(() => {
     let active = true;
-    if (avatarToUse && !avatarToUse.startsWith("data:")) {
-      StorageService.getProfileImage(avatarToUse.replace(/\.jpg$/, "")).then(
-        (src) => {
-          if (active) setResolvedAvatar(src || undefined);
-        },
-      );
-    } else {
-      if (active) setResolvedAvatar(avatarToUse);
-    }
+
+    const fetch = () => {
+      avatarCacheService.getAvatar(avatarToUse).then((src) => {
+        if (active) setResolvedAvatar(src || undefined);
+      });
+    };
+
+    fetch();
+
+    const unsub = avatarCacheService.onBust((cleanUrl) => {
+      const myClean = (avatarToUse || "").replace(/\.jpg$/, "");
+      if (myClean && cleanUrl === myClean) fetch();
+    });
+
     return () => {
       active = false;
+      unsub();
     };
   }, [avatarToUse]);
 
@@ -699,8 +716,8 @@ export const ChatWindowDefault = ({
                       transition: "background 0.2s",
                     }}
                     onMouseOver={(e) =>
-                      (e.currentTarget.style.background =
-                        "rgba(255,255,255,0.1)")
+                    (e.currentTarget.style.background =
+                      "rgba(255,255,255,0.1)")
                     }
                     onMouseOut={(e) =>
                       (e.currentTarget.style.background = "transparent")
@@ -758,7 +775,7 @@ export const ChatWindowDefault = ({
               <X size={16} />
             </IconButton>
           </div>
-          {isSummarizing ? (
+          {isInitializingModel ? (
             <div
               style={{
                 color: "rgba(255,255,255,0.7)",
@@ -767,7 +784,18 @@ export const ChatWindowDefault = ({
                 padding: "20px",
               }}
             >
-              Generating summary...
+              ⚙️ Initialising model...
+            </div>
+          ) : isSummarizing ? (
+            <div
+              style={{
+                color: "rgba(255,255,255,0.7)",
+                fontSize: "13px",
+                textAlign: "center",
+                padding: "20px",
+              }}
+            >
+              ✨ Generating...
             </div>
           ) : (
             <div
@@ -781,6 +809,18 @@ export const ChatWindowDefault = ({
               }}
             >
               {summary}
+              {summaryElapsedMs !== null && (
+                <div
+                  style={{
+                    marginTop: "10px",
+                    fontSize: "11px",
+                    color: "rgba(255,255,255,0.35)",
+                    textAlign: "right",
+                  }}
+                >
+                  Generated in {(summaryElapsedMs / 1000).toFixed(1)}s
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -843,11 +883,11 @@ export const ChatWindowDefault = ({
                   msg.sender === "me"
                     ? "You"
                     : session?.alias_name ||
-                      session?.peer_name ||
-                      (session?.peerEmail
-                        ? session.peerEmail.split("@")[0]
-                        : undefined) ||
-                      "User"
+                    session?.peer_name ||
+                    (session?.peerEmail
+                      ? session.peerEmail.split("@")[0]
+                      : undefined) ||
+                    "User"
                 }
                 senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
               />
@@ -1338,15 +1378,17 @@ export const ChatWindowDefault = ({
               )}
           </InputWrapper>
 
-          {input.trim().length > 0 || pendingAttachments.length > 0 ? (
-            <SendButton onClick={handleSendMessage}>
+          <SendButton
+            isRecording={isRecording}
+            isChangingState={input.trim().length > 0 || pendingAttachments.length > 0}
+            onClick={input.trim().length > 0 || pendingAttachments.length > 0 ? handleSendMessage : handleRecord}
+          >
+            {input.trim().length > 0 || pendingAttachments.length > 0 ? (
               <Send size={20} />
-            </SendButton>
-          ) : (
-            <SendButton isRecording={isRecording} onClick={handleRecord}>
+            ) : (
               <Mic size={20} />
-            </SendButton>
-          )}
+            )}
+          </SendButton>
         </InputContainer>
       )}
       {showEmojiPicker && (

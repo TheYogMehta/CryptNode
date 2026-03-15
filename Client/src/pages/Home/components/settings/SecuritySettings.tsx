@@ -207,7 +207,11 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
           }}
         >
           Export your messages, media, and encryption keys to a secure ZIP file
-          encrypted with your Master Key.
+          encrypted with your Master Backup Code.
+          <br />
+          <span style={{ color: colors.status.error, fontWeight: 500, display: "inline-block", marginTop: "8px" }}>
+            IMPORTANT: Ensure you have copied and saved your Master Backup Code below. You will need it to decrypt and restore this backup on a new device.
+          </span>
         </div>
         <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
           <button
@@ -300,12 +304,12 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
             <p
               style={{
                 color: colors.status.error,
-                fontSize: "12px",
-                margin: 0,
+                fontSize: "13px",
+                marginTop: "8px",
+                marginBottom: 0,
               }}
             >
-              WARNING: This key allows full access to your account. Never share
-              it.
+              WARNING: This key allows full access to your account and is REQUIRED to restore backups on a new device. Never share it, but save it securely.
             </p>
           </BackupContainer>
         ) : (

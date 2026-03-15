@@ -119,10 +119,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
     socket.on("error", (err) => {
       console.error("[ChatClient] Socket Error:", err);
-      this.emit("notification", {
-        type: "error",
-        message: "Connection failed. Retrying...",
-      });
+      // No toast — SocketManager auto-reconnects silently.
     });
   }
 
@@ -332,10 +329,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
           console.error("Failed to decrypt friend request", e);
         }
         break;
-      case "FRIEND_ACCEPT":
-        await this.sessionService.handleFriendAccept(data);
-        this.emit("session_updated");
+      case "FRIEND_ACCEPT": {
+        const acceptSid = await this.sessionService.handleFriendAccept(data);
+        if (acceptSid) {
+          this.emit("session_updated");
+        }
         break;
+      }
       case "FRIEND_DENY":
         await this.sessionService.handleFriendDeny(data);
         this.emit("session_updated");
@@ -524,11 +524,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "DELIVERED_FAILED":
         this.emit("message_status", { sid });
-        this.emit("notification", {
-          type: "warning",
-          message:
-            "Message not delivered yet. It will be retried when the peer is online.",
-        });
+        // No toast — message is queued and will be retried when peer comes online.
         break;
     }
   }
@@ -575,6 +571,16 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.authService.switchAccount(email);
   }
 
+  /** Phase 1: unlock local DB only, no network. */
+  public async switchAccountLocal(email: string) {
+    return this.authService.switchAccountLocal(email);
+  }
+
+  /** Phase 2: connect WS + auth in background. Never throws. */
+  public async switchAccountConnect(email: string, pubKey?: string, token?: string) {
+    return this.authService.switchAccountConnect(email, pubKey, token);
+  }
+
   // --- Actions ---
   public async connectToPeer(targetEmail: string) {
     return this.sessionService.connectToPeer(targetEmail);
@@ -617,8 +623,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
     text: string,
     replyTo?: any,
     type: string = "text",
+    forceId?: string
   ) {
-    return this.messageService.sendMessage(sid, text, replyTo, type);
+    return this.messageService.sendMessage(sid, text, replyTo, type, forceId);
   }
 
   public async editMessage(sid: string, messageId: string, newText: string) {

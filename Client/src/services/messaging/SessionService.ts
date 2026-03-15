@@ -25,6 +25,7 @@ export interface ChatSession {
   isConnected?: boolean;
   peerPubKeys?: string[];
   ownPubKeys?: string[];
+  notes?: string;
 }
 
 export class SessionService extends EventEmitter {
@@ -111,6 +112,7 @@ export class SessionService extends EventEmitter {
           peer_avatar_ver: row.peer_avatar_ver || 0,
           isConnected: this.connectedSids.has(row.sid),
           peerPubKeys: peerPubKeysList,
+          notes: row.notes || undefined,
         };
 
         await WorkerManager.getInstance().initSession(row.sid, jwksMap);
@@ -546,13 +548,42 @@ export class SessionService extends EventEmitter {
     publicKey: string;
     encryptedPacket: string;
   }) {
-    const profile = await this.decryptFriendRequest(
-      data.encryptedPacket,
-      data.publicKey,
-    );
-    if (!profile) throw new Error("Failed to decrypt accept packet");
-
     const myEmail = this.normalizeEmail(this.authService.userEmail);
+
+    let profile: any = null;
+    try {
+      profile = await this.decryptFriendRequest(
+        data.encryptedPacket,
+        data.publicKey,
+      );
+    } catch (_e) {
+      // Decryption may fail on a secondary device (packet was encrypted for a
+      // different device's ECDH key). If the session was already restored via
+      // SESSION_LIST, this is harmless — just skip.
+    }
+
+    if (!profile) {
+      // Check if the session was already reconstructed from SESSION_LIST
+      const otherEmailHash = await sha256(this.normalizeEmail(
+        // We don't have the peer email here, but if ANY session exists that
+        // includes this public key we can safely skip.
+        data.publicKey,
+      )).catch(() => "");
+      const sidForKey = Object.entries(this.sessions).find(
+        ([, s]) => s.peerPubKeys?.includes(data.publicKey),
+      );
+      if (sidForKey) {
+        console.log(
+          "[SessionService] FRIEND_ACCEPT: Already have session for this key, skipping.",
+        );
+        return sidForKey[0];
+      }
+      console.warn(
+        "[SessionService] FRIEND_ACCEPT: Could not decrypt and no existing session found.",
+      );
+      return null;
+    }
+
     const otherEmail = this.normalizeEmail(profile.email);
     const [u1, u2] = [myEmail, otherEmail].sort();
     const sid = await sha256(u1 + ":" + u2);
@@ -672,6 +703,7 @@ export class SessionService extends EventEmitter {
             this.sessions[item.sid].peer_name_ver,
             this.sessions[item.sid].peer_avatar_ver,
             item.ownPubKeys || this.sessions[item.sid].ownPubKeys,
+            item.online,
           ).catch((e) =>
             console.error(
               "Failed to re-derive session key on pubKey rotation:",
@@ -710,6 +742,13 @@ export class SessionService extends EventEmitter {
       }
     }
     if (changed) {
+      this.emit("session_updated");
+    }
+  }
+
+  public async updateSessionNotes(sid: string, notes: string) {
+    if (this.sessions[sid]) {
+      this.sessions[sid].notes = notes;
       this.emit("session_updated");
     }
   }

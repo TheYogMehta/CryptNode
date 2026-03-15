@@ -213,9 +213,11 @@ export class CallService {
         0,
       );
       this.client.send({
-        t: "RTC_OFFER",
+        t: "MSG",
         sid,
         data: { payloads: offerPayloads },
+        c: true,
+        p: 0,
       });
 
       console.log("[CallService] Sent WebRTC offer to", sid);
@@ -413,7 +415,7 @@ export class CallService {
       }),
       0,
     );
-    this.client.send({ t: type, sid, data: { payloads } });
+    this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 0 });
   }
 
   private attachRemoteAudio(stream: MediaStream) {
@@ -499,9 +501,11 @@ export class CallService {
         0,
       );
       this.client.send({
-        t: "RTC_OFFER",
+        t: "MSG",
         sid,
         data: { payloads: offerPayloads },
+        c: true,
+        p: 0,
       });
     } catch (e) {
       console.error("[CallService] Renegotiation failed:", e);

@@ -118,6 +118,7 @@ export class QwenLocalService {
   private isNative = false;
   private nativeContextId = -1;
   private _downloadProgress = 0;
+  private _installedCache: boolean | null = null;
 
   constructor() {
     const platform =
@@ -151,13 +152,16 @@ export class QwenLocalService {
   }
 
   async isModelInstalled(): Promise<boolean> {
+    if (this._installedCache !== null) return this._installedCache;
     try {
       const stat = await Filesystem.stat({
         directory: Directory.Data,
         path: GGUF_FILENAME,
       });
-      return stat.size > 0;
+      this._installedCache = stat.size > 0;
+      return this._installedCache;
     } catch {
+      this._installedCache = false;
       return false;
     }
   }
@@ -173,6 +177,7 @@ export class QwenLocalService {
       });
       this._isLoaded = false;
       this.failed = false;
+      this._installedCache = null;
       this.notify();
     } catch (e) {
       console.warn("Model already deleted or could not delete", e);
@@ -187,6 +192,7 @@ export class QwenLocalService {
 
     try {
       await this.ensureNativeModel();
+      this._installedCache = true;
     } catch (e) {
       console.error("Failed to download model", e);
       this.failed = true;
@@ -216,32 +222,69 @@ export class QwenLocalService {
     this._downloadProgress = 1;
     this.notify();
 
-    try {
-      // Use Capacitor native download directly to avoid OOM crashes (400MB in RAM -> Base64 is too large)
-      const downloadResult = await Filesystem.downloadFile({
-        url: GGUF_URL,
-        path: path,
-        directory: dir,
-        progress: true,
-      });
+    return new Promise<string>(async (resolve, reject) => {
+      let listener: any = null;
+      let isDone = false;
 
-      // Filesystem fires progress events on window automatically if progress: true
-      // but to integrate cleanly with our store without messy global listeners, we just
-      // mark it done. (If we wanted realtime UI progress for downloadFile, we'd add un-documented capacitor listeners).
-      this._downloadProgress = 100;
-      this.notify();
+      const finishAndResolve = async () => {
+        if (isDone) return;
+        isDone = true;
+        if (listener) listener.remove();
 
-      return (
-        downloadResult.path ||
-        (await Filesystem.getUri({ directory: dir, path })).uri.replace(
-          "file://",
-          "",
-        )
-      );
-    } catch (error) {
-      console.error("[QwenLocalService] Failed to download model", error);
-      throw error;
-    }
+        this._downloadProgress = 100;
+        this._installedCache = true;
+        this.notify();
+
+        try {
+          const uri = await Filesystem.getUri({ directory: dir, path });
+          resolve(uri.uri.replace("file://", ""));
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      try {
+        listener = await Filesystem.addListener("progress", (status: any) => {
+          if (status.url && status.url !== GGUF_URL) return;
+          if (status.contentLength && status.contentLength > 0) {
+            const pct = Math.round((status.bytes / status.contentLength) * 100);
+            if (pct !== this._downloadProgress && pct <= 100) {
+              this._downloadProgress = pct;
+              this.notify();
+            }
+            if (status.bytes >= status.contentLength) {
+              finishAndResolve();
+            }
+          }
+        });
+
+        Filesystem.downloadFile({
+          url: GGUF_URL,
+          path: path,
+          directory: dir,
+          progress: true,
+        }).then(
+          (result) => {
+            finishAndResolve();
+          },
+          (error) => {
+            if (!isDone) {
+              isDone = true;
+              if (listener) listener.remove();
+              console.error("[QwenLocalService] Failed to download model", error);
+              reject(error);
+            }
+          }
+        );
+      } catch (error) {
+        if (!isDone) {
+          isDone = true;
+          if (listener) listener.remove();
+          console.error("[QwenLocalService] Failed to start model download", error);
+          reject(error);
+        }
+      }
+    });
   }
 
   async init(): Promise<void> {
@@ -261,19 +304,12 @@ export class QwenLocalService {
           await LlamaPlugin.releaseAllContexts();
 
           this.nativeContextId = Math.floor(Math.random() * 10000);
-          const initPromise = LlamaPlugin.initContext({
+          await LlamaPlugin.initContext({
             id: this.nativeContextId,
             model: absolutePath,
             n_ctx: 1024,
             n_threads: 4,
           });
-
-          await Promise.race([
-            initPromise,
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("initContext timeout")), 2000),
-            ),
-          ]);
         } catch (nativeErr) {
           console.warn(
             "[QwenLocalService] Native Llama init failed or timed out. WASM fallback disabled on mobile.",
@@ -291,6 +327,7 @@ export class QwenLocalService {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       this._isLoaded = true;
+      this._installedCache = true; // model is on disk
     } catch (e: any) {
       console.error("[QwenLocalService] Failed to load model:", e);
       // Propagate the architecture unsupported error so 'generate' knows we failed
@@ -425,30 +462,73 @@ export class QwenLocalService {
   }
 
   async summarize(messages: ChatMessage[], limit: number): Promise<string> {
-    const context = clipContext(messages, "");
+    // Filter out noise (greetings, single words, very short messages)
+    const meaningful = messages.filter(
+      (m) => (m.text || "").trim().length >= 4,
+    );
+
+    if (meaningful.length === 0) {
+      return "Not enough content to summarize.";
+    }
+
+    const context = meaningful
+      .slice(-20)
+      .map((m) => `${m.sender === "me" ? "Me" : "Peer"}: ${m.text!.trim()}`)
+      .join("\n");
+
+    // Few-shot example teaches the model the exact format.
+    // Output is primed with "- " so the model jumps straight into bullets.
     const systemPrompt =
-      "You are a concise note-taker. You start directly with the first bullet point.";
+      "You extract key facts from chat logs. Output bullet points only. " +
+      "Never add anything not explicitly stated in the chat.";
 
-    const userContent = [
-      `Conversation:\n${context || "No messages."}`,
-      `\nTask: Extract key facts into exactly ${Math.max(
-        3,
-        limit,
-      )} bullet points.`,
-      "Rules:",
-      "- Start every line with a hyphen (-).",
-      "- No intro (e.g., 'Here is the summary').",
-      "- No outro.",
-      "- Focus on decisions, times, and dates.",
-    ].join("\n");
+    const userContent =
+      `Example:\n` +
+      `Chat:\nMe: can we move the meeting to 3pm?\nPeer: sure, also bring the Q3 report\nMe: will do\n` +
+      `Bullets:\n- Meeting moved to 3 PM\n- Peer requested Q3 report\n\n` +
+      `Now do the same for this chat:\n` +
+      `Chat:\n${context}\n` +
+      `Bullets (max ${Math.max(3, limit)}, only facts from above):\n-`;
 
-    return this.generate(
+    const raw = await this.generate(
       [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-      { maxNewTokens: 256, temperature: 0.2 },
+      { maxNewTokens: 180, temperature: 0.1 },
     );
+
+    // Re-attach the leading "- " we used as a primer
+    const trimmed = raw.trim();
+    return trimmed.startsWith("-") ? trimmed : `- ${trimmed}`;
+  }
+
+  async summarizeSingleMessage(text: string): Promise<string> {
+    if (!text || text.trim().length < 20) {
+      return "Message is too short to summarize.";
+    }
+
+    const systemPrompt =
+      "You rephrase a single message into a clear, concise summary. " +
+      "Use plain English. Output one or two sentences only. Never add anything not in the message.";
+
+    const userContent =
+      `Example:\n` +
+      `Message: "Hey sorry I missed your call earlier, I was in a meeting until like 3:30 and then had to run to pick up the kids. Can we catch up tomorrow morning maybe around 9 or 10?"\n` +
+      `Summary: Missed the call due to a meeting and errands. Suggests catching up tomorrow around 9–10 AM.\n\n` +
+      `Now summarize this message:\n` +
+      `Message: "${text.trim()}"\n` +
+      `Summary:`;
+
+    const raw = await this.generate(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      { maxNewTokens: 80, temperature: 0.1 },
+    );
+
+    return raw.trim();
   }
   async smartCompose(draft: string): Promise<string> {
     if (!draft.trim()) return "";

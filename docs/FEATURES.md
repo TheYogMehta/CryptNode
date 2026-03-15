@@ -408,6 +408,15 @@ UPDATE me SET public_name = 'Yog Mehta', name_version = name_version + 1;
 UPDATE sessions SET peer_name = 'Yog Mehta', peer_name_ver = 2 WHERE sid = ?;
 ```
 
+### Contact Profile & Aliases
+
+1. **Viewing Profile**: Users can click a contact's avatar in the chat header or session list to open the User Profile modal.
+2. **Shared Media**: The modal aggregates and displays all shared media (images, videos, files) for that session.
+3. **Local Customizations**: 
+    - **Alias Name**: Set a custom local alias for the contact (updates `alias_name` in the database).
+    - **Notes**: Add private, locally-saved notes about the contact (updates `notes` in the database).
+    - These changes are synced across the user's *own* devices via the `MANIFEST` protocol but are *never* sent to the peer.
+
 ---
 
 ## 6. Session Management

@@ -37,7 +37,8 @@ const SCHEMA = {
       peer_pub_keys TEXT,
       last_sync_timestamp INTEGER DEFAULT 0,
       alias_timestamp INTEGER DEFAULT 0,
-      last_manifest_sync INTEGER DEFAULT 0
+      last_manifest_sync INTEGER DEFAULT 0,
+      notes TEXT
     `,
     indices: [],
   },
@@ -137,7 +138,7 @@ const SCHEMA = {
   },
 };
 
-const tableOrder = [
+export const tableOrder = [
   "me",
   "sessions",
   "messages",
@@ -316,8 +317,8 @@ async function syncTableSchema(tableName: string, targetColumnsRaw: string) {
       `CREATE TABLE ${tableName}_new(${targetColumnsStr});`,
       ...(sharedColumns.length > 0
         ? [
-            `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
-          ]
+          `INSERT INTO ${tableName}_new (${sharedColumns}) SELECT ${sharedColumns} FROM ${tableName};`,
+        ]
         : []),
       `DROP TABLE ${tableName};`,
       `ALTER TABLE ${tableName}_new RENAME TO ${tableName};`,
@@ -441,6 +442,14 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
       return;
     }
 
+
+    const directoriesToTry = [
+      Directory.Library,
+      Directory.Documents,
+      Directory.Data,
+    ];
+
+
     const targets = [
       `${databaseName}SQLite.db`,
       `${databaseName}SQLite.db-journal`,
@@ -449,24 +458,21 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
     ];
 
     let filesDeleted = 0;
-    for (const file of targets) {
-      try {
-        await Filesystem.deleteFile({
-          path: file,
-          directory: Directory.Data,
-        });
-        filesDeleted++;
-        console.log(`[sqlite] Deleted file via FS: ${file}`);
-      } catch (err) {
-        // Ignored
+    for (const dir of directoriesToTry) {
+      for (const file of targets) {
+        try {
+          await Filesystem.deleteFile({ path: file, directory: dir });
+          filesDeleted++;
+          console.log(`[sqlite] Deleted file via FS: ${file} (dir=${dir})`);
+        } catch (_err) {
+          // File not in this directory — try next
+        }
       }
     }
 
     if (filesDeleted > 0) {
-      if (databaseName === currentDbName) {
-        dbReady = null;
-      }
-      console.log(`[sqlite] Deleted database files via filesystem.`);
+      if (databaseName === currentDbName) dbReady = null;
+      console.log(`[sqlite] Deleted database files via filesystem fallback.`);
     } else {
       console.error(`[sqlite] Failed to delete database ${databaseName}`);
     }
@@ -647,4 +653,16 @@ export const acceptPendingRequest = async (email: string) => {
     "UPDATE pending_requests SET action = 'accepted', timestamp = ? WHERE email = ?",
     [Date.now(), email],
   );
+};
+
+export const updateSessionNotes = async (sid: string, notes: string) => {
+  await executeDB("UPDATE sessions SET notes = ? WHERE sid = ?", [notes, sid]);
+};
+
+export const getMediaForSession = async (sid: string): Promise<any[]> => {
+  const rows = await queryDB(
+    "SELECT * FROM media m JOIN messages msg ON m.message_id = msg.id WHERE msg.sid = ? ORDER BY msg.timestamp DESC",
+    [sid]
+  );
+  return rows;
 };

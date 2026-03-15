@@ -165,12 +165,28 @@ export const useMessageLogic = ({
 
     const msgType = "text";
 
+    const tempId = crypto.randomUUID();
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      sid: activeChat,
+      text: currentInput,
+      sender: "me",
+      timestamp: Date.now(),
+      type: msgType,
+      status: 0, // optimistic / queued
+      replyTo: replyContext,
+    };
+
+    // Render immediately for zero perceived latency
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     try {
       await ChatClient.sendMessage(
         activeChat,
         currentInput,
         replyContext,
         msgType,
+        tempId // Pass tempId so we can replace it later if the backend supports passing IDs
       );
     } catch (e: any) {
       console.error("[useMessageLogic] sendMessage failed:", e);
@@ -181,20 +197,12 @@ export const useMessageLogic = ({
             ? "Session is unavailable. Please reopen chat or reconnect."
             : "Failed to send message.",
       });
+      // Optionally remove or mark as failed
+      setMessages((prev) => prev.map(m => m.id === tempId ? { ...m, status: 3 } : m));
       return;
     }
 
-    const newMsg: ChatMessage = {
-      sid: activeChat,
-      text: currentInput,
-      sender: "me",
-      timestamp: Date.now(),
-      type: msgType,
-      status: 1,
-      replyTo: replyContext,
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    // Load sessions to update sidebar preview
     loadSessions();
   };
 

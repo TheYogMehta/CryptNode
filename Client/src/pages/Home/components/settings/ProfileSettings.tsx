@@ -6,6 +6,7 @@ import {
 import { executeDB } from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
 import { StorageService } from "../../../../services/storage/StorageService";
+import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import UserAvatar from "../../../../components/UserAvatar";
 import {
   ProfileSection,
@@ -51,9 +52,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       !avatarSrc.startsWith("data:") &&
       !avatarSrc.startsWith("http")
     ) {
-      avatarSrc = await StorageService.getProfileImage(
-        avatarSrc.replace(/\.jpg$/, ""),
-      );
+      avatarSrc = await avatarCacheService.getAvatar(avatarSrc) || avatarSrc;
     }
 
     setEditAvatar(avatarSrc);

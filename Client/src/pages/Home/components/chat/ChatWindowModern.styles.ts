@@ -56,9 +56,10 @@ export const Name = styled.h3`
   color: ${colors.text.primary};
 `;
 
-export const Status = styled.span`
+export const Status = styled.span<{ isOnline?: boolean }>`
   font-size: ${typography.fontSize.xs};
-  color: ${colors.status.success};
+  color: ${(props) =>
+    props.isOnline ? colors.status.success : colors.text.tertiary};
   display: flex;
   align-items: center;
   gap: 4px;
@@ -68,7 +69,8 @@ export const Status = styled.span`
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background-color: ${colors.status.success};
+    background-color: ${(props) =>
+      props.isOnline ? colors.status.success : colors.text.tertiary};
   }
 `;
 

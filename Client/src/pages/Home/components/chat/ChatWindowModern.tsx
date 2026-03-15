@@ -33,6 +33,9 @@ import {
 } from "./ChatWindowModern.styles";
 import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
+import { UserProfileModal } from "../overlays/UserProfileModal";
+import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
+import ChatClient from "../../../../services/core/ChatClient";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -67,6 +70,8 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
   const [inputText, setInputText] = useState("");
   const [showAiSuggestions, setShowAiSuggestions] = useState(true);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const sessionService = ChatClient.sessionService;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
@@ -139,7 +144,11 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
               <ArrowLeft size={20} />
             </ActionButton>
           )}
-          <Avatar>
+          <Avatar 
+            onClick={() => setShowProfileModal(true)} 
+            style={{ cursor: "pointer" }}
+            title="View Profile"
+          >
             {session.alias_avatar ||
               session.peer_name?.[0]?.toUpperCase() ||
               peerLabelFromEmail?.[0]?.toUpperCase() ||
@@ -153,11 +162,9 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
                 "Unknown"}
             </Name>
             {peerOnline ? (
-              <Status>Online</Status>
+              <Status isOnline={true}>Online</Status>
             ) : (
-              <span style={{ fontSize: "12px", color: colors.text.tertiary }}>
-                Offline
-              </span>
+              <Status>Offline</Status>
             )}
           </div>
         </HeaderInfo>
@@ -437,6 +444,19 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
             </SendButton>
           </InputWrapper>
         </InputArea>
+      )}
+
+      {showProfileModal && session && (
+        <UserProfileModal
+          session={session}
+          onClose={() => setShowProfileModal(false)}
+          onSave={async (aliasName, notes) => {
+             await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
+             await updateSessionNotes(session.sid, notes);
+             sessionService.updateSessionNotes(session.sid, notes);
+             sessionService.emit("session_updated");
+          }}
+        />
       )}
     </Container>
   );

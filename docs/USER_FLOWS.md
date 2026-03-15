@@ -111,7 +111,9 @@ sequenceDiagram
 
 4. **Peer Notification**:
    - User B receives `JOIN_REQUEST` frame
-   - Modal appears showing incoming request
+   - Server-side, request is additionally routed to all User B's devices
+   - Client decrypts and caches request locally in `pending_requests` SQLite table
+   - Formally, modal appears showing incoming request
    - Displays: "<user-a@gmail.com> wants to connect"
 
 5. **Accept/Deny Decision**:

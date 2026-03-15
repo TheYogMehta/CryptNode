@@ -125,6 +125,7 @@ CREATE TABLE sessions (
 | `keyJWK`          | TEXT    | JSON Web Key (JWK) of AES-GCM session key   |
 | `alias_name`      | TEXT    | Display name shown to peer (optional)       |
 | `alias_avatar`    | TEXT    | Avatar shown to peer (optional)             |
+| `notes`           | TEXT    | Personal notes about the contact (optional) |
 | `peer_name`       | TEXT    | Peer's display name                         |
 | `peer_avatar`     | TEXT    | Peer's avatar (Data URL)                    |
 | `peer_email`      | TEXT    | Peer's email address                        |

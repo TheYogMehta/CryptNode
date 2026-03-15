@@ -19,6 +19,7 @@ import {
   Pause,
   Play,
   Download,
+  Sparkles,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { Avatar } from "../../../../components/ui/Avatar";
@@ -30,6 +31,8 @@ import { AudioBubble } from "./bubbles/AudioBubble";
 import { ImageBubble } from "./bubbles/ImageBubble";
 import { VideoBubble } from "./bubbles/VideoBubble";
 import { FileBubble } from "./bubbles/FileBubble";
+import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { useAIStatus } from "../../hooks/useAIStatus";
 
 import { queryDB } from "../../../../services/storage/sqliteService";
 import { Reaction } from "../../types";
@@ -105,6 +108,12 @@ export const MessageBubble = React.memo(
     const inlineObjectUrlsRef = useRef<string[]>([]);
     const urlRegex = () => /https?:\/\/[^\s<>()]+/gi;
 
+    const { isInstalled: isAiInstalled } = useAIStatus();
+    const [msgSummaryOpen, setMsgSummaryOpen] = useState(false);
+    const [msgSummary, setMsgSummary] = useState("");
+    const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
+    const [isInitializingForMsg, setIsInitializingForMsg] = useState(false);
+
     const normalizeUrlToken = (value: string): string =>
       value.replace(/[),.;!?]+$/g, "");
 
@@ -164,9 +173,9 @@ export const MessageBubble = React.memo(
       setContextMenu(
         contextMenu === null
           ? {
-              mouseX: e.clientX,
-              mouseY: e.clientY,
-            }
+            mouseX: e.clientX,
+            mouseY: e.clientY,
+          }
           : null,
       );
     };
@@ -204,6 +213,29 @@ export const MessageBubble = React.memo(
       if (msg.sid && msg.id) {
         ChatClient.deleteMessage(msg.sid, msg.id);
         setContextMenu(null);
+      }
+    };
+
+    const handleSummarizeMsg = async () => {
+      setContextMenu(null);
+      setMsgSummary("");
+      setMsgSummaryOpen(true);
+      const text = msg.text || "";
+      try {
+        if (!qwenLocalService.isLoaded) {
+          setIsInitializingForMsg(true);
+          await qwenLocalService.init();
+          setIsInitializingForMsg(false);
+        }
+        setIsSummarizingMsg(true);
+        const result = await qwenLocalService.summarizeSingleMessage(text);
+        setMsgSummary(result);
+      } catch (e) {
+        console.error("Message summarization failed", e);
+        setMsgSummary("Failed to summarize message.");
+      } finally {
+        setIsInitializingForMsg(false);
+        setIsSummarizingMsg(false);
       }
     };
 
@@ -620,9 +652,9 @@ export const MessageBubble = React.memo(
     const safeDate = new Date(msg.timestamp);
     const timeString = isValidDate(safeDate)
       ? safeDate.toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit",
-        })
+        hour: "numeric",
+        minute: "2-digit",
+      })
       : "";
     const isModernLayout = messageLayout === "modern" && msg.type !== "system";
 
@@ -636,11 +668,11 @@ export const MessageBubble = React.memo(
             : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
           ...(isModernLayout
             ? {
-                borderRadius: "8px",
-                backgroundColor: "rgba(255,255,255,0.04)",
-                color: "#e5e7eb",
-                maxWidth: "100%",
-              }
+              borderRadius: "8px",
+              backgroundColor: "rgba(255,255,255,0.04)",
+              color: "#e5e7eb",
+              maxWidth: "100%",
+            }
             : {}),
         }}
       >
@@ -845,11 +877,26 @@ export const MessageBubble = React.memo(
         >
           {!isModernLayout && timeString}
           {isMe && (
-            <span style={{ display: "flex" }}>
+            <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.7 }}>
               {msg.status === 2 ? (
-                <CheckCheck size={14} strokeWidth={2.5} />
-              ) : (
+                <CheckCheck size={14} strokeWidth={2.5} color="#60a5fa" />
+              ) : msg.status === 1 ? (
                 <Check size={14} strokeWidth={2.5} />
+              ) : (
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }}
+                >
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
               )}
             </span>
           )}
@@ -912,8 +959,32 @@ export const MessageBubble = React.memo(
                 <span style={{ fontWeight: 700, color: "#f3f4f6" }}>
                   {senderName || (isMe ? "You" : "User")}
                 </span>
-                <span style={{ fontSize: "12px", color: "#9ca3af" }}>
+                <span style={{ fontSize: "12px", color: "#9ca3af", display: "flex", alignItems: "center", gap: "4px" }}>
                   {timeString}
+                  {isMe && (
+                    <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.7 }}>
+                      {msg.status === 2 ? (
+                        <CheckCheck size={12} strokeWidth={2.5} color="#60a5fa" />
+                      ) : msg.status === 1 ? (
+                        <Check size={12} strokeWidth={2.5} />
+                      ) : (
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }}
+                        >
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                      )}
+                    </span>
+                  )}
                 </span>
               </div>
               {bubbleNode}
@@ -929,9 +1000,9 @@ export const MessageBubble = React.memo(
             style={
               isModernLayout
                 ? {
-                    left: "42px",
-                    right: "auto",
-                  }
+                  left: "42px",
+                  right: "auto",
+                }
                 : undefined
             }
             onClick={(e) => {
@@ -1045,6 +1116,18 @@ export const MessageBubble = React.memo(
               <Copy size={18} /> Copy
             </MenuItem>
 
+            {isAiInstalled && msg.type === "text" && (msg.text || "").trim().length >= 20 && (
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSummarizeMsg();
+                }}
+                style={{ gap: "10px", color: "#a78bfa" }}
+              >
+                <Sparkles size={18} /> Summarize
+              </MenuItem>
+            )}
+
             {isEditable && (
               <MenuItem
                 onClick={(e) => {
@@ -1069,6 +1152,67 @@ export const MessageBubble = React.memo(
               </MenuItem>
             )}
           </Menu>
+        )}
+
+        {/* Per-message AI summary panel */}
+        {msgSummaryOpen && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 3000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(4px)",
+            }}
+            onClick={() => setMsgSummaryOpen(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                backgroundColor: "#1a1a2e",
+                border: "1px solid rgba(167,139,250,0.3)",
+                borderRadius: "16px",
+                padding: "20px",
+                width: "min(340px, 90vw)",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Sparkles size={16} color="#a78bfa" />
+                  <span style={{ color: "#fff", fontSize: "14px", fontWeight: 600 }}>Message Summary</span>
+                </div>
+                <button
+                  onClick={() => setMsgSummaryOpen(false)}
+                  style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: "2px" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Body */}
+              {isInitializingForMsg ? (
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
+                  ⚙️ Initialising model...
+                </p>
+              ) : isSummarizingMsg ? (
+                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
+                  ✨ Generating...
+                </p>
+              ) : (
+                <p style={{ color: "rgba(255,255,255,0.88)", fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
+                  {msgSummary}
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
         {showPicker && (

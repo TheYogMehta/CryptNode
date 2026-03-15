@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StorageService } from "../../../../services/storage/StorageService";
+import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import { SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
 import {
@@ -45,47 +45,77 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
 
     useEffect(() => {
       let active = true;
-      if (avatarUrl && !avatarUrl.startsWith("data:")) {
-        StorageService.getProfileImage(avatarUrl.replace(/\.jpg$/, "")).then(
-          (src) => {
-            if (active) setResolvedAvatar(src || undefined);
-          },
-        );
-      } else {
-        if (active) setResolvedAvatar(avatarUrl);
-      }
+
+      const fetch = () => {
+        avatarCacheService.getAvatar(avatarUrl).then((src) => {
+          if (active) setResolvedAvatar(src || undefined);
+        });
+      };
+
+      fetch();
+
+      // Re-fetch if the avatar file lands on disk after our first render
+      const unsub = avatarCacheService.onBust((cleanUrl) => {
+        const myClean = (avatarUrl || "").replace(/\.jpg$/, "");
+        if (myClean && cleanUrl === myClean) fetch();
+      });
+
       return () => {
         active = false;
+        unsub();
       };
     }, [avatarUrl]);
 
     const getPreviewText = () => {
-      if (!lastMsg && !lastMsgType) return isOnline ? "Online" : "Offline";
+      if (!lastMsg && !lastMsgType) return { text: isOnline ? "Online" : "Offline", time: "" };
 
+      let text = lastMsg || "";
       switch (lastMsgType) {
         case "image":
-          return "📷 Image";
+          text = "📷 Photo";
+          break;
         case "video":
-          return "🎥 Video";
+          text = "🎥 Video";
+          break;
         case "audio":
-          return "🎤 Voice Message";
+          text = "🎤 Voice";
+          break;
         case "file":
-          return "📄 File";
+          text = "📄 File";
+          break;
         case "sticker":
-          return "Sticker";
-        default:
-          return lastMsg;
+          text = "Sticker";
+          break;
       }
+
+      // Format relative time
+      let timeStr = "";
+      if (data.lastTs) {
+        const date = new Date(data.lastTs);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMins < 1) timeStr = "now";
+        else if (diffMins < 60) timeStr = `${diffMins}m`;
+        else if (diffHours < 24) timeStr = `${diffHours}h`;
+        else if (diffDays < 7) {
+          const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          timeStr = days[date.getDay()];
+        } else {
+          timeStr = `${date.getMonth() + 1}/${date.getDate()}`;
+        }
+      }
+
+      return { text, time: timeStr };
     };
 
     return (
       <ItemContainer
         isActive={isActive}
         onClick={() => onSelect(sid)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onRename(sid, displayName);
-        }}
       >
         <Avatar
           src={resolvedAvatar}
@@ -97,8 +127,13 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
         <ItemInfo>
           <ItemName>
             <span>{displayName}</span>
+            {getPreviewText().time && (
+              <span style={{ fontSize: "11px", color: "#6b7280", fontWeight: "normal" }}>
+                {getPreviewText().time}
+              </span>
+            )}
           </ItemName>
-          <ItemPreview isActive={isActive}>{getPreviewText()}</ItemPreview>
+          <ItemPreview isActive={isActive}>{getPreviewText().text}</ItemPreview>
         </ItemInfo>
 
         {unread > 0 && (

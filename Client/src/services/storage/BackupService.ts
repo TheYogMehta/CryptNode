@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { queryDB, executeDB, switchDatabase } from "./sqliteService";
+import { queryDB, executeDB, switchDatabase, tableOrder } from "./sqliteService";
 import { AccountService } from "../auth/AccountService";
 import { getKeyFromSecureStorage } from "./SafeStorage";
 import { Filesystem, Directory } from "@capacitor/filesystem";
@@ -17,15 +17,7 @@ export class BackupService {
 
     // 1. Export Database
     const dbData: Record<string, unknown[]> = {};
-    const tables = [
-      "me",
-      "sessions",
-      "messages",
-      "media",
-      "connections",
-      "blocked_users",
-      "keys",
-    ];
+    const tables = tableOrder;
     for (const table of tables) {
       try {
         const rows = await queryDB(`SELECT * FROM ${table}`);
@@ -223,16 +215,7 @@ export class BackupService {
         const dbText = await dbFile.async("text");
         const dbData: Record<string, Record<string, unknown>[]> =
           JSON.parse(dbText);
-        const tableOrder = [
-          "me",
-          "sessions",
-          "messages",
-          "media",
-          "live_shares",
-          "reactions",
-          "queue",
-          "blocked_users",
-        ];
+        // use the imported tableOrder
         const safeIdentifier = (name: string): string => {
           if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
             throw new Error(`Unsafe SQL identifier in backup: ${name}`);

@@ -17,6 +17,7 @@ import { IconButton } from "../../../../components/ui/IconButton";
 import Dialog from "@mui/material/Dialog";
 import { ChatClient } from "../../../../services/core/ChatClient";
 import { StorageService } from "../../../../services/storage/StorageService";
+import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import {
   OverlayContainer,
   CallCard,
@@ -63,27 +64,25 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   );
 
   useEffect(() => {
-    if (!callState?.peerAvatar) {
-      setResolvedPeerAvatar(null);
-      return;
-    }
-    const avatar = callState.peerAvatar;
-    if (avatar.startsWith("data:") || avatar.startsWith("http")) {
-      setResolvedPeerAvatar(avatar);
-    } else {
-      StorageService.getProfileImage(avatar.replace(/\.jpg$/, ""))
-        .then((src) => {
-          if (src) {
-            setResolvedPeerAvatar(src);
-          } else {
-            return StorageService.getFileSrc(avatar, "image/jpeg");
-          }
-        })
-        .then((src) => {
-          if (src && typeof src === "string") setResolvedPeerAvatar(src);
-        })
-        .catch((e) => console.warn("Failed to resolve call avatar", e));
-    }
+    let active = true;
+
+    const fetch = () => {
+      avatarCacheService.getAvatar(callState?.peerAvatar).then((src) => {
+        if (active) setResolvedPeerAvatar(src);
+      }).catch(e => console.warn("Failed to resolve call avatar", e));
+    };
+
+    fetch();
+
+    const unsub = avatarCacheService.onBust((cleanUrl) => {
+      const myClean = (callState?.peerAvatar || "").replace(/\.jpg$/, "");
+      if (myClean && cleanUrl === myClean) fetch();
+    });
+
+    return () => {
+      active = false;
+      unsub();
+    };
   }, [callState?.peerAvatar]);
 
   const client = ChatClient.getInstance();

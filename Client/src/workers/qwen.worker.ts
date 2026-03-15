@@ -5,13 +5,17 @@ import {
   TextGenerationPipeline,
 } from "@xenova/transformers";
 
-// Configure environment
+// Configure environment — keep everything local, no CDN requests
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
-env.useBrowserCache = false;
-env.localModelPath = "/models";
+env.useBrowserCache = true;
+env.localModelPath = "/models/";
+// Point ONNX Runtime to the WASM files served from our own origin
+// (copied from node_modules into public/ by the vite copyWasmPlugin)
+env.backends.onnx.wasm.wasmPaths = "/";
 
-const MODEL_ID = "Qwen/Qwen3.5-0.8B";
+
+const MODEL_ID = "Xenova/Qwen1.5-0.5B-Chat";
 
 // Pipeline instance
 let generator: Promise<TextGenerationPipeline | Pipeline> | null = null;
@@ -30,7 +34,7 @@ type WorkerMessage =
 async function getPipeline() {
   if (generator) return generator;
 
-  console.log("[QwenWorker] Initializing model...");
+  console.log("[QwenWorker] Initializing model from local path (offline mode)...");
   generator = pipeline("text-generation", MODEL_ID, {
     device: "webgpu",
   } as any)

@@ -6,6 +6,7 @@ import { CallService } from "../media/CallService";
 import { AuthService } from "../auth/AuthService";
 import { SessionService } from "./SessionService";
 import { TEXT_CHUNK_SIZE_CHARS } from "../core/protocolLimits";
+import { avatarCacheService } from "../storage/AvatarCacheService";
 
 interface IMessageClient {
   authService: AuthService;
@@ -130,7 +131,7 @@ export class MessageService extends EventEmitter {
       replyTo: data.replyTo,
       timestamp: data.timestamp,
     });
-    this.broadcastManifestToOwnDevices().catch(() => {});
+    this.broadcastManifestToOwnDevices().catch(() => { });
   }
 
   public async sendMessage(
@@ -138,6 +139,7 @@ export class MessageService extends EventEmitter {
     text: string,
     replyTo?: any,
     type: string = "text",
+    forceId?: string
   ) {
     if (!this.client.sessionService.sessions[sid]) {
       console.warn(
@@ -149,7 +151,7 @@ export class MessageService extends EventEmitter {
       }
     }
 
-    const id = crypto.randomUUID();
+    const id = forceId || crypto.randomUUID();
     const timestamp = Date.now();
     try {
       await executeDB(
@@ -208,7 +210,7 @@ export class MessageService extends EventEmitter {
     } catch (e) {
       console.error("[MessageService] Failed to save sent message:", e);
     }
-    this.broadcastManifestToOwnDevices().catch(() => {});
+    this.broadcastManifestToOwnDevices().catch(() => { });
   }
 
   public async requestSync(
@@ -456,11 +458,23 @@ export class MessageService extends EventEmitter {
     }
 
     try {
-      const decryptedBuffer = await this.client.sessionService.decrypt(
+      let decryptedBuffer = await this.client.sessionService.decrypt(
         sid,
         payload,
         priority,
       );
+
+      // If decryption fails immediately, retry once after a short delay.
+      // This handles the race where SESSION_LIST triggers async finalizeSession
+      // (ECDH key derivation) but a MSG arrives before the worker has the keys.
+      if (!decryptedBuffer) {
+        await new Promise((r) => setTimeout(r, 600));
+        decryptedBuffer = await this.client.sessionService.decrypt(
+          sid,
+          payload,
+          priority,
+        );
+      }
 
       if (!decryptedBuffer) {
         console.error(`[MessageService] Decryption failed for ${sid}`);
@@ -508,6 +522,37 @@ export class MessageService extends EventEmitter {
           console.log(`[MessageService] Remote switched to mode: ${data.mode}`);
           this.client.emit("call_mode_changed", { sid, mode: data.mode });
           break;
+
+        // ── Efficient peer sync handshake ──────────────────────────────────────
+        // Step 1: peer A calls sendManifestToPeer → sends SYNC_HINT with the
+        //         latest timestamp of messages A has received FROM B.
+        // Step 2: peer B receives SYNC_HINT → queries its own messages sent
+        //         after that timestamp → replies with only the delta MANIFEST.
+        // Result: B never re-sends what A already has. Zero double-bandwidth.
+        case "SYNC_HINT": {
+          try {
+            const peerLatestTs: number = Number(data.latestFromYou) || 0;
+            // Fetch own messages sent to this peer AFTER the timestamp the peer
+            // already has. INSERT OR IGNORE on their side ensures idempotency.
+            const missing = await queryDB(
+              "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
+              [sid, peerLatestTs],
+            );
+            if (missing.length === 0) break;
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: missing } } }),
+              0,
+            );
+            if (Object.keys(payloads).length > 0) {
+              this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+              console.log(`[MessageService] SYNC_HINT → sent ${missing.length} missing messages to ${sid}`);
+            }
+          } catch (e) {
+            console.warn(`[MessageService] Failed to respond to SYNC_HINT for ${sid}`, e);
+          }
+          break;
+        }
         case "TEXT":
         case "GIF":
         case "IMAGE":
@@ -807,15 +852,37 @@ export class MessageService extends EventEmitter {
 
             // ── messages section ──
             if (Array.isArray(manifest.messages) && manifest.messages.length > 0) {
+              // Determine if this manifest came from an own device or a different peer.
+              // Own-device manifests use sender values as-is ("me" stays "me").
+              // Peer manifests must remap sender="me" → "peer" because the sending device
+              // used "me" for messages THEY sent — on our device those are incoming messages.
+              const session = (this.client.sessionService.sessions[sid] as any);
+              const myEmail = this.client.authService.userEmail;
+              let isOwnDevice = false;
+              if (myEmail && session?.peerEmailHash) {
+                try {
+                  const myHash = await crypto.subtle
+                    .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+                    .then((b) =>
+                      Array.from(new Uint8Array(b))
+                        .map((x) => x.toString(16).padStart(2, "0"))
+                        .join(""),
+                    );
+                  isOwnDevice = session.peerEmailHash.toLowerCase() === myHash.toLowerCase();
+                } catch (_) { }
+              }
+
               for (const msg of manifest.messages) {
-                // Ensure required fields
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
+                // For peer manifests: messages the peer sent (sender="me" on their device)
+                // must be stored as sender="peer" on our device so they display correctly.
+                const senderValue = (!isOwnDevice && msg.sender === "me") ? "peer" : (msg.sender || "unknown");
                 await executeDB(
-                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 1, 2, ?)",
+                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 2, 2, ?)",
                   [
                     msg.id,
                     msg.sid,
-                    msg.sender || "unknown",
+                    senderValue,
                     msg.text || "",
                     msg.type || "text",
                     msg.timestamp,
@@ -856,12 +923,12 @@ export class MessageService extends EventEmitter {
               "[MessageService] Already on call, rejecting new call from",
               sid,
             );
-            const busyPayload = await this.client.encryptForSession(
+            const payloads = await this.client.encryptForSession(
               sid,
               JSON.stringify({ t: "MSG", data: { type: "CALL_BUSY" } }),
               0,
             );
-            this.client.send({ t: "MSG", sid, data: { payload: busyPayload } });
+            this.client.send({ t: "MSG", sid, data: { payloads } });
             return;
           }
           console.log("[MessageService] Received CALL_START");
@@ -1009,7 +1076,7 @@ export class MessageService extends EventEmitter {
               const canInlineAvatar =
                 !!normalizedAvatar &&
                 normalizedAvatar.length <=
-                  MessageService.MAX_PROFILE_AVATAR_B64_CHARS;
+                MessageService.MAX_PROFILE_AVATAR_B64_CHARS;
               const transferId = canInlineAvatar ? null : crypto.randomUUID();
               const avatarChunks =
                 !canInlineAvatar && avatarBase64
@@ -1134,6 +1201,8 @@ export class MessageService extends EventEmitter {
                 "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
                 [name, avatarFile, name_version, avatar_version, sid],
               );
+              // Bust the avatar cache so all components re-fetch the new file
+              if (avatarFile) avatarCacheService.bust(avatarFile);
             }
             this.client.emit("session_updated");
           } catch (e) {
@@ -1208,6 +1277,8 @@ export class MessageService extends EventEmitter {
                 sid,
               ],
             );
+            // Bust the avatar cache so all components re-fetch the new file
+            avatarCacheService.bust(avatarFile);
             this.client.emit("session_updated");
           } catch (e) {
             console.error("Error handling PROFILE_AVATAR_CHUNK", e);
@@ -1267,8 +1338,8 @@ export class MessageService extends EventEmitter {
                   row.type === "text"
                     ? "TEXT"
                     : row.type
-                    ? row.type.toUpperCase()
-                    : "TEXT",
+                      ? row.type.toUpperCase()
+                      : "TEXT",
                 text: row.text,
                 id: row.id,
                 timestamp: row.timestamp,
@@ -1455,7 +1526,7 @@ export class MessageService extends EventEmitter {
             if (Object.keys(payloads).length > 0) {
               this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
               console.log(`[MessageService] Sent MANIFEST to own device session ${sid} (included ${messages.length} messages since ${lastSync})`);
-              
+
               // Only update lastSync after successful encryption and enqueue to socket
               await updateLastManifestSync(sid, Date.now());
             }
@@ -1470,14 +1541,18 @@ export class MessageService extends EventEmitter {
   }
 
   /**
-   * Pushes all new messages since the last manifest sync to the specific peer.
-   * Both sides do this on connection, creating a symmetric, seamless sync.
+   * Initiates an efficient peer-to-peer sync handshake.
+   * Instead of blindly pushing messages, we first send a SYNC_HINT telling the
+   * peer the latest timestamp of THEIR messages we already have.  The peer then
+   * responds with only the delta — messages we are missing. This prevents
+   * double-bandwidth even after key rotation or on a device with a full history.
    */
   public async sendManifestToPeer(sid: string) {
     try {
       const session = this.client.sessionService.sessions[sid] as any;
       if (!session || !session.online) return;
 
+      // Skip own-device sessions — handled by broadcastManifestToOwnDevices
       const myEmail = this.client.authService.userEmail;
       if (myEmail) {
         const myHash = await crypto.subtle
@@ -1488,31 +1563,31 @@ export class MessageService extends EventEmitter {
               .join(""),
           );
         if (session.peerEmailHash && session.peerEmailHash.toLowerCase() === myHash.toLowerCase()) {
-          // Own devices are handled by broadcastManifestToOwnDevices
           return;
         }
       }
 
-      const lastSync = await getLastManifestSync(sid);
-      const messages = await getMessagesSince(lastSync, sid);
-
-      if (messages.length === 0) return; // Nothing new to push
-
-      const manifest = { messages };
+      // Find the latest timestamp of messages we received FROM this peer.
+      // Sending this to them tells them exactly where our history ends, so
+      // they can send ONLY th delta we are missing.
+      const rows = await queryDB(
+        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
+        [sid],
+      );
+      const latestFromYou: number = Number(rows?.[0]?.ts) || 0;
 
       const payloads = await this.client.encryptForSession(
         sid,
-        JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest } }),
+        JSON.stringify({ t: "MSG", data: { type: "SYNC_HINT", latestFromYou } }),
         0,
       );
 
       if (Object.keys(payloads).length > 0) {
         this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-        console.log(`[MessageService] Pushed ${messages.length} messages to peer ${sid} via MANIFEST`);
-        await updateLastManifestSync(sid, Date.now());
+        console.log(`[MessageService] Sent SYNC_HINT to ${sid} (latestFromYou=${latestFromYou})`);
       }
     } catch (e) {
-      console.warn(`[MessageService] Failed to send MANIFEST to peer ${sid}`, e);
+      console.warn(`[MessageService] Failed to send SYNC_HINT to peer ${sid}`, e);
     }
   }
 
@@ -1538,7 +1613,7 @@ export class MessageService extends EventEmitter {
         replyTo ? JSON.stringify(replyTo) : null,
       ],
     );
-    this.broadcastManifestToOwnDevices().catch(() => {});
+    this.broadcastManifestToOwnDevices().catch(() => { });
     return id;
   }
 }

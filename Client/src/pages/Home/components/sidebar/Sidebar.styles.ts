@@ -114,18 +114,20 @@ export const ItemContainer = styled.div<{ isActive: boolean }>`
   display: flex;
   align-items: center;
   padding: ${spacing[3]};
-  border-radius: ${radii.lg};
+  border-radius: ${radii.xl};
   cursor: pointer;
-  margin-bottom: ${spacing[1]};
-  transition: all 0.2s ease;
+  margin-bottom: ${spacing[2]};
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   background-color: ${(props) =>
     props.isActive ? colors.primary.subtle : "transparent"};
   border: 1px solid
-    ${(props) => (props.isActive ? colors.primary.subtle : "transparent")};
+    ${(props) => (props.isActive ? colors.border.highlight : "transparent")};
 
   &:hover {
     background-color: ${(props) =>
       props.isActive ? colors.primary.subtle : colors.background.tertiary};
+    transform: ${(props) => (props.isActive ? "none" : "scale(1.02)")};
+    box-shadow: ${(props) => (props.isActive ? "none" : "0 4px 12px rgba(0,0,0,0.1)")};
   }
 `;
 

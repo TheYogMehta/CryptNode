@@ -95,29 +95,29 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
 
   const containerStyle: React.CSSProperties = isOverlay
     ? {
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: "#111",
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        color: "white",
-      }
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "#111",
+      zIndex: 9999,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      color: "white",
+    }
     : {
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        color: "white",
-        width: "100%",
-        height: "100%",
-      };
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      color: "white",
+      width: "100%",
+      height: "100%",
+    };
 
   if (mode === "lock_screen" && !selectedAccount) {
     return (
@@ -129,13 +129,13 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           setSelectedAccount(acc);
           setPin("");
           setError("");
+          await setActiveUser(acc.email);
           const key = await AccountService.getStorageKey(
             acc.email,
             "app_lock_pin",
           );
           const storedPin = await getKeyFromSecureStorage(key);
           if (!storedPin) {
-            await setActiveUser(acc.email);
             onUnlockAccount?.(acc.email);
           }
         }}
@@ -149,10 +149,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           onClick={
             mode === "lock_screen" && selectedAccount
               ? () => {
-                  setSelectedAccount(null);
-                  setPin("");
-                  setError("");
-                }
+                setSelectedAccount(null);
+                setPin("");
+                setError("");
+              }
               : onCancel
           }
           style={{
@@ -175,9 +175,8 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
         <h2 style={{ fontSize: "24px", marginBottom: "10px" }}>
           {title ||
             (mode === "lock_screen" && selectedAccount
-              ? `Enter PIN for ${
-                  selectedAccount.displayName || selectedAccount.email
-                }`
+              ? `Enter PIN for ${selectedAccount.displayName || selectedAccount.email
+              }`
               : "App Locked")}
         </h2>
         <p style={{ color: "#aaa" }}>

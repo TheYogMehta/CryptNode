@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StorageService } from "../services/storage/StorageService";
+import { avatarCacheService } from "../services/storage/AvatarCacheService";
 
 const UserAvatar: React.FC<{
   avatarUrl?: string | null;
@@ -13,21 +13,23 @@ const UserAvatar: React.FC<{
 
   useEffect(() => {
     let active = true;
-    if (!avatarUrl) {
-      setSrc(null);
-      return;
-    }
-    if (avatarUrl.startsWith("data:") || avatarUrl.startsWith("http")) {
-      setSrc(avatarUrl);
-    } else {
-      StorageService.getProfileImage(avatarUrl.replace(/\.jpg$/, "")).then(
-        (s) => {
-          if (active) setSrc(s);
-        },
-      );
-    }
+
+    const fetch = () => {
+      avatarCacheService.getAvatar(avatarUrl).then((s) => {
+        if (active) setSrc(s);
+      });
+    };
+
+    fetch();
+
+    const unsub = avatarCacheService.onBust((cleanUrl) => {
+      const myClean = (avatarUrl || "").replace(/\.jpg$/, "");
+      if (myClean && cleanUrl === myClean) fetch();
+    });
+
     return () => {
       active = false;
+      unsub();
     };
   }, [avatarUrl]);
 
