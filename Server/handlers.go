@@ -680,6 +680,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frame), time.Now())
 			}
 
+			// Broadcast SYNC_DENY to own devices
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_DENY", map[string]string{"targetHash": targetHash})
+
 		case "BLOCK_USER":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
@@ -723,6 +726,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now())
 			}
 
+			// Broadcast SYNC_BLOCK to own devices
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]string{"targetHash": targetHash})
+
 			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
 
 		case "UNFRIEND":
@@ -740,6 +746,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			senderHash := emailHash(client.email)
+
+			// Get the sid before deleting
+			var sid string
+			s.db.QueryRow("SELECT sid FROM friends WHERE (user1_hash = ? AND user2_hash = ?) OR (user1_hash = ? AND user2_hash = ?)", senderHash, d.TargetHash, d.TargetHash, senderHash).Scan(&sid)
 
 			// Delete from friends table
 			s.db.Exec("DELETE FROM friends WHERE (user1_hash = ? AND user2_hash = ?) OR (user1_hash = ? AND user2_hash = ?)", senderHash, d.TargetHash, d.TargetHash, senderHash)
@@ -766,6 +776,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
 				frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
 				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", d.TargetHash, string(frameEvent), time.Now())
+			}
+
+			// Broadcast SYNC_UNFRIEND to own devices
+			if sid != "" {
+				s.broadcastToOwnDevices(client.id, senderHash, "SYNC_UNFRIEND", map[string]string{"targetHash": d.TargetHash, "sid": sid})
 			}
 
 			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"`+d.TargetHash+`"}`)})

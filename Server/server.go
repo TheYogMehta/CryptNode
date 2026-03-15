@@ -127,3 +127,33 @@ func (s *Server) broadcastDeviceList(emailHash string) {
 	}
 	sockRows.Close()
 }
+
+func (s *Server) broadcastToOwnDevices(excludeClientID string, emailHash string, syncType string, syncData map[string]string) {
+	rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", emailHash)
+	if err != nil {
+		s.logger.Printf("Failed to get sockets for sync broadcast: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	frameData, _ := json.Marshal(syncData)
+	frame := Frame{T: syncType, Data: json.RawMessage(frameData)}
+
+	for rows.Next() {
+		var socketID string
+		if err := rows.Scan(&socketID); err != nil {
+			continue
+		}
+		if socketID == excludeClientID {
+			continue
+		}
+		
+		s.mu.Lock()
+		targetClient, ok := s.clients[socketID]
+		s.mu.Unlock()
+		
+		if ok {
+			s.send(targetClient, frame)
+		}
+	}
+}

@@ -308,10 +308,17 @@ export class ChatClient extends EventEmitter implements IChatClient {
             }
           }
 
-          const reqResult = await this.sessionService.decryptFriendRequest(
-            data.encryptedPacket,
-            data.publicKeys || [data.publicKey],
-          );
+          let reqResult = null;
+          for (const payload of data.payloads || []) {
+            try {
+              reqResult = await this.sessionService.decryptFriendRequest(
+                payload.encryptedPacket,
+                [payload.publicKey]
+              );
+              if (reqResult) break;
+            } catch (e) { /* ignore and try next */ }
+          }
+
           if (reqResult) {
             const req = reqResult.profile;
             const successfulPubKey = reqResult.decryptedWithKey;
@@ -359,6 +366,27 @@ export class ChatClient extends EventEmitter implements IChatClient {
       case "FRIEND_DENY":
         await this.sessionService.handleFriendDeny(data);
         this.emit("session_updated");
+        break;
+      case "SYNC_DENY":
+        if (data.targetHash) {
+          await this.sessionService.denyFriendByHash(data.targetHash, true);
+          this.emit("session_updated");
+        }
+        break;
+      case "SYNC_UNFRIEND":
+        if (data.targetHash && data.sid) {
+          this.sessionService.removeConnection(data.targetHash, data.sid, true);
+          this.emit("session_updated");
+        }
+        break;
+      case "SYNC_BLOCK":
+        if (data.targetHash) {
+          await addBlockedUser(data.targetHash);
+          await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+            data.targetHash,
+          ]);
+          this.emit("block_list_changed");
+        }
         break;
       case "USER_BLOCKED_EVENT":
         this.emit("notification", {
@@ -433,10 +461,16 @@ export class ChatClient extends EventEmitter implements IChatClient {
                 if (isBlockedHash) continue;
               }
 
-              const reqResult = await this.sessionService.decryptFriendRequest(
-                reqData.encryptedPacket,
-                reqData.publicKeys || [reqData.publicKey],
-              );
+              let reqResult = null;
+              for (const payload of reqData.payloads || []) {
+                try {
+                  reqResult = await this.sessionService.decryptFriendRequest(
+                    payload.encryptedPacket,
+                    [payload.publicKey]
+                  );
+                  if (reqResult) break;
+                } catch (e) { /* ignore and try next */ }
+              }
 
               if (reqResult) {
                 const req = reqResult.profile;

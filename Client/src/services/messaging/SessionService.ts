@@ -501,13 +501,15 @@ export class SessionService extends EventEmitter {
     await removePendingRequest(targetEmail);
   }
 
-  public async denyFriendByHash(targetHash: string) {
-    socket.send({
-      t: "FRIEND_DENY",
-      data: { targetHash },
-      c: true,
-      p: 0,
-    });
+  public async denyFriendByHash(targetHash: string, skipNetwork?: boolean) {
+    if (!skipNetwork) {
+      socket.send({
+        t: "FRIEND_DENY",
+        data: { targetHash },
+        c: true,
+        p: 0,
+      });
+    }
     await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
       targetHash,
     ]);
@@ -590,27 +592,29 @@ export class SessionService extends EventEmitter {
   }
 
   public async handleFriendAccept(data: {
-    publicKeys?: string[];
-    publicKey: string;
-    encryptedPacket: string;
+    targetEmail?: string;
+    payloads: Array<{ publicKey: string; encryptedPacket: string }>;
   }) {
     const myEmail = this.normalizeEmail(this.authService.userEmail);
 
     let profile: any = null;
-    let successfulPubKey = data.publicKey;
-    try {
-      const result = await this.decryptFriendRequest(
-        data.encryptedPacket,
-        data.publicKeys || [data.publicKey],
-      );
-      if (result) {
-        profile = result.profile;
-        successfulPubKey = result.decryptedWithKey;
+    let successfulPubKey = "";
+    
+    // Attempt decryption over each incoming payload targeted for any of our varied device keys
+    for (const payload of data.payloads || []) {
+      try {
+        const result = await this.decryptFriendRequest(
+          payload.encryptedPacket,
+          [payload.publicKey],
+        );
+        if (result) {
+          profile = result.profile;
+          successfulPubKey = result.decryptedWithKey;
+          break; // Stop trying once we decrypt successfully
+        }
+      } catch (_e) {
+        // Just try the next one
       }
-    } catch (_e) {
-      // Decryption may fail on a secondary device (packet was encrypted for a
-      // different device's ECDH key). If the session was already restored via
-      // SESSION_LIST, this is harmless — just skip.
     }
 
     if (!profile) {
@@ -641,7 +645,7 @@ export class SessionService extends EventEmitter {
 
     await this.finalizeSession(
       sid,
-      [data.publicKey],
+      [successfulPubKey],
       profile.email,
       undefined,
       profile.name,
@@ -656,13 +660,15 @@ export class SessionService extends EventEmitter {
     console.log("Friend request denied by", data.targetEmail);
   }
 
-  public async removeConnection(targetHash: string, sid: string) {
-    socket.send({
-      t: "UNFRIEND",
-      data: { targetHash },
-      c: true,
-      p: 0,
-    });
+  public async removeConnection(targetHash: string, sid: string, skipNetwork?: boolean) {
+    if (!skipNetwork) {
+      socket.send({
+        t: "UNFRIEND",
+        data: { targetHash },
+        c: true,
+        p: 0,
+      });
+    }
 
     // Clear local session data
     delete this.sessions[sid];
