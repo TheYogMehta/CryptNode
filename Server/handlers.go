@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"database/sql"
+	"github.com/mattn/go-sqlite3"
 )
 
 func fetchFCMTokens(db *sql.DB, emailHash string) []string {

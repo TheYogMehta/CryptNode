@@ -130,6 +130,7 @@ export class AuthService extends EventEmitter {
     }
     this.authToken = null;
     this.userEmail = null;
+    this.identityKeyPair = null;
     socket.disconnect();
     this.emit("auth_error");
   }
@@ -153,6 +154,7 @@ export class AuthService extends EventEmitter {
 
     this.authToken = tokenToUse;
     this.userEmail = email;
+    this.identityKeyPair = null;
     this.isLocallyReady = true;
     await setActiveUser(email);
 
