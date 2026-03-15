@@ -258,20 +258,11 @@ if (data.message === "Auth failed") {
 
 ## 8. Security Considerations
 
-### Single-Device Login
+### Multi-Device Login Supported
 
-**Current Behavior**: If user logs in on Device B while already logged in on Device A, the server rejects Device B.
+**Current Behavior**: Users can log into the same account across multiple devices concurrently. The server supports this by tracking active connections via the `sockets` table paired with device-specific ECDH public keys in the `devices` table. Session mapping allows the server to broadcast encrypted payloads across all linked devices synchronously. 
 
-```go
-if oldClientID, exists := s.emailToClientId[email]; exists {
-    if _, ok := s.clients[oldClientID]; ok {
-        s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Already logged in on another device"}`)})
-        return
-    }
-}
-```
-
-**Rationale**: Prevents session hijacking and simplifies state management
+**Rationale**: Improves user experience and provides fallback redundancy but requires robust key state synchronization across devices to ensure accurate message encryption and decryption.
 
 ### Token Security
 

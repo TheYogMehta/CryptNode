@@ -100,38 +100,37 @@ sequenceDiagram
    - User A enters User B's email address
 
 2. **Request Transmission**:
-   - App generates connection request
-   - Exports User A's ECDH public key
-   - Sends `CONNECT_REQ` frame to server
+   - App requests User B's public keys from server (`GET_PUBLIC_KEY`)
+   - Retrieves array of public keys (one for each of User B's linked devices)
+   - Generates a `FRIEND_REQUEST` containing a payload encrypted separately for *each* of User B's public keys.
+   - Sends `FRIEND_REQUEST` frame to server
 
-3. **Server Routing**:
-   - Server looks up User B in `emailToClientId` map
-   - If User B is online, forwards request
-   - If offline, returns "User not online" error
+3. **Server Routing & Storage**:
+   - Server identifies all active WebSocket connections for User B.
+   - Forwards the correct encrypted payload variant to each online device.
+   - Saves payloads in SQLite `requests` table (indexed by `target_public_key`) for offline devices to retrieve on next login (`AUTH_SUCCESS`).
 
 4. **Peer Notification**:
-   - User B receives `JOIN_REQUEST` frame
-   - Server-side, request is additionally routed to all User B's devices
-   - Client decrypts and caches request locally in `pending_requests` SQLite table
-   - Formally, modal appears showing incoming request
-   - Displays: "<user-a@gmail.com> wants to connect"
+   - User B's device(s) receive `FRIEND_REQUEST` or `PENDING_REQUESTS` frames.
+   - Client iterates through payloads, finds the one matching its own public key, and decrypts it.
+   - Caches request locally in `pending_requests` SQLite table.
+   - Modal appears showing incoming request: "<user-a@gmail.com> wants to connect"
 
 5. **Accept/Deny Decision**:
    - User B clicks "Accept" or "Deny"
-   - If denied, server sends `JOIN_DENIED` to User A
+   - If denied, server sends `FRIEND_DENY` to User A (and syncs to User B's other devices).
 
 6. **Key Exchange (on Accept)**:
-   - User B generates ECDH key pair
-   - Derives shared secret using User A's public key
-   - Sends `JOIN_ACCEPT` with User B's public key
+   - User B's acting device generates `FRIEND_ACCEPT` frame containing its public key.
+   - Encrypts accept payload for User A's devices.
+   - Derives shared secret using User A's public key(s).
+   - Sends `FRIEND_ACCEPT` to server.
 
 7. **Session Establishment**:
-   - User A receives User B's public key
-   - Derives same shared secret
-   - Both users now have identical AES-GCM session key
+   - Both users receive peer's public keys and derive identical AES-GCM session keys for every device pair.
 
 8. **Local Storage**:
-   - Session key stored in SQLite `sessions` table
+   - Keys are stored in SQLite `sessions` table (with `peer_pub_keys` array).
    - Session marked as `online: true`
    - Chat window opens automatically
 
