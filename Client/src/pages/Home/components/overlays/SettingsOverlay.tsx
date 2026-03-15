@@ -402,7 +402,14 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           </div>
         );
       case "Security":
-        return <SecuritySettings currentUserEmail={currentUserEmail} />;
+        return <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {
+          if (email === currentUserEmail) {
+            await ChatClient.init();
+            onClose();
+          } else {
+            if (onSwitchAccount) onSwitchAccount(email);
+          }
+        }} />;
       default:
         return null;
     }
@@ -667,7 +674,14 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           )}
 
           {activeCategory === "Security" && (
-            <SecuritySettings currentUserEmail={currentUserEmail} />
+            <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {
+              if (email === currentUserEmail) {
+                await ChatClient.init();
+                onClose();
+              } else {
+                if (onSwitchAccount) onSwitchAccount(email);
+              }
+            }} />
           )}
         </SettingsContent>
       </SettingsContainer>

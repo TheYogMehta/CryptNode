@@ -607,6 +607,51 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
 
+		case "UNFRIEND":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				TargetHash string `json:"targetHash"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			if d.TargetHash == "" {
+				continue
+			}
+
+			senderHash := emailHash(client.email)
+
+			// Delete from friends table
+			s.db.Exec("DELETE FROM friends WHERE (user1_hash = ? AND user2_hash = ?) OR (user1_hash = ? AND user2_hash = ?)", senderHash, d.TargetHash, d.TargetHash, senderHash)
+
+			// Notify target they were unfriended (removes connection logic on their end)
+			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", d.TargetHash)
+			hasSockets := false
+			if err == nil {
+				for rows.Next() {
+					hasSockets = true
+					var socketID string
+					rows.Scan(&socketID)
+					s.mu.Lock()
+					if targetClient, ok := s.clients[socketID]; ok {
+						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+						s.send(targetClient, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+					}
+					s.mu.Unlock()
+				}
+				rows.Close()
+			}
+
+			if !hasSockets {
+				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+				frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", d.TargetHash, string(frameEvent), time.Now())
+			}
+
+			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"`+d.TargetHash+`"}`)})
+
 		case "DELETE_ACCOUNT":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Authentication required"}`)})

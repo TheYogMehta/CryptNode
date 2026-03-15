@@ -95,6 +95,7 @@ export interface SessionData {
   peer_name?: string;
   peer_avatar?: string;
   peerEmail?: string;
+  peerEmailHash?: string;
   isConnected?: boolean;
   notes?: string;
 }

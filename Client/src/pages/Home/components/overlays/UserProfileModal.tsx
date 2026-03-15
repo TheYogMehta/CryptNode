@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon } from "lucide-react";
+import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus } from "lucide-react";
 import {
   Overlay,
   ModalContainer,
@@ -19,7 +19,8 @@ import {
   MediaGridContent,
   MediaItem,
   SaveButtonContainer,
-  SaveButton
+  SaveButton,
+  RemoveConnectionButton
 } from "./UserProfileModal.styles";
 import { SessionData } from "../../types";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
@@ -65,16 +66,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       try {
         const media = await getMediaForSession(session.sid);
         if (active) {
-            
+
           const enrichedMedia = await Promise.all(
             media.map(async (item) => {
               if (item.filename) {
-                  try {
-                    const localUrl = await StorageService.getFileSrc(item.filename, item.mime_type);
-                    return { ...item, localUrl };
-                  } catch(e) {
-                      return item;
-                  }
+                try {
+                  const localUrl = await StorageService.getFileSrc(item.filename, item.mime_type);
+                  return { ...item, localUrl };
+                } catch (e) {
+                  return item;
+                }
               }
               return item;
             })
@@ -88,18 +89,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     fetchMedia();
     return () => { active = false; };
   }, [session.sid]);
-  
+
   // Handle responsiveness manually if window resizes, though 2/4 toggle works well
   useEffect(() => {
-      const handleResize = () => {
-          if (window.innerWidth < 480 && columns !== 2) {
-              // Force 2 columns on very small screens initially
-              setColumns(2);
-          }
-      };
-      window.addEventListener('resize', handleResize);
-      handleResize(); // init
-      return () => window.removeEventListener('resize', handleResize);
+    const handleResize = () => {
+      if (window.innerWidth < 480 && columns !== 2) {
+        // Force 2 columns on very small screens initially
+        setColumns(2);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize(); // init
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const handleSave = async () => {
@@ -115,25 +116,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const renderMediaItem = (item: any) => {
-      if (item.mime_type?.startsWith("image/")) {
-          return <img src={item.localUrl || item.thumbnail} alt={item.original_name} />;
-      }
-      if (item.mime_type?.startsWith("video/")) {
-          return (
-            <div className="file-icon">
-                <Film size={24} />
-                <span>Video</span>
-            </div>
-          );
-      }
+    if (item.mime_type?.startsWith("image/")) {
+      return <img src={item.localUrl || item.thumbnail} alt={item.original_name} />;
+    }
+    if (item.mime_type?.startsWith("video/")) {
       return (
         <div className="file-icon">
-            <File size={24} />
-            <span style={{ fontSize: '10px', wordBreak: 'break-all', padding: '0 4px', textAlign: 'center' }}>
-                {item.original_name?.substring(0, 15)}...
-            </span>
+          <Film size={24} />
+          <span>Video</span>
         </div>
       );
+    }
+    return (
+      <div className="file-icon">
+        <File size={24} />
+        <span style={{ fontSize: '10px', wordBreak: 'break-all', padding: '0 4px', textAlign: 'center' }}>
+          {item.original_name?.substring(0, 15)}...
+        </span>
+      </div>
+    );
   };
 
   return (
@@ -145,7 +146,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <X size={24} />
           </CloseButton>
         </Header>
-        
+
         <Content>
           <ProfileHeader>
             <AvatarContainer>
@@ -156,21 +157,21 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
             </AvatarContainer>
             <ProfileInfo>
-              <EditableInput 
-                value={aliasName} 
-                onChange={(e) => setAliasName(e.target.value)} 
+              <EditableInput
+                value={aliasName}
+                onChange={(e) => setAliasName(e.target.value)}
                 placeholder={displayName}
               />
               <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', paddingLeft: '8px' }}>
-                 {session.peerEmail || session.sid.substring(0, 12) + "..."}
+                {session.peerEmail || session.sid.substring(0, 12) + "..."}
               </span>
             </ProfileInfo>
           </ProfileHeader>
 
           <div>
             <SectionTitle>Notes</SectionTitle>
-            <NotesArea 
-              value={notes} 
+            <NotesArea
+              value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add personal notes about this user..."
             />
@@ -178,36 +179,49 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
           {mediaItems.length > 0 && (
             <div>
-                <MediaGridHeader>
-                    <SectionTitle style={{ marginBottom: 0 }}>Shared Media</SectionTitle>
-                    <GridControls>
-                        <GridButton active={columns === 2} onClick={() => setColumns(2)} title="2 Columns">
-                            <Grid size={18} />
-                        </GridButton>
-                        <GridButton active={columns === 4} onClick={() => setColumns(4)} title="4 Columns">
-                            <LayoutGrid size={18} />
-                        </GridButton>
-                    </GridControls>
-                </MediaGridHeader>
-                <MediaGridContent columns={columns}>
-                    {mediaItems.map((item, index) => (
-                        <MediaItem 
-                            key={item.filename || index}
-                            onClick={() => {
-                                if (item.localUrl) {
-                                    window.open(item.localUrl, "_blank", "noopener,noreferrer");
-                                }
-                            }}
-                        >
-                           {renderMediaItem(item)}
-                        </MediaItem>
-                    ))}
-                </MediaGridContent>
+              <MediaGridHeader>
+                <SectionTitle style={{ marginBottom: 0 }}>Shared Media</SectionTitle>
+                <GridControls>
+                  <GridButton active={columns === 2} onClick={() => setColumns(2)} title="2 Columns">
+                    <Grid size={18} />
+                  </GridButton>
+                  <GridButton active={columns === 4} onClick={() => setColumns(4)} title="4 Columns">
+                    <LayoutGrid size={18} />
+                  </GridButton>
+                </GridControls>
+              </MediaGridHeader>
+              <MediaGridContent columns={columns}>
+                {mediaItems.map((item, index) => (
+                  <MediaItem
+                    key={item.filename || index}
+                    onClick={() => {
+                      if (item.localUrl) {
+                        window.open(item.localUrl, "_blank", "noopener,noreferrer");
+                      }
+                    }}
+                  >
+                    {renderMediaItem(item)}
+                  </MediaItem>
+                ))}
+              </MediaGridContent>
             </div>
           )}
         </Content>
 
         <SaveButtonContainer>
+          <RemoveConnectionButton
+            onClick={() => {
+              if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
+                setIsSaving(true);
+                onClose();
+                ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
+              }
+            }}
+            disabled={isSaving}
+          >
+            <UserMinus size={18} />
+            Remove Connection
+          </RemoveConnectionButton>
           <SaveButton onClick={handleSave} disabled={isSaving}>
             <Save size={18} />
             {isSaving ? "Saving..." : "Save Changes"}

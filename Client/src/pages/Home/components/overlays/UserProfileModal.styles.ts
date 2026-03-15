@@ -248,3 +248,29 @@ export const SaveButton = styled.button`
     cursor: not-allowed;
   }
 `;
+
+export const RemoveConnectionButton = styled.button`
+  background-color: transparent;
+  color: ${colors.error.main};
+  border: 1px solid ${colors.error.main};
+  border-radius: ${radii.md};
+  padding: ${spacing[2]} ${spacing[4]};
+  font-family: ${typography.fontFamily.sans};
+  font-size: ${typography.fontSize.base};
+  font-weight: ${typography.fontWeight.medium};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: ${spacing[2]}px;
+  transition: all 0.2s;
+  margin-right: auto;
+
+  &:hover {
+    background-color: ${colors.error.main}1A;
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;

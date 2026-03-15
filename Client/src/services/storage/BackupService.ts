@@ -3,7 +3,8 @@ import { queryDB, executeDB, switchDatabase, tableOrder } from "./sqliteService"
 import { AccountService } from "../auth/AccountService";
 import { getKeyFromSecureStorage } from "./SafeStorage";
 import { Filesystem, Directory } from "@capacitor/filesystem";
-import { VAULT_DIR } from "./StorageUtils";
+import { VAULT_DIR, PROFILE_DIR } from "./StorageUtils";
+import { hashIdentifier } from "./SafeStorage";
 
 export class BackupService {
   /**
@@ -29,7 +30,31 @@ export class BackupService {
     zip.file("db_export.json", JSON.stringify(dbData));
 
     // 1.5 Export Metadata
-    zip.file("metadata.json", JSON.stringify({ email: userEmail }));
+    const accounts = await AccountService.getAccounts();
+    const account = accounts.find((a) => a.email === userEmail);
+    zip.file(
+      "metadata.json",
+      JSON.stringify({
+        email: userEmail,
+        displayName: account?.displayName,
+        avatarUrl: account?.avatarUrl,
+      }),
+    );
+
+    // 1.8 Export Profile Image
+    try {
+      const emailHash = await hashIdentifier(userEmail);
+      const profilePath = `${PROFILE_DIR}/${emailHash}.jpg`;
+      const fileData = await Filesystem.readFile({
+        path: profilePath,
+        directory: Directory.Data,
+      });
+      if (fileData.data) {
+        zip.file("profile_image.jpg", fileData.data, { base64: true });
+      }
+    } catch (e) {
+      console.warn("[BackupService] Profile image not found or read error", e);
+    }
 
     // 2. Export Master/Identity Keys
     const masterKeyStr = await getKeyFromSecureStorage(
@@ -136,7 +161,7 @@ export class BackupService {
   public static async restoreFromEncryptedBackup(
     encryptedBuffer: ArrayBuffer,
     backupPinOrCode: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const bufferView = new Uint8Array(encryptedBuffer);
     const salt = bufferView.slice(0, 16);
     const iv = bufferView.slice(16, 28);
@@ -183,12 +208,17 @@ export class BackupService {
 
     // 1. Restore account metadata first (email is required for scoped keys/db)
     let extractedEmail: string | null = null;
+    let extractedName: string | undefined = undefined;
+    let extractedAvatar: string | undefined = undefined;
+
     const metaFile = zip.file("metadata.json");
     if (metaFile) {
       try {
         const metaText = await metaFile.async("text");
         const meta = JSON.parse(metaText);
         extractedEmail = meta.email;
+        extractedName = meta.displayName;
+        extractedAvatar = meta.avatarUrl;
       } catch {
         extractedEmail = null;
       }
@@ -275,6 +305,37 @@ export class BackupService {
       );
     }
 
+    // 2.5 Restore Profile Image
+    const profileImageFile = zip.file("profile_image.jpg");
+    if (profileImageFile) {
+      try {
+        const emailHash = await hashIdentifier(extractedEmail);
+        const base64Data = await profileImageFile.async("base64");
+
+        try {
+          await Filesystem.mkdir({
+            path: PROFILE_DIR,
+            directory: Directory.Data,
+            recursive: true,
+          });
+        } catch (e) {
+          // Ignore if exists
+        }
+
+        await Filesystem.writeFile({
+          path: `${PROFILE_DIR}/${emailHash}.jpg`,
+          data: base64Data,
+          directory: Directory.Data,
+          recursive: true,
+        });
+
+        // Update the extractedAvatar to point to the local file we just restored
+        extractedAvatar = `${emailHash}.jpg`;
+      } catch (e) {
+        console.warn("Failed to restore profile image", e);
+      }
+    }
+
     // 3. Restore media vault files.
     for (const [path, file] of Object.entries(zip.files)) {
       if (!path.startsWith("media/") || file.dir) continue;
@@ -289,7 +350,12 @@ export class BackupService {
       });
     }
 
-    // Add stub account so we know it exists, though token is blank until sign in
-    await AccountService.addAccount(extractedEmail, "", "Restored Account");
+    // Add stub account so we know it exists. If it already exists, keep its token so we don't log the user out.
+    const existingAccounts = await AccountService.getAccounts();
+    const existingAccount = existingAccounts.find(a => a.email === extractedEmail);
+    const tokenToKeep = existingAccount ? existingAccount.token : "";
+    await AccountService.addAccount(extractedEmail, tokenToKeep, existingAccount?.displayName || "Restored Account", existingAccount?.avatarUrl);
+
+    return extractedEmail;
   }
 }

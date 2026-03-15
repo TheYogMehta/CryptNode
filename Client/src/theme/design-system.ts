@@ -32,6 +32,9 @@ export const colors = {
     warning: "var(--status-warning)",
     info: "var(--status-info)",
   },
+  error: {
+    main: "var(--status-error)",
+  },
   border: {
     subtle: "var(--border-subtle)",
     highlight: "var(--border-highlight)",

@@ -82,7 +82,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
           e,
         ),
       );
-      this.messageService.broadcastManifestToOwnDevices().catch(() => {});
+      this.messageService.broadcastManifestToOwnDevices().catch(() => { });
       this.messageService.sendManifestToPeer(sid).catch((e) =>
         console.warn("[ChatClient] Failed to push manifest to peer", e),
       );
@@ -493,22 +493,22 @@ export class ChatClient extends EventEmitter implements IChatClient {
           for (const sess of data) {
             if (sess.online && sess.sid) {
               this.messageService.broadcastSyncState(sess.sid);
-              this.messageService.sendManifestToPeer(sess.sid).catch(() => {});
+              this.messageService.sendManifestToPeer(sess.sid).catch(() => { });
             }
           }
         }
         // Sync manifest to own devices that are now reachable
-        this.messageService.broadcastManifestToOwnDevices().catch(() => {});
+        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
         break;
       case "PEER_ONLINE":
         this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
-        this.messageService.sendManifestToPeer(sid).catch(() => {});
+        this.messageService.sendManifestToPeer(sid).catch(() => { });
         this.messageService.broadcastSyncState(sid);
         this.broadcastProfileUpdate();
         // Sync manifest in case this is an own-device session coming online
-        this.messageService.broadcastManifestToOwnDevices().catch(() => {});
+        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
         break;
       case "PEER_OFFLINE":
         // Fallback to empty array if keys aren't provided when going completely offline
@@ -606,6 +606,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.sessionService.denyFriendByHash(targetHash);
   }
 
+  public removeConnection(targetHash: string, sid: string) {
+    return this.sessionService.removeConnection(targetHash, sid);
+  }
+
   public async blockUser(targetEmail: string) {
     return this.sessionService.blockUser(targetEmail);
   }
@@ -637,7 +641,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async broadcastProfileUpdate() {
-    this.messageService.broadcastManifestToOwnDevices().catch(() => {});
+    this.messageService.broadcastManifestToOwnDevices().catch(() => { });
     return this.messageService.broadcastProfileUpdate();
   }
 

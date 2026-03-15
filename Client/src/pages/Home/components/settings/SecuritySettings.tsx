@@ -19,10 +19,12 @@ import ChatClient from "../../../../services/core/ChatClient";
 
 interface SecuritySettingsProps {
   currentUserEmail: string | null;
+  onRestoreSuccess?: (email: string) => void;
 }
 
 export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
   currentUserEmail,
+  onRestoreSuccess,
 }) => {
   const [backupCode, setBackupCode] = useState<string | null>(null);
   const [showPinPrompt, setShowPinPrompt] = useState(false);
@@ -93,14 +95,14 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
     if (!restoreBuffer || !restoreCode) return;
     setIsRestoring(true);
     try {
-      await BackupService.restoreFromEncryptedBackup(
+      const restoredEmail = await BackupService.restoreFromEncryptedBackup(
         restoreBuffer,
         restoreCode,
       );
-      alert(
-        "Backup restored successfully! The app will now reload to apply the restored data.",
-      );
-      window.location.reload();
+      alert("Backup restored successfully!");
+      if (onRestoreSuccess) {
+        onRestoreSuccess(restoredEmail);
+      }
     } catch (err: any) {
       alert(err.message || "Failed to restore backup.");
     } finally {
@@ -286,8 +288,13 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
             </CodeBlock>
             <button
               onClick={async () => {
-                await Clipboard.write({ string: backupCode });
-                alert("Copied to clipboard!");
+                try {
+                  await Clipboard.write({ string: backupCode });
+                  alert("Copied to clipboard!");
+                } catch (err) {
+                  console.error("Failed to copy to clipboard", err);
+                  alert("Failed to copy to clipboard. Please try manually.");
+                }
               }}
               style={{
                 padding: "10px",

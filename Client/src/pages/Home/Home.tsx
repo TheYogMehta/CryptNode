@@ -303,7 +303,7 @@ const Home = () => {
     }
   };
 
-  const handleUnlock = useCallback(async (email: string) => {
+  const handleUnlock = async (email: string) => {
     try {
       const { pubKey, token } = await ChatClient.switchAccountLocal(email);
 
@@ -313,15 +313,17 @@ const Home = () => {
     } catch (e) {
       console.error("Unlock failed", e);
       const msg = e instanceof Error ? e.message : String(e || "");
-      if (
-        msg.includes("Session expired") ||
+      if (msg.includes("Session expired")) {
+        toast.error("Session expired. Opening login...");
+        handleGoogleSignIn();
+      } else if (
         msg.includes("Authentication failed") ||
         msg.includes("WebSocket timeout")
       ) {
         setIsLocked(true);
       }
     }
-  }, []);
+  };
 
   useEffect(() => {
     console.log("[Home] Render state:", {

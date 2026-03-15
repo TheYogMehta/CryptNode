@@ -153,7 +153,7 @@ export class SessionService extends EventEmitter {
             "image/jpeg",
           );
           if (fileSrc) avatarData = fileSrc;
-        } catch (_e) {}
+        } catch (_e) { }
       }
     }
 
@@ -185,7 +185,7 @@ export class SessionService extends EventEmitter {
             if (fileSrc) avatarData = fileSrc;
           }
         }
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (
@@ -603,6 +603,24 @@ export class SessionService extends EventEmitter {
 
   public async handleFriendDeny(data: any) {
     console.log("Friend request denied by", data.targetEmail);
+  }
+
+  public async removeConnection(targetHash: string, sid: string) {
+    socket.send({
+      t: "UNFRIEND",
+      data: { targetHash },
+      c: true,
+      p: 0,
+    });
+
+    // Clear local session data
+    delete this.sessions[sid];
+    this.connectedSids.delete(sid);
+
+    await executeDB("DELETE FROM sessions WHERE sid = ?", [sid]);
+    await executeDB("DELETE FROM messages WHERE session_id = ?", [sid]);
+
+    this.emit("session_updated");
   }
 
   public async handleProfileUpdate(sid: string, data: any) {
