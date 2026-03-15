@@ -11,6 +11,21 @@ import (
 	"time"
 )
 
+func fetchFCMTokens(db *sql.DB, emailHash string) []string {
+	var tokens []string
+	rows, err := db.Query("SELECT token FROM fcm_tokens WHERE email_hash = ?", emailHash)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var t string
+			if err := rows.Scan(&t); err == nil {
+				tokens = append(tokens, t)
+			}
+		}
+	}
+	return tokens
+}
+
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -339,6 +354,30 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.db.Exec("UPDATE users SET public_key = ? WHERE email_hash = ?", d.PublicKey, emailHash(client.email))
 			}
 
+		case "REGISTER_FCM_TOKEN":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				Token string `json:"token"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			if d.Token != "" {
+				eh := emailHash(client.email)
+				// Insert or update token 
+				_, err := s.db.Exec(`
+					INSERT INTO fcm_tokens (email_hash, token, last_updated) 
+					VALUES (?, ?, ?) 
+					ON CONFLICT(email_hash, token) 
+					DO UPDATE SET last_updated = excluded.last_updated`,
+					eh, d.Token, time.Now(),
+				)
+				if err != nil {
+					log.Printf("[FCM] Error saving token for %s: %v", eh, err)
+				}
+			}
+
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
 			rows, err := s.db.Query(`
@@ -435,6 +474,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.mu.Unlock()
 			}
 			rows.Close()
+
+			if !hasSockets {
+				// Send Push Notification since target is completely offline
+				tokens := fetchFCMTokens(s.db, targetHash)
+				go sendPushNotification(tokens, targetHash, 1)
+			}
 
 			if delivered {
 				s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
@@ -853,6 +898,30 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			log.Printf("[Server] Relayed MSG in %s to %d recipients (Delivered: %v)", frame.SID, recipientCount, delivered)
 			sess.mu.Unlock()
+
+			if !delivered {
+				// Fetch target hashes associated with this session (excluding sender)
+				rows, err := s.db.Query("SELECT user1_hash, user2_hash FROM friends WHERE sid = ?", frame.SID)
+				if err == nil {
+					for rows.Next() {
+						var u1, u2 string
+						rows.Scan(&u1, &u2)
+						targetHash := u1
+						if u1 == senderHash {
+							targetHash = u2
+						}
+						
+						// Get unread messages count approx (including this one which isn't saved as offline_notifications anymore usually, but they get the MSG frame)
+						var unreadCount int
+						s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
+						
+						// Fetch tokens & push
+						tokens := fetchFCMTokens(s.db, targetHash)
+						go sendPushNotification(tokens, targetHash, unreadCount+1)
+					}
+					rows.Close()
+				}
+			}
 
 			if frame.C {
 				if delivered {

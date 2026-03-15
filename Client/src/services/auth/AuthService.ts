@@ -63,14 +63,10 @@ export class AuthService extends EventEmitter {
         const wsUrl = isDev
           ? "ws://localhost:9000"
           : "wss://socket.cryptnode.theyogmehta.online";
-        await socket.connect(wsUrl);
 
-        socket.send({
-          t: "AUTH",
-          data: { token, publicKey: pubKey },
-          c: true,
-          p: 0,
-        });
+        // Connecting the socket will trigger the WS_CONNECTED listener in ChatClient,
+        // which will automatically send the AUTH packet with the latest token.
+        await socket.connect(wsUrl);
 
         return pubKey;
       } finally {
@@ -189,12 +185,10 @@ export class AuthService extends EventEmitter {
       const wsUrl = isDev
         ? "ws://localhost:9000"
         : "wss://socket.cryptnode.theyogmehta.online";
-      await socket.connect(wsUrl);
 
-      socket.send({
-        t: "AUTH",
-        data: { token, publicKey: pubKey },
-      });
+      // Connecting the socket will trigger the WS_CONNECTED listener in ChatClient,
+      // which will automatically send the AUTH packet with the latest token.
+      await socket.connect(wsUrl);
 
       // Wait for server confirmation (best-effort, 15s timeout).
       await new Promise<void>((resolve, reject) => {
@@ -258,7 +252,7 @@ export class AuthService extends EventEmitter {
       this.on("auth_error", onError);
 
       // Kick off connection after listeners are registered.
-      this.switchAccountConnect(email, pubKey, token).catch(() => {});
+      this.switchAccountConnect(email, pubKey, token).catch(() => { });
     });
   }
 

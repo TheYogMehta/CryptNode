@@ -49,6 +49,9 @@ func main() {
 	if err := s.initDB(); err != nil {
 		log.Fatalf("❌ Failed to initialize database: %v", err)
 	}
+	
+	InitFCM()
+
 	go s.startMonthlyCleanupWorker()
 	defer s.db.Close()
 

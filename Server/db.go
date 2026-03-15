@@ -55,6 +55,12 @@ func (s *Server) initDB() error {
 			event_data TEXT,
 			timestamp DATETIME
 		);`,
+		`CREATE TABLE IF NOT EXISTS fcm_tokens (
+			email_hash TEXT,
+			token TEXT,
+			last_updated DATETIME,
+			PRIMARY KEY (email_hash, token)
+		);`,
 	}
 
 	for _, query := range queries {

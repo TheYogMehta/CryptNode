@@ -37,8 +37,22 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [selectedAccount, setSelectedAccount] = useState<StoredAccount | null>(
-    null,
+    () => {
+      if (userEmail && accounts) {
+        return accounts.find(a => a.email === userEmail) || null;
+      }
+      return null;
+    }
   );
+
+  useEffect(() => {
+    if (mode === "lock_screen" && userEmail && accounts && accounts.length > 0) {
+      const match = accounts.find(a => a.email === userEmail);
+      if (match && (!selectedAccount || selectedAccount.email !== match.email)) {
+        setSelectedAccount(match);
+      }
+    }
+  }, [userEmail, accounts, mode]);
 
   const handleKeyPress = async (val: string) => {
     const newPin = pin + val;

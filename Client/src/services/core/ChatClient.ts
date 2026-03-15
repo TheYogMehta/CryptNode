@@ -105,9 +105,25 @@ export class ChatClient extends EventEmitter implements IChatClient {
       console.log("[ChatClient] WS Connected");
       if (this.authService.hasToken()) {
         try {
+          // Re-authenticate when socket auto-reconnects
+          const pubKey = await this.authService.exportPub();
+
+          // Load local sessions before telling the server we are authenticated
+          // This ensures cryptographic keys are available for any pending payload
+          // the server may immediately push (e.g. FRIEND_REQUEST, MSG).
           await this.sessionService.loadSessions();
+
+          socket.send({
+            t: "AUTH",
+            data: {
+              token: this.authService.getAuthToken(),
+              publicKey: pubKey
+            },
+            c: true,
+            p: 0,
+          });
         } catch (e) {
-          console.error("[ChatClient] Failed to load/reattach sessions", e);
+          console.error("[ChatClient] Failed to auto-auth/reattach sessions", e);
         }
         this.emit("session_updated");
       }

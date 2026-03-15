@@ -143,7 +143,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     const onAuthError = () => {
       setIsJoining(false);
       setUserEmail(null);
-      window.location.href = "/";
     };
 
     const onDeviceNuclearSuccess = () => {
@@ -161,8 +160,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       ) {
         hasNotifiedPending.current = true;
         toast.success(
-          `You have ${data.length} pending friend ${
-            data.length === 1 ? "request" : "requests"
+          `You have ${data.length} pending friend ${data.length === 1 ? "request" : "requests"
           }. Check the Add Friend page.`,
         );
       }
@@ -223,22 +221,24 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
   const handleConnect = async () => {
     if (!targetEmail) return;
 
+    const fullEmail = `${targetEmail.trim()}@gmail.com`.toLowerCase();
+
     // Check basic email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(targetEmail.trim())) {
-      toast.error("Please enter a valid email address.");
+    if (!emailRegex.test(fullEmail)) {
+      toast.error("Please enter a valid username.");
       return;
     }
 
     // Check against own email
-    if (targetEmail.trim().toLowerCase() === userEmail?.trim().toLowerCase()) {
+    if (fullEmail === userEmail?.trim().toLowerCase()) {
       toast.error("You cannot send a friend request to yourself.");
       return;
     }
 
     setIsJoining(true);
     try {
-      await ChatClient.connectToPeer(targetEmail);
+      await ChatClient.connectToPeer(fullEmail);
     } catch (e) {
       console.error(e);
       setIsJoining(false);
@@ -250,7 +250,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     try {
       await setSessionAlias(sid, name, "");
       loadSessions();
-      ChatClient.messageService.broadcastManifestToOwnDevices().catch(() => {});
+      ChatClient.messageService.broadcastManifestToOwnDevices().catch(() => { });
     } catch (e) {
       console.error("Failed to set alias", e);
     }

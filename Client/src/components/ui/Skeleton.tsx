@@ -34,7 +34,7 @@ export const Skeleton = ({ width, height, borderRadius }: { width?: string; heig
 export const SidebarSkeleton = () => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "12px" }}>
-      {[...Array(5)].map((_, i) => (
+      {[...Array(15)].map((_, i) => (
         <div key={i} style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <Skeleton width="48px" height="48px" borderRadius="24px" />
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1 }}>

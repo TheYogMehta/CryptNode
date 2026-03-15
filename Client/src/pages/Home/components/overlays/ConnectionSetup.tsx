@@ -57,13 +57,38 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <InputField
-          type="email"
-          value={targetEmail}
-          onChange={(e) => setTargetEmail(e.target.value)}
-          placeholder="friend@example.com"
-          onKeyDown={(e) => e.key === "Enter" && onConnect()}
-        />
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          background: colors.surfaceHighlight, 
+          borderRadius: "8px", 
+          border: `1px solid ${colors.border}`, 
+          overflow: "hidden" 
+        }}>
+          <input
+            type="text"
+            value={targetEmail}
+            onChange={(e) => setTargetEmail(e.target.value.replace(/@.*$/, "").trim())}
+            placeholder="username"
+            onKeyDown={(e) => e.key === "Enter" && onConnect()}
+            style={{ 
+              flex: 1, 
+              padding: "12px", 
+              background: "transparent", 
+              border: "none", 
+              color: colors.text.primary, 
+              outline: "none", 
+              fontSize: "1rem" 
+            }}
+          />
+          <span style={{ 
+            padding: "0 12px", 
+            color: colors.text.secondary,
+            borderLeft: `1px solid ${colors.border}`
+          }}>
+            @gmail.com
+          </span>
+        </div>
 
         <PrimaryButton
           onClick={onConnect}

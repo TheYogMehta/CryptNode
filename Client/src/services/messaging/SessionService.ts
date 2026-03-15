@@ -314,7 +314,11 @@ export class SessionService extends EventEmitter {
 
   private async deriveSharedKey(pubB64: string) {
     if (!this.authService.identityKeyPair) {
-      throw new Error("Identity not loaded");
+      console.warn("[SessionService] Identity not loaded. Attempting to load...");
+      await this.authService.loadIdentity();
+      if (!this.authService.identityKeyPair) {
+        throw new Error("Identity not loaded");
+      }
     }
     const raw = Uint8Array.from(atob(pubB64), (c) => c.charCodeAt(0));
     const pub = await crypto.subtle.importKey(
@@ -539,7 +543,7 @@ export class SessionService extends EventEmitter {
       const jsonStr = new TextDecoder().decode(decrypted);
       return JSON.parse(jsonStr);
     } catch (e) {
-      console.error("Decryption failed", e);
+      console.warn("Unable to decrypt friend request (likely meant for an older device key or a different device).");
       return null;
     }
   }

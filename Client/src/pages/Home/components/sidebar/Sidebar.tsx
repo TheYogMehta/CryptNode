@@ -102,7 +102,7 @@ export const Sidebar = React.memo(
             <SectionLabel>SECURE SESSIONS</SectionLabel>
 
             {sessions.length === 0 ? (
-               <SidebarSkeleton />
+               <EmptyText>No connected users. Add a friend to start chatting!</EmptyText>
             ) : (
               sessions.map((session) => (
                 <SidebarItem

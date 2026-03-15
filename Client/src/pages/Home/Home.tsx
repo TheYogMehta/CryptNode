@@ -235,6 +235,24 @@ const Home = () => {
   ]);
 
   useEffect(() => {
+    const handleAuthError = () => {
+      console.log("[Home] auth_error event received. Forcing AppLock and triggering login if not locked.");
+      setIsLocked(true);
+      if (!isLocked) {
+        toast.error("Session expired. Please sign in again.");
+        setTimeout(() => {
+          handleGoogleSignIn();
+        }, 500);
+      }
+    };
+
+    ChatClient.on("auth_error", handleAuthError);
+    return () => {
+      ChatClient.off("auth_error", handleAuthError);
+    };
+  }, [isLocked]);
+
+  useEffect(() => {
     let backButtonHandle: { remove: () => Promise<void> } | null = null;
     const setupBackListener = async () => {
       try {
@@ -305,9 +323,10 @@ const Home = () => {
 
   const handleUnlock = async (email: string) => {
     try {
+      console.log("[Home] handleUnlock called for:", email);
       const { pubKey, token } = await ChatClient.switchAccountLocal(email);
 
-      await ChatClient.switchAccountConnect(email, pubKey, token);
+      ChatClient.switchAccountConnect(email, pubKey, token).catch(() => {});
 
       setIsLocked(false);
     } catch (e) {
@@ -431,6 +450,7 @@ const Home = () => {
       <AppLockScreen
         mode="lock_screen"
         accounts={storedAccounts}
+        userEmail={ChatClient.userEmail}
         onUnlockAccount={handleUnlock}
         onAddAccount={handleGoogleSignIn}
         onSuccess={() => { }}
@@ -653,9 +673,19 @@ const Home = () => {
               }
             }}
             onSwitchAccount={async (email) => {
-              await ChatClient.switchAccount(email);
-              setShowSettings(false);
-              setIsLocked(true);
+              try {
+                // Phase 1: Unlock local DB only. Do NOT connect to WebSocket yet.
+                await ChatClient.switchAccountLocal(email);
+                setShowSettings(false);
+                // Require the user to unlock the newly switched account for security.
+                // The WS reconnection will happen after they successfully enter the PIN in AppLockScreen.
+                setIsLocked(true);
+              } catch (e) {
+                console.error("Account switch failed", e);
+                // If it failed (e.g. timeout or expired session), we stay within the app
+                setShowSettings(false);
+                setIsLocked(true);
+              }
             }}
           />
         )}

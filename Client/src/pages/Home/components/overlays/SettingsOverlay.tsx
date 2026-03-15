@@ -98,14 +98,14 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     try {
       if (email === currentUserEmail) return;
       if (onSwitchAccount) {
-        onSwitchAccount(email);
+        await onSwitchAccount(email);
       } else {
         await ChatClient.switchAccount(email);
         onClose();
         window.location.reload(); // Fallback if not controlled
       }
     } catch (e) {
-      alert("Failed to switch account: " + e);
+      console.warn("SettingsOverlay fallback: switch account handled by parent, or failed:", e);
     }
   };
 
