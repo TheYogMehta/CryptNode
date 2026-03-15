@@ -357,10 +357,7 @@ export class SessionService extends EventEmitter {
       if (!this.authService.userEmail) throw new Error("Not logged in");
       if (!remotePubB64s.length) throw new Error("No remote keys provided");
 
-      // Handshakes only need to encrypt against one known device to notify the peer.
-      const sharedKey = await this.deriveSharedKey(remotePubB64s[0]);
       const profile = await this.getLocalProfileForHandshake();
-
       const packetData = JSON.stringify({
         email: this.normalizeEmail(this.authService.userEmail),
         name: profile.name,
@@ -370,23 +367,39 @@ export class SessionService extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        sharedKey,
-        new TextEncoder().encode(packetData),
-      );
+      const payloads: Array<{ publicKey: string, encryptedPacket: string }> = [];
 
-      // Format: Base64(IV) + "." + Base64(Cipher)
-      const ivB64 = bufferToBase64(new Uint8Array(iv));
-      const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
-      const encryptedPacket = `${ivB64}.${cipherB64}`;
+      for (const pubB64 of remotePubB64s) {
+        if (!pubB64) continue;
+        try {
+          const sharedKey = await this.deriveSharedKey(pubB64);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const encrypted = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            sharedKey,
+            new TextEncoder().encode(packetData),
+          );
+
+          const ivB64 = bufferToBase64(new Uint8Array(iv));
+          const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
+          payloads.push({
+            publicKey: pubB64,
+            encryptedPacket: `${ivB64}.${cipherB64}`
+          });
+        } catch (err) {
+          console.warn(`[SessionService] Failed to encrypt handshake for key ${pubB64}`, err);
+        }
+      }
+
+      if (payloads.length === 0) {
+        throw new Error("Failed to encrypt friend request for any target keys.");
+      }
 
       socket.send({
         t: "FRIEND_REQUEST",
         data: {
           targetEmail: this.normalizeEmail(targetEmail),
-          encryptedPacket,
+          payloads,
         },
         c: true,
         p: 0,
@@ -405,9 +418,8 @@ export class SessionService extends EventEmitter {
   ) {
     try {
       if (!remotePubB64s.length) throw new Error("No remote keys provided");
-      const sharedKey = await this.deriveSharedKey(remotePubB64s[0]);
-      const profile = await this.getLocalProfileForHandshake();
 
+      const profile = await this.getLocalProfileForHandshake();
       const packetData = JSON.stringify({
         email: this.normalizeEmail(this.authService.userEmail),
         name: profile.name,
@@ -417,16 +429,33 @@ export class SessionService extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        sharedKey,
-        new TextEncoder().encode(packetData),
-      );
+      const payloads: Array<{ publicKey: string, encryptedPacket: string }> = [];
 
-      const ivB64 = bufferToBase64(new Uint8Array(iv));
-      const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
-      const encryptedPacket = `${ivB64}.${cipherB64}`;
+      for (const pubB64 of remotePubB64s) {
+        if (!pubB64) continue;
+        try {
+          const sharedKey = await this.deriveSharedKey(pubB64);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const encrypted = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            sharedKey,
+            new TextEncoder().encode(packetData),
+          );
+
+          const ivB64 = bufferToBase64(new Uint8Array(iv));
+          const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
+          payloads.push({
+            publicKey: pubB64,
+            encryptedPacket: `${ivB64}.${cipherB64}`
+          });
+        } catch (err) {
+          console.warn(`[SessionService] Failed to encrypt accept for key ${pubB64}`, err);
+        }
+      }
+
+      if (payloads.length === 0) {
+        throw new Error("Failed to encrypt accept request for any target keys.");
+      }
 
       // Derive SID deterministically
       const myEmail = this.normalizeEmail(this.authService.userEmail);
@@ -447,7 +476,7 @@ export class SessionService extends EventEmitter {
         t: "FRIEND_ACCEPT",
         data: {
           targetEmail,
-          encryptedPacket,
+          payloads,
         },
         c: true,
         p: 0,
@@ -527,10 +556,10 @@ export class SessionService extends EventEmitter {
     remotePubB64: string | string[],
   ) {
     const keysToTry = Array.isArray(remotePubB64) ? remotePubB64 : [remotePubB64];
-    
+
     for (const pubKey of keysToTry) {
       if (!pubKey) continue;
-      
+
       try {
         const sharedKey = await this.deriveSharedKey(pubKey);
         const [ivB64, cipherB64] = encryptedPacket.split(".");
@@ -555,7 +584,7 @@ export class SessionService extends EventEmitter {
         continue;
       }
     }
-    
+
     console.warn("Unable to decrypt friend request (likely meant for an older device key or a different device).");
     return null;
   }

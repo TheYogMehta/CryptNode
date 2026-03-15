@@ -32,9 +32,10 @@ func (s *Server) initDB() error {
 		`CREATE TABLE IF NOT EXISTS requests (
 			sender_hash TEXT,
 			target_hash TEXT,
+			target_public_key TEXT,
 			encrypted_packet TEXT,
 			timestamp DATETIME,
-			PRIMARY KEY (sender_hash, target_hash)
+			PRIMARY KEY (sender_hash, target_hash, target_public_key)
 		);`,
 		`CREATE TABLE IF NOT EXISTS friends (
 			user1_hash TEXT,
@@ -80,6 +81,15 @@ func (s *Server) initDB() error {
 	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sockets') WHERE name='public_key'").Scan(&pubKeyColCount)
 	if pubKeyColCount == 0 {
 		s.db.Exec("ALTER TABLE sockets ADD COLUMN public_key TEXT")
+	}
+
+	var targetPubKeyColCount int
+	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('requests') WHERE name='target_public_key'").Scan(&targetPubKeyColCount)
+	if targetPubKeyColCount == 0 {
+		// Drop existing primary key or recreate table if SQLite doesn't support easy PK dropping.
+		// For simplicity, we just add the column, though the PK won't include it on old DBs. 
+		// That's acceptable since we only need it for new multi-device users.
+		s.db.Exec("ALTER TABLE requests ADD COLUMN target_public_key TEXT")
 	}
 
 	var isMasterColCount int

@@ -141,20 +141,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			eh := emailHash(email)
 
-			var isMaster int
-			err = s.db.QueryRow("SELECT is_master FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&isMaster)
+			var deviceExists bool
+			err = s.db.QueryRow("SELECT 1 FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&deviceExists)
 			if err != nil {
-				var deviceCount int
-				s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ? AND last_active >= datetime('now', '-30 days')", eh).Scan(&deviceCount)
-				isMaster = 0
-				if deviceCount == 0 {
-					isMaster = 1
-				}
 				if d.PublicKey != "" {
 					s.db.Exec(`
-						INSERT INTO devices (email_hash, public_key, last_active, is_master) 
-						VALUES (?, ?, ?, ?)`,
-						eh, d.PublicKey, time.Now(), isMaster)
+						INSERT INTO devices (email_hash, public_key, last_active) 
+						VALUES (?, ?, ?)`,
+						eh, d.PublicKey, time.Now())
 				}
 			} else {
 				s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
@@ -196,7 +190,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				rows, err := s.db.Query(`
 					SELECT r.sender_hash, r.encrypted_packet, r.timestamp 
 					FROM requests r 
-					WHERE r.target_hash = ?`, eh)
+					WHERE r.target_hash = ? AND (r.target_public_key = ? OR r.target_public_key IS NULL OR r.target_public_key = '')`, eh, d.PublicKey)
 				if err != nil {
 					return
 				}
@@ -243,7 +237,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				rows.Close()
 				
 				if len(pending) > 0 {
-					s.db.Exec("DELETE FROM requests WHERE target_hash = ?", eh)
+					s.db.Exec("DELETE FROM requests WHERE target_hash = ? AND (target_public_key = ? OR target_public_key IS NULL OR target_public_key = '')", eh, d.PublicKey)
 					respBytes, _ := json.Marshal(pending)
 					s.send(client, Frame{T: "PENDING_REQUESTS", Data: json.RawMessage(respBytes)})
 				}
@@ -423,7 +417,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					devicesList = append(devicesList, map[string]any{
 						"publicKey":  pk,
 						"lastActive": lastActive.Format(time.RFC3339),
-						"isMaster":   isMaster == 1,
 						"status":     status,
 					})
 				}
@@ -433,14 +426,56 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			respBytes, _ := json.Marshal(map[string]any{"devices": devicesList})
 			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
 
+		case "GET_PUBLIC_KEY":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			targetHash := emailHash(normalizeEmail(d.TargetEmail))
+			
+			var pubKeys []string
+			rows, err := s.db.Query("SELECT DISTINCT public_key FROM devices WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", targetHash)
+			if err == nil {
+				for rows.Next() {
+					var pk string
+					if err := rows.Scan(&pk); err == nil {
+						pubKeys = append(pubKeys, pk)
+					}
+				}
+				rows.Close()
+			}
+
+			if len(pubKeys) > 0 {
+				respData, _ := json.Marshal(map[string]any{
+					"targetEmail": d.TargetEmail,
+					"publicKeys":  pubKeys,
+				})
+				s.send(client, Frame{T: "PUBLIC_KEY", Data: json.RawMessage(respData)})
+			} else {
+				// No keys found at all
+				respData, _ := json.Marshal(map[string]any{
+					"targetEmail": d.TargetEmail,
+					"publicKeys":  []string{},
+				})
+				s.send(client, Frame{T: "PUBLIC_KEY", Data: json.RawMessage(respData)})
+			}
+
 		case "FRIEND_REQUEST":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
 				continue
 			}
 			var d struct {
-				TargetEmail     string `json:"targetEmail"`
-				EncryptedPacket string `json:"encryptedPacket"`
+				TargetEmail string `json:"targetEmail"`
+				Payloads    []struct {
+					PublicKey       string `json:"publicKey"`
+					EncryptedPacket string `json:"encryptedPacket"`
+				} `json:"payloads"`
 			}
 			json.Unmarshal(frame.Data, &d)
 
@@ -448,12 +483,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			targetHash := emailHash(targetEmail)
 			senderHash := emailHash(client.email)
 
-			_, err := s.db.Exec(`INSERT OR REPLACE INTO requests (sender_hash, target_hash, encrypted_packet, timestamp) 
-				VALUES (?, ?, ?, ?)`, senderHash, targetHash, d.EncryptedPacket, time.Now())
-			if err != nil {
-				s.logger.Printf("Error storing request: %v", err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to store request"}`)})
-				continue
+			for _, payload := range d.Payloads {
+				_, err := s.db.Exec(`INSERT OR REPLACE INTO requests (sender_hash, target_hash, target_public_key, encrypted_packet, timestamp) 
+					VALUES (?, ?, ?, ?, ?)`, senderHash, targetHash, payload.PublicKey, payload.EncryptedPacket, time.Now())
+				if err != nil {
+					s.logger.Printf("Error storing request for key %s: %v", payload.PublicKey, err)
+				}
 			}
 			var senderPubKeys []string
 			keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
@@ -477,24 +512,39 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
-			delivered := false
+			if len(senderPubKeys) == 0 && singlePubKey != "" {
+				senderPubKeys = []string{singlePubKey}
+			}
+
+			rows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
 			hasSockets := false
 			for rows.Next() {
 				hasSockets = true
-				var socketID string
-				rows.Scan(&socketID)
+				var socketID, targetSocketPubKey string
+				rows.Scan(&socketID, &targetSocketPubKey)
 
 				s.mu.Lock()
 				if targetClient, ok := s.clients[socketID]; ok {
-					reqData, _ := json.Marshal(map[string]any{
-						"senderHash":      senderHash,
-						"encryptedPacket": d.EncryptedPacket,
-						"publicKeys":      senderPubKeys,
-						"publicKey":       singlePubKey,
-					})
-					s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
-					delivered = true
+					// Find the specific packet for this active device's public key
+					var packetForDevice string
+					for _, p := range d.Payloads {
+						if p.PublicKey == targetSocketPubKey {
+							packetForDevice = p.EncryptedPacket
+							break
+						}
+					}
+
+					// If we don't have a packet specifically for this key, we can't send it to this socket.
+					// This shouldn't happen unless the device came online right as we sent the request.
+					if packetForDevice != "" {
+						reqData, _ := json.Marshal(map[string]any{
+							"senderHash":      senderHash,
+							"encryptedPacket": packetForDevice,
+							"publicKeys":      senderPubKeys,
+							"publicKey":       singlePubKey, // Legacy fallback
+						})
+						s.send(targetClient, Frame{T: "FRIEND_REQUEST", Data: json.RawMessage(reqData)})
+					}
 				}
 				s.mu.Unlock()
 			}
@@ -506,10 +556,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				go sendPushNotification(tokens, targetHash, 1)
 			}
 
-			if delivered {
-				s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
-			}
-
 			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(`{"success":true}`)})
 
 		case "FRIEND_ACCEPT":
@@ -518,8 +564,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			var d struct {
-				TargetEmail     string `json:"targetEmail"`
-				EncryptedPacket string `json:"encryptedPacket"`
+				TargetEmail string `json:"targetEmail"`
+				Payloads    []struct {
+					PublicKey       string `json:"publicKey"`
+					EncryptedPacket string `json:"encryptedPacket"`
+				} `json:"payloads"`
 			}
 			json.Unmarshal(frame.Data, &d)
 
@@ -548,7 +597,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", senderHash, targetHash)
 
 			var myPubKeys []string
-			keyRows, _ := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
+			keyRows, _ := s.db.Query("SELECT DISTINCT public_key FROM devices WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
 			for keyRows.Next() {
 				var pk string
 				if err := keyRows.Scan(&pk); err == nil {
@@ -557,33 +606,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			keyRows.Close()
 
-			var singlePubKey string
-			if len(myPubKeys) > 0 {
-				singlePubKey = myPubKeys[0]
-			} else {
-				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
-				if singlePubKey == "" {
-					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
-				}
-			}
-			
-			if len(myPubKeys) == 0 && singlePubKey != "" {
-				myPubKeys = []string{singlePubKey}
-			}
-
-			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+			rows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
 			for rows.Next() {
-				var socketID string
-				rows.Scan(&socketID)
+				var socketID, targetSocketPubKey string
+				rows.Scan(&socketID, &targetSocketPubKey)
 				s.mu.Lock()
 				if targetClient, ok := s.clients[socketID]; ok {
-					respData, _ := json.Marshal(map[string]any{
-						"senderHash":      senderHash,
-						"encryptedPacket": d.EncryptedPacket,
-						"publicKeys":      myPubKeys,
-						"publicKey":       singlePubKey,
-					})
-					s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
+					var packetForDevice string
+					for _, p := range d.Payloads {
+						if p.PublicKey == targetSocketPubKey {
+							packetForDevice = p.EncryptedPacket
+							break
+						}
+					}
+					
+					if packetForDevice != "" {
+						respData, _ := json.Marshal(map[string]any{
+							"senderHash":      senderHash,
+							"encryptedPacket": packetForDevice,
+							"publicKeys":      myPubKeys,
+						})
+						s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
+					}
 				}
 				s.mu.Unlock()
 			}
@@ -1128,48 +1172,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				T:    "TURN_CREDS",
 				Data: json.RawMessage(respBytes),
 			})
-
-		case "GET_PUBLIC_KEY":
-			if client.email == "" {
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Auth required"}`),
-				})
-				continue
-			}
-
-			var d struct {
-				TargetEmail string `json:"targetEmail"`
-			}
-			json.Unmarshal(frame.Data, &d)
-
-			targetHash := emailHash(d.TargetEmail)
-
-			var pubKey string
-			err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", targetHash).Scan(&pubKey)
-			if err != nil {
-				err = s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", targetHash).Scan(&pubKey)
-			}
-
-			if pubKey != "" {
-				resp, _ := json.Marshal(map[string]any{
-					"publicKey":   pubKey,
-					"targetEmail": d.TargetEmail,
-				})
-				s.send(client, Frame{
-					T:    "PUBLIC_KEY",
-					Data: json.RawMessage(resp),
-				})
-			} else {
-				resp, _ := json.Marshal(map[string]any{
-					"targetEmail": d.TargetEmail,
-				})
-				s.send(client, Frame{
-					T:    "PUBLIC_KEY",
-					Data: json.RawMessage(resp),
-				})
-			}
-
 		}
 	}
 }

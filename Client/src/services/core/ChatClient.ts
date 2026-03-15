@@ -272,11 +272,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.emit("device_list", data);
         break;
       case "PUBLIC_KEY":
-        if (data.publicKey && data.targetEmail) {
+        if (data.publicKeys && data.publicKeys.length > 0 && data.targetEmail) {
           try {
-            await this.sessionService.sendFriendRequest(data.targetEmail, [
-              data.publicKey,
-            ]);
+            await this.sessionService.sendFriendRequest(
+              data.targetEmail,
+              data.publicKeys,
+            );
           } catch (err) {
             console.error("Failed to send encrypted friend request", err);
             this.emit("request_failed");
@@ -314,7 +315,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
           if (reqResult) {
             const req = reqResult.profile;
             const successfulPubKey = reqResult.decryptedWithKey;
-            
+
             const myEmail = this.normalizeEmail(this.authService.userEmail);
             const otherEmail = this.normalizeEmail(req.email);
             const [u1, u2] = [myEmail, otherEmail].sort();
@@ -440,7 +441,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
               if (reqResult) {
                 const req = reqResult.profile;
                 const successfulPubKey = reqResult.decryptedWithKey;
-                
+
                 await addPendingRequest(
                   req.email,
                   req.name || "Unknown",
