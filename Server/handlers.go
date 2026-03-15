@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 	"database/sql"
-	"github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func fetchFCMTokens(db *sql.DB, emailHash string) []string {
@@ -458,7 +458,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
 			delivered := false
+			hasSockets := false
 			for rows.Next() {
+				hasSockets = true
 				var socketID string
 				rows.Scan(&socketID)
 
