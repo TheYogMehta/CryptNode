@@ -524,42 +524,60 @@ export class SessionService extends EventEmitter {
 
   public async decryptFriendRequest(
     encryptedPacket: string,
-    remotePubB64: string,
+    remotePubB64: string | string[],
   ) {
-    try {
-      const sharedKey = await this.deriveSharedKey(remotePubB64);
-      const [ivB64, cipherB64] = encryptedPacket.split(".");
-      if (!ivB64 || !cipherB64) throw new Error("Invalid packet format");
+    const keysToTry = Array.isArray(remotePubB64) ? remotePubB64 : [remotePubB64];
+    
+    for (const pubKey of keysToTry) {
+      if (!pubKey) continue;
+      
+      try {
+        const sharedKey = await this.deriveSharedKey(pubKey);
+        const [ivB64, cipherB64] = encryptedPacket.split(".");
+        if (!ivB64 || !cipherB64) continue; // Try next key
 
-      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-      const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
+        const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+        const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
 
-      const decrypted = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv },
-        sharedKey,
-        cipher,
-      );
+        const decrypted = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv },
+          sharedKey,
+          cipher,
+        );
 
-      const jsonStr = new TextDecoder().decode(decrypted);
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.warn("Unable to decrypt friend request (likely meant for an older device key or a different device).");
-      return null;
+        const jsonStr = new TextDecoder().decode(decrypted);
+        return {
+          profile: JSON.parse(jsonStr),
+          decryptedWithKey: pubKey
+        };
+      } catch (e) {
+        // Decryption failed with this key, try the next one
+        continue;
+      }
     }
+    
+    console.warn("Unable to decrypt friend request (likely meant for an older device key or a different device).");
+    return null;
   }
 
   public async handleFriendAccept(data: {
+    publicKeys?: string[];
     publicKey: string;
     encryptedPacket: string;
   }) {
     const myEmail = this.normalizeEmail(this.authService.userEmail);
 
     let profile: any = null;
+    let successfulPubKey = data.publicKey;
     try {
-      profile = await this.decryptFriendRequest(
+      const result = await this.decryptFriendRequest(
         data.encryptedPacket,
-        data.publicKey,
+        data.publicKeys || [data.publicKey],
       );
+      if (result) {
+        profile = result.profile;
+        successfulPubKey = result.decryptedWithKey;
+      }
     } catch (_e) {
       // Decryption may fail on a secondary device (packet was encrypted for a
       // different device's ECDH key). If the session was already restored via
@@ -571,10 +589,10 @@ export class SessionService extends EventEmitter {
       const otherEmailHash = await sha256(this.normalizeEmail(
         // We don't have the peer email here, but if ANY session exists that
         // includes this public key we can safely skip.
-        data.publicKey,
+        successfulPubKey,
       )).catch(() => "");
       const sidForKey = Object.entries(this.sessions).find(
-        ([, s]) => s.peerPubKeys?.includes(data.publicKey),
+        ([, s]) => s.peerPubKeys?.includes(successfulPubKey),
       );
       if (sidForKey) {
         console.log(

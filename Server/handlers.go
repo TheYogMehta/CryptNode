@@ -206,17 +206,38 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					var ts time.Time
 					rows.Scan(&senderHash, &packet, &ts)
 
-					var pubKey string
-					err := s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&pubKey)
-					if err != nil || pubKey == "" {
-						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&pubKey)
+					var pubKeys []string
+					keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
+					if err == nil {
+						for keyRows.Next() {
+							var pk string
+							if err := keyRows.Scan(&pk); err == nil {
+								pubKeys = append(pubKeys, pk)
+							}
+						}
+						keyRows.Close()
+					}
+					
+					var singlePubKey string
+					if len(pubKeys) > 0 {
+						singlePubKey = pubKeys[0]
+					} else {
+						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
+						if singlePubKey == "" {
+							s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
+						}
+					}
+					
+					if len(pubKeys) == 0 && singlePubKey != "" {
+						pubKeys = []string{singlePubKey}
 					}
 
 					pending = append(pending, map[string]any{
 						"senderHash":      senderHash,
 						"encryptedPacket": packet,
 						"timestamp":       ts,
-						"publicKey":       pubKey,
+						"publicKey":       singlePubKey,
+						"publicKeys":      pubKeys,
 					})
 				}
 				rows.Close()
@@ -544,6 +565,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				if singlePubKey == "" {
 					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 				}
+			}
+			
+			if len(myPubKeys) == 0 && singlePubKey != "" {
+				myPubKeys = []string{singlePubKey}
 			}
 
 			rows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)

@@ -307,11 +307,14 @@ export class ChatClient extends EventEmitter implements IChatClient {
             }
           }
 
-          const req = await this.sessionService.decryptFriendRequest(
+          const reqResult = await this.sessionService.decryptFriendRequest(
             data.encryptedPacket,
-            data.publicKey,
+            data.publicKeys || [data.publicKey],
           );
-          if (req) {
+          if (reqResult) {
+            const req = reqResult.profile;
+            const successfulPubKey = reqResult.decryptedWithKey;
+            
             const myEmail = this.normalizeEmail(this.authService.userEmail);
             const otherEmail = this.normalizeEmail(req.email);
             const [u1, u2] = [myEmail, otherEmail].sort();
@@ -321,13 +324,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
               req.email,
               req.name || "Unknown",
               req.avatar || "",
-              data.publicKey,
+              successfulPubKey,
               data.senderHash || "",
             );
 
             this.emit("inbound_request", {
               ...req,
-              publicKey: data.publicKey,
+              publicKey: successfulPubKey,
               sid: computedSid,
             });
             this.emit("notification", {
@@ -429,17 +432,20 @@ export class ChatClient extends EventEmitter implements IChatClient {
                 if (isBlockedHash) continue;
               }
 
-              const req = await this.sessionService.decryptFriendRequest(
+              const reqResult = await this.sessionService.decryptFriendRequest(
                 reqData.encryptedPacket,
-                reqData.publicKey,
+                reqData.publicKeys || [reqData.publicKey],
               );
 
-              if (req) {
+              if (reqResult) {
+                const req = reqResult.profile;
+                const successfulPubKey = reqResult.decryptedWithKey;
+                
                 await addPendingRequest(
                   req.email,
                   req.name || "Unknown",
                   req.avatar || "",
-                  reqData.publicKey,
+                  successfulPubKey,
                   reqData.senderHash || "",
                 );
 
@@ -450,7 +456,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
                 this.emit("inbound_request", {
                   ...req,
-                  publicKey: reqData.publicKey,
+                  publicKey: successfulPubKey,
                   sid: computedSid,
                 });
 
