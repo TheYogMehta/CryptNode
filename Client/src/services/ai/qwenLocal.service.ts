@@ -119,6 +119,9 @@ export class QwenLocalService {
   private nativeContextId = -1;
   private _downloadProgress = 0;
   private _installedCache: boolean | null = null;
+  private _installedSize = 0;
+  private _requiredSize = 532517120; // Exact bytes for Qwen3.5-0.8B-Q4_K_M.gguf
+  private _downloadedBytes = 0;
 
   constructor() {
     const platform =
@@ -136,6 +139,15 @@ export class QwenLocalService {
   }
   get downloadProgress() {
     return this._downloadProgress;
+  }
+  get installedSize() {
+    return this._installedSize;
+  }
+  get requiredSize() {
+    return this._requiredSize;
+  }
+  get downloadedBytes() {
+    return this._downloadedBytes;
   }
 
   private listeners: (() => void)[] = [];
@@ -159,9 +171,11 @@ export class QwenLocalService {
         path: GGUF_FILENAME,
       });
       this._installedCache = stat.size > 0;
+      this._installedSize = stat.size || 0;
       return this._installedCache;
     } catch {
       this._installedCache = false;
+      this._installedSize = 0;
       return false;
     }
   }
@@ -178,6 +192,8 @@ export class QwenLocalService {
       this._isLoaded = false;
       this.failed = false;
       this._installedCache = null;
+      this._installedSize = 0;
+      this._downloadedBytes = 0;
       this.notify();
     } catch (e) {
       console.warn("Model already deleted or could not delete", e);
@@ -233,6 +249,7 @@ export class QwenLocalService {
 
         this._downloadProgress = 100;
         this._installedCache = true;
+        this._installedSize = this._requiredSize;
         this.notify();
 
         try {
@@ -247,9 +264,13 @@ export class QwenLocalService {
         listener = await Filesystem.addListener("progress", (status: any) => {
           if (status.url && status.url !== GGUF_URL) return;
           if (status.contentLength && status.contentLength > 0) {
+            this._requiredSize = status.contentLength;
+            this._downloadedBytes = status.bytes;
             const pct = Math.round((status.bytes / status.contentLength) * 100);
             if (pct !== this._downloadProgress && pct <= 100) {
               this._downloadProgress = pct;
+              this.notify();
+            } else {
               this.notify();
             }
             if (status.bytes >= status.contentLength) {

@@ -463,28 +463,44 @@ export class SessionService extends EventEmitter {
       const [u1, u2] = [myEmail, otherEmail].sort();
       const sid = await sha256(u1 + ":" + u2);
 
-      await this.finalizeSession(
-        sid,
-        remotePubB64s,
-        targetEmail,
-        undefined,
-        undefined,
-        undefined,
-      );
+      return new Promise<string>((resolve, reject) => {
+        const handler = (data: any) => {
+          if (data.targetEmail === targetEmail) {
+            socket.off("FRIEND_ACCEPTED_ACK", handler);
+            removePendingRequest(targetEmail)
+              .then(() =>
+                this.finalizeSession(
+                  sid,
+                  remotePubB64s,
+                  targetEmail,
+                  undefined,
+                  undefined,
+                  undefined,
+                )
+              )
+              .then(() => resolve(sid))
+              .catch(reject);
+          }
+        };
 
-      socket.send({
-        t: "FRIEND_ACCEPT",
-        data: {
-          targetEmail,
-          payloads,
-        },
-        c: true,
-        p: 0,
+        socket.on("FRIEND_ACCEPTED_ACK", handler);
+
+        socket.send({
+          t: "FRIEND_ACCEPT",
+          data: {
+            targetEmail,
+            payloads,
+          },
+          c: true,
+          p: 0,
+        });
+
+        // Timeout in case server never acks
+        setTimeout(() => {
+          socket.off("FRIEND_ACCEPTED_ACK", handler);
+          reject(new Error("Timeout waiting for friend accept ACK"));
+        }, 10000);
       });
-
-      await removePendingRequest(targetEmail);
-
-      return sid;
     } catch (e) {
       console.error("Failed to accept friend", e);
       throw e;
@@ -591,21 +607,23 @@ export class SessionService extends EventEmitter {
     return null;
   }
 
-  public async handleFriendAccept(data: {
-    targetEmail?: string;
-    payloads: Array<{ publicKey: string; encryptedPacket: string }>;
-  }) {
+  public async handleFriendAccept(data: any) {
     const myEmail = this.normalizeEmail(this.authService.userEmail);
 
     let profile: any = null;
     let successfulPubKey = "";
-    
-    // Attempt decryption over each incoming payload targeted for any of our varied device keys
-    for (const payload of data.payloads || []) {
+
+    const payloadsToTry = data.payloads || [{
+      encryptedPacket: data.encryptedPacket,
+      publicKey: data.publicKeys?.[0] || data.publicKey
+    }];
+
+    for (const payload of payloadsToTry) {
+      if (!payload.encryptedPacket) continue;
       try {
         const result = await this.decryptFriendRequest(
           payload.encryptedPacket,
-          [payload.publicKey],
+          data.publicKeys || [payload.publicKey],
         );
         if (result) {
           profile = result.profile;

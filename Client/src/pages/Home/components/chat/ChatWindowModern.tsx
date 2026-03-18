@@ -146,6 +146,10 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
           )}
           <Avatar 
             onClick={() => setShowProfileModal(true)} 
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setShowProfileModal(true);
+            }}
             style={{ cursor: "pointer" }}
             title="View Profile"
           >

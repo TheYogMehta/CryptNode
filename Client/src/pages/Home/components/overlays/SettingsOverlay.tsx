@@ -44,6 +44,11 @@ import { useAIStatus } from "../../hooks/useAIStatus";
 import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
 import { DeviceManager } from "../settings/DeviceManager";
 
+const formatBytes = (bytes: number) => {
+  if (!bytes) return "0.00 MB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+};
+
 interface SettingsOverlayProps {
   onClose: () => void;
   currentUserEmail: string | null;
@@ -77,6 +82,9 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     isLoading: isDownloadingAi,
     progress: aiProgress,
     hasFailed: aiFailed,
+    installedSize,
+    requiredSize,
+    downloadedBytes,
   } = useAIStatus();
 
   useEffect(() => {
@@ -111,7 +119,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
   const handleSignOut = async () => {
     if (confirm("Are you sure you want to sign out?")) {
-      await ChatClient.logout();
+      await ChatClient.logout(true);
       onClose();
     }
   };
@@ -178,7 +186,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           } finally {
             try {
               await setActiveUser(null);
-              await ChatClient.logout();
+              await ChatClient.logout(true);
             } catch (logoutErr) {
               console.warn("Forced logout after delete failed", logoutErr);
             }
@@ -272,7 +280,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               >
                 The AI model enables Smart Compose, Summarize, and Quick Replies
                 directly on your device without sending your chats to the cloud.
-                It requires ~400MB of storage space.
+                It requires {formatBytes(requiredSize)} of storage space.
               </div>
 
               {aiFailed && (
@@ -312,7 +320,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     <div
                       style={{ fontSize: "12px", color: colors.text.tertiary }}
                     >
-                      ~400MB Used
+                      {formatBytes(installedSize)} Used
                     </div>
                   </div>
                   <button
@@ -342,7 +350,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       color: colors.text.secondary,
                     }}
                   >
-                    <span>Downloading...</span>
+                    <span>Downloading... ({formatBytes(downloadedBytes)} /{` `}
+                    {formatBytes(requiredSize)})</span>
                     <span>{aiProgress}%</span>
                   </div>
                   <div
@@ -379,7 +388,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                     width: "100%",
                   }}
                 >
-                  Download Model (~400MB)
+                  Download Model ({formatBytes(requiredSize)})
                 </button>
               )}
             </div>
@@ -540,7 +549,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 >
                   The AI model enables Smart Compose, Summarize, and Quick
                   Replies directly on your device without sending your chats to
-                  the cloud. It requires ~400MB of storage space.
+                  the cloud. It requires {formatBytes(requiredSize)} of storage space.
                 </div>
 
                 {aiFailed && (
@@ -583,7 +592,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                           color: colors.text.tertiary,
                         }}
                       >
-                        ~400MB Used
+                        {formatBytes(installedSize)} Used
                       </div>
                     </div>
                     <button
@@ -613,7 +622,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                         color: colors.text.secondary,
                       }}
                     >
-                      <span>Downloading...</span>
+                      <span>Downloading... ({formatBytes(downloadedBytes)} /{` `}
+                      {formatBytes(requiredSize)})</span>
                       <span>{aiProgress}%</span>
                     </div>
                     <div
@@ -650,7 +660,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                       width: "100%",
                     }}
                   >
-                    Download Model (~400MB)
+                    Download Model ({formatBytes(requiredSize)})
                   </button>
                 )}
               </div>

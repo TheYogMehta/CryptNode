@@ -65,7 +65,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
     this.authService.on("auth_success", (email) =>
       this.emit("auth_success", email),
     );
-    this.authService.on("auth_error", () => this.emit("auth_error"));
+    this.authService.on("auth_error", (data) => this.emit("auth_error", data));
 
     this.sessionService.on("session_updated", () => {
       console.log("[ChatClient] session_updated event received from Service");
@@ -256,6 +256,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         this.emit("notification", { type: "error", message: data.message });
         break;
+      case "FRIEND_ACCEPTED_ACK":
+        socket.emit("FRIEND_ACCEPTED_ACK", data);
+        this.emit("notification", {
+          type: "success",
+          message: "Friend request accepted.",
+        });
+        break;
       case "INVITE_CODE":
         this.emit("invite_ready", data.code);
         break;
@@ -309,11 +316,17 @@ export class ChatClient extends EventEmitter implements IChatClient {
           }
 
           let reqResult = null;
-          for (const payload of data.payloads || []) {
+          const payloadsToTry = data.payloads || [{
+            encryptedPacket: data.encryptedPacket,
+            publicKey: data.publicKeys?.[0] || data.publicKey
+          }];
+
+          for (const payload of payloadsToTry) {
+            if (!payload.encryptedPacket) continue;
             try {
               reqResult = await this.sessionService.decryptFriendRequest(
                 payload.encryptedPacket,
-                [payload.publicKey]
+                data.publicKeys || [payload.publicKey]
               );
               if (reqResult) break;
             } catch (e) { /* ignore and try next */ }
@@ -356,7 +369,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
           console.error("Failed to decrypt friend request", e);
         }
         break;
-      case "FRIEND_ACCEPT": {
+      case "FRIEND_ACCEPTED": {
         const acceptSid = await this.sessionService.handleFriendAccept(data);
         if (acceptSid) {
           this.emit("session_updated");
@@ -462,7 +475,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
               }
 
               let reqResult = null;
-              for (const payload of reqData.payloads || []) {
+              const payloadsToTry = reqData.payloads || [{
+                encryptedPacket: reqData.encryptedPacket,
+                publicKey: reqData.publicKey
+              }];
+
+              for (const payload of payloadsToTry) {
+                if (!payload.encryptedPacket) continue;
                 try {
                   reqResult = await this.sessionService.decryptFriendRequest(
                     payload.encryptedPacket,
@@ -538,12 +557,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         break;
 
-      case "FRIEND_ACCEPTED_ACK":
-        this.emit("notification", {
-          type: "success",
-          message: "Friend request accepted.",
-        });
-        break;
       case "SESSION_LIST":
         this.sessionService.handleSessionList(data);
         if (Array.isArray(data)) {
@@ -616,8 +629,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.authService.login(token);
   }
 
-  public async logout() {
-    return this.authService.logout();
+  public async logout(isManualLogout = false) {
+    return this.authService.logout(isManualLogout);
   }
 
   public async deleteAccount() {

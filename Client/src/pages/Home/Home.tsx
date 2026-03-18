@@ -235,7 +235,12 @@ const Home = () => {
   ]);
 
   useEffect(() => {
-    const handleAuthError = () => {
+    const handleAuthError = (data?: { isManualLogout?: boolean }) => {
+      checkInitialState();
+      if (data?.isManualLogout) {
+        setIsLocked(true);
+        return;
+      }
       console.log("[Home] auth_error event received. Forcing AppLock and triggering login if not locked.");
       setIsLocked(true);
       if (!isLocked) {
@@ -646,17 +651,26 @@ const Home = () => {
           ) : (
             <WelcomeView onAddFriend={() => actions.setView("add")} />
           )}
+
+          <CallOverlay
+            callState={state.activeCall}
+            localStream={state.localStream}
+            onAccept={actions.acceptCall}
+            onReject={actions.rejectCall}
+            onHangup={actions.endCall}
+          />
         </MainContent>
 
-        <CallOverlay
-          callState={state.activeCall}
-          localStream={state.localStream}
-          onAccept={actions.acceptCall}
-          onReject={actions.rejectCall}
-          onHangup={actions.endCall}
-        />
 
-        {/* Removed RequestModal for pending requests to avoid popups */}
+
+        {(state.inboundReq || state.isWaiting) && (
+          <RequestModal
+            inboundReq={state.inboundReq}
+            isWaiting={state.isWaiting}
+            setInboundReq={actions.setInboundReq}
+            setIsWaiting={actions.setIsWaiting}
+          />
+        )}
 
         {showSettings && (
           <SettingsOverlay

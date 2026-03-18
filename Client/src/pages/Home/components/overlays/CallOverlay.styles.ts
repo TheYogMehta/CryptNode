@@ -16,9 +16,12 @@ const pulse = keyframes`
 `;
 
 export const OverlayContainer = styled.div`
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
   background-color: ${colors.background.overlay};
   backdrop-filter: blur(8px);
   display: flex;

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 import { IconButton } from "../../../../components/ui/IconButton";
-import Dialog from "@mui/material/Dialog";
+
 import { ChatClient } from "../../../../services/core/ChatClient";
 import { StorageService } from "../../../../services/storage/StorageService";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
@@ -214,20 +214,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   ) {
     const isIncoming = callState.status === "ringing";
     return (
-      <Dialog
-        open={true}
-        fullScreen
-        PaperProps={{
-          style: {
-            backgroundColor: "transparent",
-            boxShadow: "none",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-          },
-        }}
-      >
+      <OverlayContainer>
         <CallCard>
           <AvatarContainer isCalling>
             {resolvedPeerAvatar ? (
@@ -276,7 +263,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             )}
           </ControlsRow>
         </CallCard>
-      </Dialog>
+      </OverlayContainer>
     );
   }
 
@@ -409,18 +396,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   }
 
   return (
-    <Dialog
-      open={true}
-      fullScreen
-      PaperProps={{
-        style: {
-          backgroundColor: "transparent",
-          boxShadow: "none",
-          display: "flex",
-          flexDirection: "column",
-        },
-      }}
-    >
+    <OverlayContainer style={{ flexDirection: "column" }}>
       <FullScreenContainer>
         <MinimizeButton onClick={() => setIsMinimized(true)}>
           <Minimize2 size={32} />
@@ -576,6 +552,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           </ControlsRow>
         </div>
       </FullScreenContainer>
-    </Dialog>
+    </OverlayContainer>
   );
 };

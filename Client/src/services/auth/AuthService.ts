@@ -119,7 +119,7 @@ export class AuthService extends EventEmitter {
     return await this.exportPub();
   }
 
-  public async logout() {
+  public async logout(isManualLogout = false) {
     if (this.userEmail) {
       const key = await AccountService.getStorageKey(
         this.userEmail,
@@ -132,7 +132,7 @@ export class AuthService extends EventEmitter {
     this.userEmail = null;
     this.identityKeyPair = null;
     socket.disconnect();
-    this.emit("auth_error");
+    this.emit("auth_error", { isManualLogout });
   }
 
   /**

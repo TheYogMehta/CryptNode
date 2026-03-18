@@ -7,12 +7,18 @@ export const useAIStatus = () => {
   const [progress, setProgress] = useState(qwenLocalService.downloadProgress);
   const [isInstalled, setIsInstalled] = useState(false);
   const [hasFailed, setHasFailed] = useState(qwenLocalService.failed);
+  const [installedSize, setInstalledSize] = useState(qwenLocalService.installedSize);
+  const [requiredSize, setRequiredSize] = useState(qwenLocalService.requiredSize);
+  const [downloadedBytes, setDownloadedBytes] = useState(qwenLocalService.downloadedBytes);
 
   useEffect(() => {
     setIsLoaded(qwenLocalService.isLoaded);
     setIsLoading(qwenLocalService.isLoading);
     setProgress(qwenLocalService.downloadProgress);
     setHasFailed(qwenLocalService.failed);
+    setInstalledSize(qwenLocalService.installedSize);
+    setRequiredSize(qwenLocalService.requiredSize);
+    setDownloadedBytes(qwenLocalService.downloadedBytes);
 
     qwenLocalService.isModelInstalled().then(setIsInstalled);
 
@@ -21,11 +27,14 @@ export const useAIStatus = () => {
       setIsLoading(qwenLocalService.isLoading);
       setProgress(qwenLocalService.downloadProgress);
       setHasFailed(qwenLocalService.failed);
+      setInstalledSize(qwenLocalService.installedSize);
+      setRequiredSize(qwenLocalService.requiredSize);
+      setDownloadedBytes(qwenLocalService.downloadedBytes);
       qwenLocalService.isModelInstalled().then(setIsInstalled);
     });
 
     return unsubscribe;
   }, []);
 
-  return { isLoaded, isLoading, progress, isInstalled, hasFailed };
+  return { isLoaded, isLoading, progress, isInstalled, hasFailed, installedSize, requiredSize, downloadedBytes };
 };

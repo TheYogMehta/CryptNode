@@ -61,6 +61,8 @@ import { IconButton } from "../../../../components/ui/IconButton";
 import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
+import { UserProfileModal } from "../overlays/UserProfileModal";
+import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -109,6 +111,7 @@ export const ChatWindowDefault = ({
   const [input, setInput] = useState("");
 
   const [showMenu, setShowMenu] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [showPortModal, setShowPortModal] = useState(false);
   const [port, setPort] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -531,12 +534,21 @@ export const ChatWindowDefault = ({
           </BackButton>
         )}
 
-        <Avatar
-          src={resolvedAvatar}
-          name={headerName}
-          size="md"
-          status={peerOnline ? "online" : "offline"}
-        />
+        <div
+          onClick={() => setShowProfileModal(true)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setShowProfileModal(true);
+          }}
+          style={{ cursor: "pointer" }}
+        >
+          <Avatar
+            src={resolvedAvatar}
+            name={headerName}
+            size="md"
+            status={peerOnline ? "online" : "offline"}
+          />
+        </div>
 
         <HeaderInfo>
           <HeaderName>{headerName}</HeaderName>
@@ -1464,6 +1476,19 @@ export const ChatWindowDefault = ({
           onClose={() => setSelectedFiles([])}
           onSend={handlePreviewSend}
           onAddMore={() => fileInputRef.current?.click()}
+        />
+      )}
+
+      {showProfileModal && session && (
+        <UserProfileModal
+          session={session}
+          onClose={() => setShowProfileModal(false)}
+          onSave={async (aliasName, notes) => {
+             await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
+             await updateSessionNotes(session.sid, notes);
+             ChatClient.sessionService.updateSessionNotes(session.sid, notes);
+             ChatClient.sessionService.emit("session_updated");
+          }}
         />
       )}
     </ChatContainer>
