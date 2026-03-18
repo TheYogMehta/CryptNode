@@ -955,12 +955,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			sess.mu.Lock()
 			if _, exists := sess.clients[client.id]; !exists {
-				sess.mu.Unlock()
-				s.send(client, Frame{
-					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"Not a member of this session"}`),
-				})
-				continue
+				sess.clients[client.id] = client
 			}
 
 			recipientCount := 0

@@ -176,9 +176,7 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                       style={{
                         color: colors.text.secondary,
                         fontSize: "0.8em",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis"
+                        wordBreak: "break-all"
                       }}
                     >
                       {req.email || "No Email"}
