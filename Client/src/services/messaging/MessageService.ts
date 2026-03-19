@@ -158,6 +158,13 @@ export class MessageService extends EventEmitter {
         "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
         [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
+
+      if (!this.client.sessionService.sessions[sid].online) {
+        console.log(`[MessageService] Peer ${sid} is offline. Message queued locally.`);
+        this.broadcastManifestToOwnDevices().catch(() => {});
+        return;
+      }
+
       const normalizedType = type === "text" ? "TEXT" : type.toUpperCase();
       if (
         (normalizedType === "TEXT" || normalizedType === "GIF") &&

@@ -876,6 +876,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			)
 
 		case "MSG":
+			start := time.Now()
 			if client.email == "" {
 				s.send(client, Frame{
 					T:    "ERROR",
@@ -979,7 +980,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			log.Printf("[Server] Relayed MSG in %s to %d recipients (Delivered: %v)", frame.SID, recipientCount, delivered)
+			log.Printf("[Server] Relayed MSG in %s to %d recipients (Delivered: %v) | Latency: %v", frame.SID, recipientCount, delivered, time.Since(start))
 			sess.mu.Unlock()
 
 			if !delivered {
