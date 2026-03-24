@@ -224,17 +224,42 @@ export const dbInit = () => {
     }
 
     try {
-      await CapacitorSQLite.createConnection({
-        database: currentDbName,
-        encrypted: true,
-        mode: "secret",
-        version: 1,
-      });
-    } catch (e) {
-      // Ignore
-    }
+      // Check for 0-byte file corruption which causes "file is not a database" error
+      const filename = `${currentDbName}SQLite.db`;
+      const directoriesToCheck = [Directory.Library, Directory.Documents, Directory.Data];
+      
+      for (const dir of directoriesToCheck) {
+        try {
+          const stats = await Filesystem.stat({ path: filename, directory: dir });
+          if (stats.size === 0) {
+            console.warn(`[sqlite] Detected 0-byte database file at ${dir}/${filename}. Purging corrupt file...`);
+            await Filesystem.deleteFile({ path: filename, directory: dir });
+            try {
+              await CapacitorSQLite.closeConnection({ database: currentDbName, readonly: false });
+            } catch (ignore) {}
+          }
+        } catch (e) {
+          // File likely doesn't exist in this directory, continue
+        }
+      }
 
-    await CapacitorSQLite.open({ database: currentDbName });
+      // Always try to create connection before opening
+      try {
+        await CapacitorSQLite.createConnection({
+          database: currentDbName,
+          encrypted: true,
+          mode: "secret",
+          version: 1,
+        });
+      } catch (e) {
+        // Ignore if connection already exists
+      }
+
+      await CapacitorSQLite.open({ database: currentDbName });
+    } catch (openErr: any) {
+      console.error("[sqlite] Failed to open database:", openErr);
+      throw openErr;
+    }
 
     await CapacitorSQLite.execute({
       database: currentDbName,

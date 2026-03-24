@@ -456,6 +456,13 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
               defaultToolId={TOOLS.PEN}
               savingPixelRatio={4}
               previewPixelRatio={window.devicePixelRatio}
+              theme={{
+                palette: {
+                  "bg-primary": "#000000",
+                  "bg-secondary": "#111111",
+                  "bg-primary-active": "#222222",
+                }
+              }}
             />
           </div>
         ) : (
