@@ -278,6 +278,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
       case "DEVICE_LIST":
         this.emit("device_list", data);
         break;
+      case "TURN_CREDS":
+        this.callService.resolveTurnCreds(data);
+        break;
       case "PUBLIC_KEY":
         if (data.publicKeys && data.publicKeys.length > 0 && data.targetEmail) {
           try {

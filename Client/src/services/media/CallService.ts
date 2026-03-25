@@ -387,12 +387,12 @@ export class CallService {
       console.log("[CallService] Received remote track", event.track.kind);
 
       if (!this.remoteStream) {
-        this.remoteStream = new MediaStream();
+        this.remoteStream = event.streams[0] || new MediaStream([event.track]);
         this.attachRemoteAudio(this.remoteStream);
+        this.client.emit("remote_stream_ready", this.remoteStream);
+      } else if (!this.remoteStream.getTracks().includes(event.track)) {
+        this.remoteStream.addTrack(event.track);
       }
-
-      this.remoteStream.addTrack(event.track);
-      this.client.emit("remote_stream_ready", this.remoteStream);
     };
 
     this.peerConnection.onconnectionstatechange = () => {
