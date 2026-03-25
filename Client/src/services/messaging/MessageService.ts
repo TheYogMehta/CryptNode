@@ -986,6 +986,7 @@ export class MessageService extends EventEmitter {
           console.log(
             "[MessageService] Received CALL_ACCEPT - call is being answered",
           );
+          this.client.emit("call_accepted", { sid });
           break;
         case "CALL_END":
           console.log("[MessageService] Received CALL_END");

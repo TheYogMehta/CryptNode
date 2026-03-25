@@ -63,6 +63,15 @@ export const useCallLogic = ({
       setActiveCall({ ...call, ...info, status: "outgoing" });
     };
 
+    const onCallAccepted = (payload: { sid?: string } = {}) =>
+      setActiveCall((prev: any) => {
+        if (!prev) return prev;
+        if (!payload.sid || prev.sid === payload.sid) {
+          return { ...prev, status: "connecting" };
+        }
+        return prev;
+      });
+
     const onCallStarted = (payload: { sid?: string } = {}) =>
       setActiveCall((prev: any) => {
         if (!prev) return prev;
@@ -132,6 +141,7 @@ export const useCallLogic = ({
 
     client.on("call_incoming", onCallIncoming);
     client.on("call_outgoing", onCallOutgoing);
+    client.on("call_accepted", onCallAccepted);
     client.on("call_started", onCallStarted);
     client.on("ice_status", onIceStatus);
     client.on("peer_mic_status", onPeerMicStatus);
@@ -144,6 +154,7 @@ export const useCallLogic = ({
     return () => {
       client.off("call_incoming", onCallIncoming);
       client.off("call_outgoing", onCallOutgoing);
+      client.off("call_accepted", onCallAccepted);
       client.off("call_started", onCallStarted);
       client.off("ice_status", onIceStatus);
       client.off("peer_mic_status", onPeerMicStatus);

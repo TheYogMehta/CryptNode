@@ -166,7 +166,14 @@ export class CallService {
       });
       return;
     }
-    if (this.isCalling) return;
+    if (this.isCalling) {
+      if (this.currentCallSid === sid) {
+        console.log("[CallService] startCall: Already calling this user, ignoring.");
+        return;
+      }
+      console.warn("[CallService] startCall: Already in a call with another user, rejecting.");
+      return;
+    }
 
     this.callStartTime = 0;
 
@@ -592,21 +599,23 @@ export class CallService {
       this.client.emit("local_stream_ready", this.currentLocalStream);
       this.client.emit("video_toggled", { enabled: this.isVideoEnabled });
 
-      await this.negotiate(sid);
-      const mode = this.isVideoEnabled ? "Video" : "Audio";
-      console.log(`[CallService] Sending CALL_MODE: ${mode}`);
-      const modePayloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
-        0,
-      );
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads: modePayloads },
-        c: true,
-        p: 0,
-      });
+      if (this.isCallConnected) {
+        await this.negotiate(sid);
+        const mode = this.isVideoEnabled ? "Video" : "Audio";
+        console.log(`[CallService] Sending CALL_MODE: ${mode}`);
+        const modePayloads = await this.client.encryptForSession(
+          sid,
+          JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
+          0,
+        );
+        this.client.send({
+          t: "MSG",
+          sid,
+          data: { payloads: modePayloads },
+          c: true,
+          p: 0,
+        });
+      }
     } catch (e: any) {
       console.error("Error toggling video:", e);
       this.client.emit("notification", {
@@ -687,21 +696,23 @@ export class CallService {
       this.client.emit("local_stream_ready", this.currentLocalStream);
       this.client.emit("screen_toggled", { enabled: this.isScreenEnabled });
 
-      await this.negotiate(sid);
-      const mode = this.isScreenEnabled ? "Screen" : "Audio";
-      console.log(`[CallService] Sending CALL_MODE: ${mode}`);
-      const modePayloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
-        0,
-      );
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads: modePayloads },
-        c: true,
-        p: 0,
-      });
+      if (this.isCallConnected) {
+        await this.negotiate(sid);
+        const mode = this.isScreenEnabled ? "Screen" : "Audio";
+        console.log(`[CallService] Sending CALL_MODE: ${mode}`);
+        const modePayloads = await this.client.encryptForSession(
+          sid,
+          JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
+          0,
+        );
+        this.client.send({
+          t: "MSG",
+          sid,
+          data: { payloads: modePayloads },
+          c: true,
+          p: 0,
+        });
+      }
     } catch (e: any) {
       console.error("Error toggling screen share:", e);
       this.client.emit("notification", {
