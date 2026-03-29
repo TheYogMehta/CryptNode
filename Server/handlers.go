@@ -86,17 +86,26 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+				var ownSid, eh string
+				if client.email != "" {
+					eh = emailHash(client.email)
+					ownSidSum := sha256.Sum256([]byte(client.email + ":" + client.email))
+					ownSid = hex.EncodeToString(ownSidSum[:])
+				}
+
 				offlineData, _ := json.Marshal(map[string]any{
 					"peerPubKeys": senderPubKeys,
 				})
 
 				for _, c := range sess.clients {
 					if c.id != client.id {
-						s.send(c, Frame{
-							T:    "PEER_OFFLINE",
-							SID:  sess.id,
-							Data: json.RawMessage(offlineData),
-						})
+						if sess.id == ownSid || c.email == "" || emailHash(c.email) != eh {
+							s.send(c, Frame{
+								T:    "PEER_OFFLINE",
+								SID:  sess.id,
+								Data: json.RawMessage(offlineData),
+							})
+						}
 					}
 				}
 				delete(sess.clients, client.id)
@@ -248,6 +257,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}()
 
 			go func() {
+				ownSidSum := sha256.Sum256([]byte(email + ":" + email))
+				ownSid := hex.EncodeToString(ownSidSum[:])
+				
 				rows, err := s.db.Query(`
 					SELECT sid, user1_hash, user2_hash 
 					FROM friends 
@@ -324,7 +336,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						sess.mu.Lock()
 						sess.clients[client.id] = client
 						for _, c := range sess.clients {
-							if c.id != client.id {
+							if c.id != client.id && (sess.id == ownSid || c.email == "" || emailHash(c.email) != eh) {
 
 								// Calculate sender's current active keys to broadcast to friends
 								var senderPubKeys []string
@@ -356,10 +368,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// ── Own-device (multi-device) session setup ───────────────────────────────
-				// Compute a deterministic SID for this user's own-device session.
 				// The SID is sha256(email + ":" + email) — the same formula the client uses.
-				ownSidSum := sha256.Sum256([]byte(email + ":" + email))
-				ownSid := hex.EncodeToString(ownSidSum[:])
+				// (ownSid and ownSidSum computed above to filter the friends query)
 
 				// Persist the own-device friends row so MSG frames on this SID pass server auth.
 				s.db.Exec("INSERT OR IGNORE INTO friends (user1_hash, user2_hash, since, sid) VALUES (?, ?, ?, ?)", eh, eh, time.Now(), ownSid)

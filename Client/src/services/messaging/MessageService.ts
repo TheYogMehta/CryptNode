@@ -518,12 +518,14 @@ export class MessageService extends EventEmitter {
       console.log(`[MessageService] Received ${data.type}:`, data);
 
       let isOwnMessage = false;
+      let isOwnDeviceSession = false;
       const myEmail = this.client.authService.userEmail;
       if (myEmail && senderHash) {
+        const normEmail = myEmail.trim().toLowerCase();
         const myHash = await crypto.subtle
           .digest(
             "SHA-256",
-            new TextEncoder().encode(myEmail.trim().toLowerCase()),
+            new TextEncoder().encode(normEmail),
           )
           .then((b) =>
             Array.from(new Uint8Array(b))
@@ -532,6 +534,17 @@ export class MessageService extends EventEmitter {
           );
         if (myHash.toLowerCase() === senderHash.toLowerCase()) {
           isOwnMessage = true;
+        }
+        
+        const ownSidCalc = await crypto.subtle
+          .digest("SHA-256", new TextEncoder().encode(normEmail + ":" + normEmail))
+          .then((b) =>
+            Array.from(new Uint8Array(b))
+              .map((x) => x.toString(16).padStart(2, "0"))
+              .join(""),
+          );
+        if (sid === ownSidCalc) {
+          isOwnDeviceSession = true;
         }
       }
       const senderString = isOwnMessage ? "me" : "other";
@@ -1052,6 +1065,10 @@ export class MessageService extends EventEmitter {
           await this.client.fileTransfer.handleFileChunk(sid, data);
           break;
         case "CALL_START":
+          if (isOwnMessage && !isOwnDeviceSession) {
+            console.log("[MessageService] Ignoring CALL_START sent by our own sibling device.");
+            break;
+          }
           if (this.client.callService.isCalling) {
             console.log(
               "[MessageService] Already on call, rejecting new call from",
