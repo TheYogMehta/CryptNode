@@ -355,6 +355,84 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					s.mu.Unlock()
 				}
 
+				// ── Own-device (multi-device) session setup ───────────────────────────────
+				// Compute a deterministic SID for this user's own-device session.
+				// The SID is sha256(email + ":" + email) — the same formula the client uses.
+				ownSidSum := sha256.Sum256([]byte(email + ":" + email))
+				ownSid := hex.EncodeToString(ownSidSum[:])
+
+				// Persist the own-device friends row so MSG frames on this SID pass server auth.
+				s.db.Exec("INSERT OR IGNORE INTO friends (user1_hash, user2_hash, since, sid) VALUES (?, ?, ?, ?)", eh, eh, time.Now(), ownSid)
+
+				// Collect all sibling device sockets (excluding this one).
+				var siblingClients []*Client
+				var siblingPubKeys []string
+				sibRows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ? AND socket_id != ?", eh, client.id)
+				for sibRows.Next() {
+					var sibSocketID, sibPubKey string
+					sibRows.Scan(&sibSocketID, &sibPubKey)
+					s.mu.Lock()
+					if sibClient, ok := s.clients[sibSocketID]; ok {
+						siblingClients = append(siblingClients, sibClient)
+						if sibPubKey != "" {
+							siblingPubKeys = append(siblingPubKeys, sibPubKey)
+						}
+					}
+					s.mu.Unlock()
+				}
+				sibRows.Close()
+
+				// Wire up the own-device in-memory session with all sibling sockets + self.
+				s.mu.Lock()
+				ownSess, ownSessExists := s.sessions[ownSid]
+				if !ownSessExists {
+					ownSess = &Session{
+						id:      ownSid,
+						clients: map[string]*Client{},
+					}
+					s.sessions[ownSid] = ownSess
+				}
+				ownSess.mu.Lock()
+				ownSess.clients[client.id] = client
+				for _, sc := range siblingClients {
+					ownSess.clients[sc.id] = sc
+				}
+				ownSess.mu.Unlock()
+				s.mu.Unlock()
+
+				// Collect this device's own pub keys for PEER_ONLINE payloads.
+				var myPubKeysForOwn []string
+				myOwnKeyRows, _ := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", eh)
+				for myOwnKeyRows.Next() {
+					var pk string
+					if err := myOwnKeyRows.Scan(&pk); err == nil {
+						myPubKeysForOwn = append(myPubKeysForOwn, pk)
+					}
+				}
+				myOwnKeyRows.Close()
+
+				if len(siblingClients) > 0 {
+					// Notify newly-connected device of all sibling pub keys → triggers sync.
+					pOForNew, _ := json.Marshal(map[string]any{"peerPubKeys": siblingPubKeys})
+					s.send(client, Frame{T: "PEER_ONLINE", SID: ownSid, Data: json.RawMessage(pOForNew)})
+
+					// Notify all already-connected siblings of the new device's pub keys.
+					pOForSiblings, _ := json.Marshal(map[string]any{"peerPubKeys": myPubKeysForOwn})
+					for _, sc := range siblingClients {
+						s.send(sc, Frame{T: "PEER_ONLINE", SID: ownSid, Data: json.RawMessage(pOForSiblings)})
+					}
+				}
+
+				// Include the own-device session in SESSION_LIST so the client initialises
+				// its local crypto keys and recognises it as an own-device sync session.
+				sessions = append(sessions, map[string]any{
+					"sid":         ownSid,
+					"online":      len(siblingClients) > 0,
+					"peerHash":    eh,      // peer IS ourselves → client detects isOwnDevice
+					"peerPubKeys": siblingPubKeys,
+					"ownPubKeys":  myPubKeysForOwn,
+				})
+
 				if sessions == nil {
 					sessions = make([]map[string]any, 0)
 				}
