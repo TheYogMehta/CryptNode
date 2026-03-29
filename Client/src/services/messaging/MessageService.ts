@@ -1661,7 +1661,24 @@ export class MessageService extends EventEmitter {
    * Both sides send on connect; receiver merges each section independently by timestamp.
    * The server only sees encrypted bytes — zero plaintext leakage.
    */
-  public async broadcastManifestToOwnDevices() {
+  private broadcastManifestCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+  public async broadcastManifestToOwnDevices(): Promise<void> {
+    if (this.broadcastManifestCooldownTimer) {
+      clearTimeout(this.broadcastManifestCooldownTimer);
+    }
+    return new Promise<void>((resolve) => {
+      this.broadcastManifestCooldownTimer = setTimeout(async () => {
+        try {
+          await this._executeBroadcastManifestToOwnDevices();
+        } finally {
+          this.broadcastManifestCooldownTimer = null;
+          resolve();
+        }
+      }, 500);
+    });
+  }
+
+  private async _executeBroadcastManifestToOwnDevices() {
     try {
       const myEmail = this.client.authService.userEmail;
       if (!myEmail) return;
