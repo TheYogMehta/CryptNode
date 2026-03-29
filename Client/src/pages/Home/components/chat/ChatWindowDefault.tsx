@@ -109,6 +109,7 @@ export const ChatWindowDefault = ({
   const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
   const virtuosoRef = useRef<VirtuosoHandle>(null); // Replacement for scrollRef logic
   const [input, setInput] = useState("");
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const [showMenu, setShowMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -168,6 +169,8 @@ export const ChatWindowDefault = ({
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showOptionsMenu]);
+
+
 
   const handleSummarize = async () => {
     if (isSummarizing || isInitializingModel || messages.length === 0) return;
@@ -503,6 +506,30 @@ export const ChatWindowDefault = ({
       return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
     });
   }, [messages, normalizedSearch]);
+
+  const lastMessageCount = useRef(filteredMessages.length);
+  useEffect(() => {
+    if (filteredMessages.length > lastMessageCount.current) {
+      const isMyMessage = filteredMessages[filteredMessages.length - 1]?.sender === "me";
+      if (isAtBottom || isMyMessage) {
+        setTimeout(() => {
+          virtuosoRef.current?.scrollToIndex({
+            index: filteredMessages.length - 1,
+            align: 'end',
+            behavior: 'auto' 
+          });
+          setTimeout(() => {
+            virtuosoRef.current?.scrollToIndex({
+              index: filteredMessages.length - 1,
+              align: 'end',
+              behavior: 'auto'
+            });
+          }, 300);
+        }, 50);
+      }
+    }
+    lastMessageCount.current = filteredMessages.length;
+  }, [filteredMessages.length, isAtBottom]);
 
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
@@ -883,9 +910,10 @@ export const ChatWindowDefault = ({
           style={{ height: "100%" }}
           data={filteredMessages}
           totalCount={filteredMessages.length}
-          initialTopMostItemIndex={filteredMessages.length - 1}
-          followOutput="auto"
+          initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
+          followOutput={false}
           alignToBottom
+          atBottomStateChange={(bottom) => setIsAtBottom(bottom)}
           atTopStateChange={(atTop: boolean) => {
             if (atTop && onLoadMore) onLoadMore();
           }}

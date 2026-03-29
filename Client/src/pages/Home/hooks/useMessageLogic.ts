@@ -17,6 +17,11 @@ export const useMessageLogic = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [isRateLimited, setIsRateLimited] = useState(false);
+  const messagesRef = useRef<ChatMessage[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (activeChat) {
@@ -26,9 +31,8 @@ export const useMessageLogic = ({
     }
   }, [activeChat]);
 
-  const loadHistory = async (sid: string) => {
-    const rows = await queryDB(
-      `SELECT m.*, 
+  const loadHistory = async (sid: string, beforeTimestamp?: number, maintainCount?: number) => {
+    let query = `SELECT m.*, 
               md.status as mediaStatus, 
               md.filename as mediaFilename, 
               md.file_size as mediaTotalSize, 
@@ -38,21 +42,44 @@ export const useMessageLogic = ({
               md.thumbnail
        FROM messages m
        LEFT JOIN media md ON m.id = md.message_id
-       WHERE m.sid = ? 
-       ORDER BY m.timestamp DESC 
-       LIMIT 30`,
-      [sid],
-    );
+       WHERE m.sid = ? `;
+    const params: any[] = [sid];
+
+    if (beforeTimestamp) {
+      query += ` AND m.timestamp < ? `;
+      params.push(beforeTimestamp);
+    }
+
+    const limit = maintainCount ? maintainCount : 30;
+    query += ` ORDER BY m.timestamp DESC LIMIT ?`;
+    params.push(limit);
+
+    const rows = await queryDB(query, params);
     const formatted = rows.map((r: any) => ({
       ...r,
       replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
     }));
-    setMessages(formatted.reverse());
+    
+    if (!beforeTimestamp && !maintainCount) {
+      setMessages(formatted.reverse());
+    } else if (maintainCount) {
+      setMessages((prev) => {
+        // preserve optimistic messages if they exist by mapping existing tempIds or just replacing what's in DB
+        // since we are replacing the view, we just replace it.
+        return formatted.reverse();
+      });
+    } else {
+      setMessages((prev) => {
+        if (formatted.length === 0) return prev;
+        return [...formatted.reverse(), ...prev];
+      });
+    }
   };
 
   const loadMoreHistory = () => {
-    if (activeChatRef.current) {
-      loadHistory(activeChatRef.current);
+    if (activeChatRef.current && messagesRef.current.length > 0) {
+      const earliest = messagesRef.current[0].timestamp;
+      loadHistory(activeChatRef.current, earliest);
     }
   };
 
@@ -91,13 +118,13 @@ export const useMessageLogic = ({
 
     const onMessageStatus = ({ sid }: { sid: string }) => {
       if (sid === activeChatRef.current) {
-        loadHistory(sid);
+        loadHistory(sid, undefined, Math.max(30, messagesRef.current.length));
       }
     };
 
     client.on("message_status", ({ sid }) => {
       if (sid === activeChatRef.current) {
-        loadHistory(sid);
+        loadHistory(sid, undefined, Math.max(30, messagesRef.current.length));
       }
     });
 
