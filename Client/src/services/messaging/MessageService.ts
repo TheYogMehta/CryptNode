@@ -55,6 +55,9 @@ export class MessageService extends EventEmitter {
       timestamp: number;
     }
   >();
+  // Cooldown map to prevent GET_PROFILE request storms: sid -> timestamp of last request
+  private profileRequestCooldown = new Map<string, number>();
+  private static readonly PROFILE_REQUEST_COOLDOWN_MS = 10_000;
 
   constructor(client: IMessageClient) {
     super();
@@ -161,7 +164,7 @@ export class MessageService extends EventEmitter {
 
       if (!this.client.sessionService.sessions[sid].online) {
         console.log(`[MessageService] Peer ${sid} is offline. Message queued locally.`);
-        this.broadcastManifestToOwnDevices().catch(() => {});
+        this.broadcastManifestToOwnDevices().catch(() => { });
         return;
       }
 
@@ -552,22 +555,22 @@ export class MessageService extends EventEmitter {
           try {
             const peerLatestFromYou: number = Number(data.latestFromYou) || 0;
             const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
-            
+
             // To the remote peer, "from you" means messages WE sent (sender='me' locally)
             // and "from me" means messages THEY sent (sender='other' locally)
-            
+
             const missingYou = await queryDB(
               "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
               [sid, peerLatestFromYou],
             );
-            
+
             // Only query 'other' messages if the peer explicitly gave a latestFromMe hint
             // (backward compatibility check).
             const missingMe = data.latestFromMe !== undefined ? await queryDB(
               "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
               [sid, peerLatestFromMe],
             ) : [];
-            
+
             // Send back both the messages they are missing from us, and from themselves.
             const missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
 
@@ -765,202 +768,212 @@ export class MessageService extends EventEmitter {
               blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
               requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
               aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string }[];
+              // NOTE: isOwnMessage is checked below before applying sensitive sections
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
             };
             if (!manifest || typeof manifest !== "object") break;
 
-            // ── blocks section ──
-            if (Array.isArray(manifest.blocks)) {
-              for (const entry of manifest.blocks) {
-                if (!entry.email || !entry.action) continue;
-                const existing = await queryDB(
-                  "SELECT timestamp FROM blocked_users WHERE email = ? LIMIT 1",
-                  [entry.email],
-                );
-                if (
-                  existing.length === 0 ||
-                  entry.timestamp > (existing[0].timestamp ?? 0)
-                ) {
-                  await executeDB(
-                    "INSERT OR REPLACE INTO blocked_users (email, action, timestamp) VALUES (?, ?, ?)",
-                    [entry.email, entry.action, entry.timestamp],
+            // ── Own-device-only sections ─────────────────────────────────────────
+            // blocks, requests, aliases, and profile are sensitive cross-device sync
+            // data. They must only be applied when the MANIFEST came from our OWN
+            // device (same email hash). Peer-sent MANIFESTs (e.g. SYNC_HINT replies)
+            // carry only the `messages` section and must never touch these tables,
+            // otherwise a peer can create phantom sessions in our sidebar or overwrite
+            // our block list / profile.
+            if (isOwnMessage) {
+              // ── blocks section ──
+              if (Array.isArray(manifest.blocks)) {
+                for (const entry of manifest.blocks) {
+                  if (!entry.email || !entry.action) continue;
+                  const existing = await queryDB(
+                    "SELECT timestamp FROM blocked_users WHERE email = ? LIMIT 1",
+                    [entry.email],
                   );
-                }
-              }
-              this.client.emit("block_list_updated");
-            }
-
-            // ── requests section ──
-            if (Array.isArray(manifest.requests)) {
-              let changed = false;
-              for (const entry of manifest.requests) {
-                if (!entry.email || !entry.action) continue;
-                const existing = await queryDB(
-                  "SELECT timestamp FROM pending_requests WHERE email = ? LIMIT 1",
-                  [entry.email],
-                );
-                if (
-                  existing.length === 0 ||
-                  entry.timestamp > (existing[0].timestamp ?? 0)
-                ) {
-                  await executeDB(
-                    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [
-                      entry.email,
-                      entry.name || "",
-                      entry.avatar || "",
-                      entry.publicKey || "",
-                      entry.senderHash || "",
-                      entry.action,
-                      entry.timestamp,
-                    ],
-                  );
-                  changed = true;
-                }
-              }
-              if (changed) {
-                this.client.emit("pending_requests_updated");
-              }
-            }
-
-            // ── aliases section ──
-            // Each alias entry carries peerEmail + peerHash so that sessions
-            // missing locally (e.g. on a freshly-installed Device B) can be
-            // created as stubs before their messages are inserted. Without this,
-            // contacts known only to Device A were silently dropped on Device B,
-            // causing the sidebar to show only the own-device session ("User1 <-> User1").
-            if (Array.isArray(manifest.aliases)) {
-              let changed = false;
-              for (const entry of manifest.aliases) {
-                if (!entry.sid) continue;
-
-                // Ensure the session row exists — INSERT OR IGNORE creates a stub;
-                // subsequent UPDATE fills in the details.
-                if (entry.peerEmail || entry.peerHash) {
-                  const beforeCount = await queryDB(
-                    "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
-                    [entry.sid],
-                  );
-                  await executeDB(
-                    "INSERT OR IGNORE INTO sessions (sid, peer_email, peer_hash) VALUES (?, ?, ?)",
-                    [entry.sid, entry.peerEmail || null, entry.peerHash || null],
-                  );
-                  const afterCount = await queryDB(
-                    "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
-                    [entry.sid],
-                  );
-                  // If a new row was created, flag as changed so the sidebar refreshes
-                  if ((afterCount[0]?.n ?? 0) > (beforeCount[0]?.n ?? 0)) {
-                    changed = true;
+                  if (
+                    existing.length === 0 ||
+                    entry.timestamp > (existing[0].timestamp ?? 0)
+                  ) {
+                    await executeDB(
+                      "INSERT OR REPLACE INTO blocked_users (email, action, timestamp) VALUES (?, ?, ?)",
+                      [entry.email, entry.action, entry.timestamp],
+                    );
                   }
                 }
+                this.client.emit("block_list_updated");
+              }
 
-                const existing = await queryDB(
-                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver, peer_name, peer_avatar, peer_email, peer_hash FROM sessions WHERE sid = ? LIMIT 1",
-                  [entry.sid],
-                );
-                if (existing.length > 0) {
-                  const current = existing[0];
-                  
-                  if (entry.timestamp && entry.timestamp > (current.alias_timestamp ?? 0)) {
+              // ── requests section ──
+              if (Array.isArray(manifest.requests)) {
+                let changed = false;
+                for (const entry of manifest.requests) {
+                  if (!entry.email || !entry.action) continue;
+                  const existing = await queryDB(
+                    "SELECT timestamp FROM pending_requests WHERE email = ? LIMIT 1",
+                    [entry.email],
+                  );
+                  if (
+                    existing.length === 0 ||
+                    entry.timestamp > (existing[0].timestamp ?? 0)
+                  ) {
                     await executeDB(
-                      "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
-                      [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
+                      "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      [
+                        entry.email,
+                        entry.name || "",
+                        entry.avatar || "",
+                        entry.publicKey || "",
+                        entry.senderHash || "",
+                        entry.action,
+                        entry.timestamp,
+                      ],
                     );
                     changed = true;
                   }
+                }
+                if (changed) {
+                  this.client.emit("pending_requests_updated");
+                }
+              }
 
-                  const peerNameVer = entry.peerNameVer || 0;
-                  const peerAvatarVer = entry.peerAvatarVer || 0;
+              // ── aliases section ──
+              // Each alias entry carries peerEmail + peerHash so that sessions
+              // missing locally (e.g. on a freshly-installed Device B) can be
+              // created as stubs before their messages are inserted. Without this,
+              // contacts known only to Device A were silently dropped on Device B,
+              // causing the sidebar to show only the own-device session ("User1 <-> User1").
+              if (Array.isArray(manifest.aliases)) {
+                let changed = false;
+                for (const entry of manifest.aliases) {
+                  if (!entry.sid) continue;
 
-                  const currentNameVer = current.peer_name_ver ?? 0;
-                  const currentAvatarVer = current.peer_avatar_ver ?? 0;
-                  
-                  const shouldUpdateName = (peerNameVer > currentNameVer) || (!current.peer_name && entry.peerName);
-                  const shouldUpdateAvatar = (peerAvatarVer > currentAvatarVer) || (!current.peer_avatar && entry.peerAvatar);
+                  // Ensure the session row exists — INSERT OR IGNORE creates a stub;
+                  // subsequent UPDATE fills in the details.
+                  if (entry.peerEmail || entry.peerHash) {
+                    const beforeCount = await queryDB(
+                      "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
+                      [entry.sid],
+                    );
+                    await executeDB(
+                      "INSERT OR IGNORE INTO sessions (sid, peer_email, peer_hash) VALUES (?, ?, ?)",
+                      [entry.sid, entry.peerEmail || null, entry.peerHash || null],
+                    );
+                    const afterCount = await queryDB(
+                      "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
+                      [entry.sid],
+                    );
+                    // If a new row was created, flag as changed so the sidebar refreshes
+                    if ((afterCount[0]?.n ?? 0) > (beforeCount[0]?.n ?? 0)) {
+                      changed = true;
+                    }
+                  }
 
-                  if (shouldUpdateName || shouldUpdateAvatar) {
-                     const nameToSet = shouldUpdateName ? entry.peerName : undefined;
-                     const avatarToSet = shouldUpdateAvatar ? entry.peerAvatar : undefined;
-                     const targetNameVer = shouldUpdateName ? peerNameVer : currentNameVer;
-                     const targetAvatarVer = shouldUpdateAvatar ? peerAvatarVer : currentAvatarVer;
-                     
-                     if (nameToSet !== undefined && avatarToSet !== undefined) {
+                  const existing = await queryDB(
+                    "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver, peer_name, peer_avatar, peer_email, peer_hash FROM sessions WHERE sid = ? LIMIT 1",
+                    [entry.sid],
+                  );
+                  if (existing.length > 0) {
+                    const current = existing[0];
+
+                    if (entry.timestamp && entry.timestamp > (current.alias_timestamp ?? 0)) {
+                      await executeDB(
+                        "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
+                        [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
+                      );
+                      changed = true;
+                    }
+
+                    const peerNameVer = entry.peerNameVer || 0;
+                    const peerAvatarVer = entry.peerAvatarVer || 0;
+
+                    const currentNameVer = current.peer_name_ver ?? 0;
+                    const currentAvatarVer = current.peer_avatar_ver ?? 0;
+
+                    const shouldUpdateName = (peerNameVer > currentNameVer) || (!current.peer_name && entry.peerName);
+                    const shouldUpdateAvatar = (peerAvatarVer > currentAvatarVer) || (!current.peer_avatar && entry.peerAvatar);
+
+                    if (shouldUpdateName || shouldUpdateAvatar) {
+                      const nameToSet = shouldUpdateName ? entry.peerName : undefined;
+                      const avatarToSet = shouldUpdateAvatar ? entry.peerAvatar : undefined;
+                      const targetNameVer = shouldUpdateName ? peerNameVer : currentNameVer;
+                      const targetAvatarVer = shouldUpdateAvatar ? peerAvatarVer : currentAvatarVer;
+
+                      if (nameToSet !== undefined && avatarToSet !== undefined) {
                         await executeDB(
                           "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
                           [nameToSet, avatarToSet, targetNameVer, targetAvatarVer, entry.sid]
                         );
-                     } else if (nameToSet !== undefined) {
+                      } else if (nameToSet !== undefined) {
                         await executeDB(
                           "UPDATE sessions SET peer_name = ?, peer_name_ver = ? WHERE sid = ?",
                           [nameToSet, targetNameVer, entry.sid]
                         );
-                     } else if (avatarToSet !== undefined) {
+                      } else if (avatarToSet !== undefined) {
                         await executeDB(
-                           "UPDATE sessions SET peer_avatar = ?, peer_avatar_ver = ? WHERE sid = ?",
-                           [avatarToSet, targetAvatarVer, entry.sid]
+                          "UPDATE sessions SET peer_avatar = ?, peer_avatar_ver = ? WHERE sid = ?",
+                          [avatarToSet, targetAvatarVer, entry.sid]
                         );
-                     }
-                     changed = true;
-                  }
+                      }
+                      changed = true;
+                    }
 
-                  // Backfill peer_email / peer_hash if the row was created without them
-                  if (entry.peerEmail && !current.peer_email) {
-                    await executeDB(
-                      "UPDATE sessions SET peer_email = ? WHERE sid = ?",
-                      [entry.peerEmail, entry.sid],
-                    );
-                  }
-                  if (entry.peerHash && !current.peer_hash) {
-                    await executeDB(
-                      "UPDATE sessions SET peer_hash = ? WHERE sid = ?",
-                      [entry.peerHash, entry.sid],
-                    );
+                    // Backfill peer_email / peer_hash if the row was created without them
+                    if (entry.peerEmail && !current.peer_email) {
+                      await executeDB(
+                        "UPDATE sessions SET peer_email = ? WHERE sid = ?",
+                        [entry.peerEmail, entry.sid],
+                      );
+                    }
+                    if (entry.peerHash && !current.peer_hash) {
+                      await executeDB(
+                        "UPDATE sessions SET peer_hash = ? WHERE sid = ?",
+                        [entry.peerHash, entry.sid],
+                      );
+                    }
                   }
                 }
-              }
-              if (changed) {
-                // Reload in-memory sessions so that the newly-created stub sessions
-                // are available for crypto and sidebar display before messages are applied.
-                this.client.sessionService.loadSessions().catch(() => {});
-                this.client.emit("session_updated");
-              }
-            }
-
-            // ── profile section ──
-            if (manifest.profile && typeof manifest.profile === "object") {
-              const myProfile = await getMyProfileAndVersions();
-              let changed = false;
-
-              if (
-                manifest.profile.nameVersion &&
-                myProfile &&
-                manifest.profile.nameVersion > myProfile.nameVersion
-              ) {
-                await executeDB(
-                  "UPDATE me SET public_name = ?, name_version = ? WHERE id = 1",
-                  [manifest.profile.name, manifest.profile.nameVersion],
-                );
-                changed = true;
+                if (changed) {
+                  // Reload in-memory sessions so that the newly-created stub sessions
+                  // are available for crypto and sidebar display before messages are applied.
+                  this.client.sessionService.loadSessions().catch(() => { });
+                  this.client.emit("session_updated");
+                }
               }
 
-              if (
-                manifest.profile.avatarVersion &&
-                myProfile &&
-                manifest.profile.avatarVersion > myProfile.avatarVersion
-              ) {
-                await executeDB(
-                  "UPDATE me SET public_avatar = ?, avatar_version = ? WHERE id = 1",
-                  [manifest.profile.avatar, manifest.profile.avatarVersion],
-                );
-                changed = true;
-              }
+              // ── profile section ──
+              if (manifest.profile && typeof manifest.profile === "object") {
+                const myProfile = await getMyProfileAndVersions();
+                let changed = false;
 
-              if (changed) {
-                this.client.emit("profile_updated");
+                if (
+                  manifest.profile.nameVersion &&
+                  myProfile &&
+                  manifest.profile.nameVersion > myProfile.nameVersion
+                ) {
+                  await executeDB(
+                    "UPDATE me SET public_name = ?, name_version = ? WHERE id = 1",
+                    [manifest.profile.name, manifest.profile.nameVersion],
+                  );
+                  changed = true;
+                }
+
+                if (
+                  manifest.profile.avatarVersion &&
+                  myProfile &&
+                  manifest.profile.avatarVersion > myProfile.avatarVersion
+                ) {
+                  await executeDB(
+                    "UPDATE me SET public_avatar = ?, avatar_version = ? WHERE id = 1",
+                    [manifest.profile.avatar, manifest.profile.avatarVersion],
+                  );
+                  changed = true;
+                }
+
+                if (changed) {
+                  this.client.emit("profile_updated");
+                }
               }
-            }
+            } // end isOwnMessage guard
 
             // ── messages section ──
             if (Array.isArray(manifest.messages) && manifest.messages.length > 0) {
@@ -984,6 +997,8 @@ export class MessageService extends EventEmitter {
                 } catch (_) { }
               }
 
+              const updatedSids = new Set<string>();
+
               for (const msg of manifest.messages) {
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
                 // For peer manifests: messages the peer sent (sender="me" on their device)
@@ -1004,8 +1019,11 @@ export class MessageService extends EventEmitter {
                     msg.reply_to || null,
                   ]
                 );
+                updatedSids.add(msg.sid);
               }
-              this.client.emit("messages_synced", { sid });
+              for (const syncSid of updatedSids) {
+                this.client.emit("messages_synced", { sid: syncSid });
+              }
               this.client.emit("session_updated");
             }
 
@@ -1139,6 +1157,16 @@ export class MessageService extends EventEmitter {
                 avatar_version > (current.peer_avatar_ver || 0) ||
                 (!current.peer_name && name_version > 0)
               ) {
+                // Debounce: skip if we already sent a GET_PROFILE for this sid recently
+                const lastReq = this.profileRequestCooldown.get(sid) || 0;
+                const now = Date.now();
+                if (now - lastReq < MessageService.PROFILE_REQUEST_COOLDOWN_MS) {
+                  console.log(
+                    `[MessageService] Skipping duplicate GET_PROFILE for ${sid} (cooldown active)`,
+                  );
+                  break;
+                }
+                this.profileRequestCooldown.set(sid, now);
                 console.log(
                   `[MessageService] Peer ${sid} has newer profile (v${name_version}/${avatar_version}), requesting update...`,
                 );
@@ -1306,6 +1334,14 @@ export class MessageService extends EventEmitter {
                 avatarFile = avatar;
               }
             }
+            // Ensure the session row exists before updating peer version columns.
+            // Newly reconstructed sessions may not have a DB row yet, causing the
+            // UPDATE below to silently affect 0 rows — which leaves peer_name_ver at 0
+            // and causes an infinite PROFILE_VERSION request loop.
+            await executeDB(
+              "INSERT OR IGNORE INTO sessions (sid) VALUES (?)",
+              [sid],
+            );
             if (
               avatar_chunked &&
               avatar_transfer_id &&
@@ -1335,6 +1371,9 @@ export class MessageService extends EventEmitter {
               // Bust the avatar cache so all components re-fetch the new file
               if (avatarFile) avatarCacheService.bust(avatarFile);
             }
+            // Clear the per-sid cooldown so future legitimate profile bumps
+            // (e.g. the peer changes their name/avatar again) can still trigger a request.
+            this.profileRequestCooldown.delete(sid);
             this.client.emit("session_updated");
           } catch (e) {
             console.error("Error handling PROFILE_DATA", e);

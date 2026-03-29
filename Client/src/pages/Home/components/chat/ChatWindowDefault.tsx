@@ -141,8 +141,8 @@ export const ChatWindowDefault = ({
     session?.alias_name ||
     session?.peer_name ||
     (session?.peerEmail ? session.peerEmail.split("@")[0] : undefined) ||
-    activeChat ||
-    "Chat";
+    (session?.isOwnDevice ? `Saved Messages (${activeChat?.slice(0, 4) || ""})` : undefined) ||
+    (activeChat ? `Peer ${activeChat.slice(0, 6)}` : "Chat");
   const avatarToUse = session?.alias_avatar || session?.peer_avatar;
   const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
     undefined,
@@ -265,11 +265,16 @@ export const ChatWindowDefault = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0 && activeChat) {
-      // addFilesToPending(Array.from(e.target.files)); // Disabled for now to use new preview
-      setSelectedFiles((prev) => [
-        ...prev,
-        ...Array.from(e.target.files || []),
-      ]);
+      const filesArr = Array.from(e.target.files);
+      const mediaFiles = filesArr.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+      const docFiles = filesArr.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
+
+      if (mediaFiles.length > 0) {
+        setSelectedFiles((prev) => [...prev, ...mediaFiles]);
+      }
+      if (docFiles.length > 0) {
+        addFilesToPending(docFiles);
+      }
     }
     e.target.value = "";
   };
@@ -335,12 +340,7 @@ export const ChatWindowDefault = ({
       color: "#e53170",
       onClick: () => fileInputRef.current?.click(),
     },
-    {
-      label: "Live Share",
-      icon: <Globe size={24} />,
-      color: "#3b82f6",
-      onClick: () => setShowPortModal(true),
-    },
+
   ];
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -426,7 +426,15 @@ export const ChatWindowDefault = ({
       }
       if (files.length > 0) {
         e.preventDefault();
-        addFilesToPending(files);
+        const mediaFiles = files.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+        const docFiles = files.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
+
+        if (mediaFiles.length > 0) {
+          setSelectedFiles((prev) => [...prev, ...mediaFiles]);
+        }
+        if (docFiles.length > 0) {
+          addFilesToPending(docFiles);
+        }
       }
     }
   };
@@ -595,7 +603,7 @@ export const ChatWindowDefault = ({
             src={resolvedAvatar}
             name={headerName}
             size="md"
-            status={peerOnline ? "online" : "offline"}
+            status={session?.isOwnDevice ? undefined : (peerOnline ? "online" : "offline")}
           />
           <HeaderInfo>
             <HeaderName>{headerName}</HeaderName>
@@ -604,9 +612,11 @@ export const ChatWindowDefault = ({
                 {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
               </div>
             )}
-            <HeaderStatus isOnline={peerOnline}>
-              {peerOnline ? "Online" : "Offline"}
-            </HeaderStatus>
+            {!session?.isOwnDevice && (
+              <HeaderStatus isOnline={peerOnline}>
+                {peerOnline ? "Online" : "Offline"}
+              </HeaderStatus>
+            )}
           </HeaderInfo>
         </div>
 
@@ -633,37 +643,37 @@ export const ChatWindowDefault = ({
           >
             <Search size={20} />
           </IconButton>
-          <div style={{ position: "relative" }} ref={optionsMenuRef}>
-            <IconButton
-              variant="ghost"
-              size="md"
-              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-              title="More Options"
-            >
-              <MoreVertical size={20} />
-            </IconButton>
-
-            {showOptionsMenu && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "100%",
-                  right: 0,
-                  marginTop: "8px",
-                  backgroundColor: "rgba(20, 20, 30, 0.95)",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
-                  borderRadius: "8px",
-                  padding: "8px",
-                  zIndex: 200,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "4px",
-                  minWidth: "180px",
-                  backdropFilter: "blur(10px)",
-                  boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                }}
+          {isAiInstalled && (
+            <div style={{ position: "relative" }} ref={optionsMenuRef}>
+              <IconButton
+                variant="ghost"
+                size="md"
+                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                title="More Options"
               >
-                {isAiInstalled && (
+                <MoreVertical size={20} />
+              </IconButton>
+
+              {showOptionsMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "8px",
+                    backgroundColor: "rgba(20, 20, 30, 0.95)",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: "8px",
+                    padding: "8px",
+                    zIndex: 200,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    minWidth: "180px",
+                    backdropFilter: "blur(10px)",
+                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                  }}
+                >
                   <button
                     onClick={() => {
                       handleSummarize();
@@ -711,10 +721,10 @@ export const ChatWindowDefault = ({
                       ? "Loading AI..."
                       : "Summarize Chat"}
                   </button>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
         </HeaderActions>
       </ChatHeader>
 

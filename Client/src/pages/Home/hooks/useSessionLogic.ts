@@ -42,20 +42,42 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       ORDER BY lastTs DESC
     `);
 
-      const formatted: SessionData[] = rows.map((r: any) => ({
-        sid: r.sid,
-        alias_name: r.alias_name,
-        alias_avatar: r.alias_avatar,
-        peer_name: r.peer_name,
-        peer_avatar: r.peer_avatar,
-        peerEmail: r.peer_email,
-        lastMsg: r.lastMsg || "",
-        lastMsgType: r.lastMsgType || "text",
-        lastTs: r.lastTs || 0,
-        unread: r.sid === activeChatRef.current ? 0 : r.unread || 0,
-        online: ChatClient.sessions[r.sid]?.online || false,
-        isConnected: ChatClient.sessions[r.sid]?.isConnected ?? false,
-      }));
+      let userHash = "";
+      try {
+        const buf = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(ChatClient.userEmail.trim().toLowerCase()),
+        );
+        userHash = Array.from(new Uint8Array(buf))
+          .map((x) => x.toString(16).padStart(2, "0"))
+          .join("");
+      } catch (e) {
+        console.warn("Failed to compute user hash for session logic", e);
+      }
+
+      const formatted: SessionData[] = rows.map((r: any) => {
+        const peerHash = ChatClient.sessions[r.sid]?.peerEmailHash || "";
+        const isOwnDevice = Boolean(
+          userHash && peerHash && userHash.toLowerCase() === peerHash.toLowerCase()
+        );
+
+        return {
+          sid: r.sid,
+          alias_name: r.alias_name,
+          alias_avatar: r.alias_avatar,
+          peer_name: r.peer_name,
+          peer_avatar: r.peer_avatar,
+          peerEmail: r.peer_email,
+          peerEmailHash: peerHash,
+          isOwnDevice,
+          lastMsg: r.lastMsg || "",
+          lastMsgType: r.lastMsgType || "text",
+          lastTs: r.lastTs || 0,
+          unread: r.sid === activeChatRef.current ? 0 : r.unread || 0,
+          online: ChatClient.sessions[r.sid]?.online || false,
+          isConnected: ChatClient.sessions[r.sid]?.isConnected ?? false,
+        };
+      }).filter((s: SessionData) => !s.isOwnDevice);
       setSessions(formatted);
     }, 500),
     [shouldInit],

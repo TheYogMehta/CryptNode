@@ -190,7 +190,15 @@ export class ChatClient extends EventEmitter implements IChatClient {
       if (myEmailHash.toLowerCase() === senderHash.toLowerCase()) return true;
     }
 
-    const session = this.sessionService.sessions[sid];
+    let session = this.sessionService.sessions[sid];
+    if (!session) {
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        session = this.sessionService.sessions[sid];
+        if (session) break;
+      }
+    }
+
     if (!session) return false;
 
     if (session.peerEmailHash) {

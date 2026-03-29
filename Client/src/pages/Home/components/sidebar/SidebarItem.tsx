@@ -37,7 +37,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
       alias_name ||
       peer_name ||
       peerLabelFromEmail ||
-      `Peer ${sid.slice(0, 6)}`;
+      (data.isOwnDevice ? `Saved Messages (${sid.slice(0, 4)})` : `Peer ${sid.slice(0, 6)}`);
     const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
       undefined,
     );
@@ -67,7 +67,10 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
     }, [avatarUrl]);
 
     const getPreviewText = () => {
-      if (!lastMsg && !lastMsgType) return { text: isOnline ? "Online" : "Offline", time: "" };
+      if (!lastMsg && !lastMsgType) {
+        if (sid === "secure-vault" || data.isOwnDevice) return { text: "No messages yet", time: "" };
+        return { text: isOnline ? "Online" : "Offline", time: "" };
+      }
 
       let text = lastMsg || "";
       switch (lastMsgType) {
@@ -121,7 +124,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
           src={resolvedAvatar}
           name={displayName}
           size="md"
-          status={isOnline ? "online" : "offline"}
+          status={sid === "secure-vault" || data.isOwnDevice ? undefined : (isOnline ? "online" : "offline")}
         />
 
         <ItemInfo>

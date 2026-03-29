@@ -99,4 +99,5 @@ export interface SessionData {
   peerEmailHash?: string;
   isConnected?: boolean;
   notes?: string;
+  isOwnDevice?: boolean;
 }

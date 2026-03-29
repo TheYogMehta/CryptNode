@@ -32,6 +32,7 @@ export class SessionService extends EventEmitter {
   private authService: AuthService;
   public sessions: Record<string, ChatSession> = {};
   public connectedSids: Set<string> = new Set();
+  private finalizeLocks: Map<string, Promise<void>> = new Map();
   private static readonly MAX_HANDSHAKE_AVATAR_B64 = 160 * 1024;
 
   constructor(authService: AuthService) {
@@ -230,24 +231,55 @@ export class SessionService extends EventEmitter {
     ownPubKeys?: string[],
     online: boolean = true,
   ) {
-    const normalizedPeerEmail = this.normalizeEmail(peerEmail);
-    const resolvedPeerEmailHash =
-      peerEmailHash ||
-      (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
+    const runFinalize = async () => {
+      const normalizedPeerEmail = this.normalizeEmail(peerEmail);
+      const resolvedPeerEmailHash =
+        peerEmailHash ||
+        (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
 
-    if (!this.sessions[sid]) {
-      this.sessions[sid] = {
-        cryptoKeys: {},
-        online,
-        isConnected: true,
-      };
-    }
-    
-    // Synchronously assign metadata upfront so that synchronous event orchestrators
-    // checking `peerEmailHash` don't find it missing while crypto deriving is pending.
-    this.sessions[sid].peerEmail = normalizedPeerEmail || this.sessions[sid].peerEmail;
-    this.sessions[sid].peerEmailHash = resolvedPeerEmailHash || this.sessions[sid].peerEmailHash;
-    this.sessions[sid].online = online;
+      // Check if another finalization just gave us these exact keys.
+      if (this.sessions[sid]) {
+        const currentKeysStr = JSON.stringify({
+          peer: this.sessions[sid].peerPubKeys || [],
+          own: this.sessions[sid].ownPubKeys || [],
+        });
+        const incomingKeysStr = JSON.stringify({
+          peer: remotePubB64s || [],
+          own: ownPubKeys || [],
+        });
+        if (currentKeysStr === incomingKeysStr) {
+          // Keys are strictly identical, just update metadata and abort re-derivation.
+          const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
+          const resolvedPeerAvatarVer = peerAvatarVer ? Number(peerAvatarVer) : 0;
+          
+          Object.assign(this.sessions[sid], {
+            peerEmail: normalizedPeerEmail || this.sessions[sid].peerEmail,
+            peerEmailHash: resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
+            peerName: peerName || this.sessions[sid].peerName,
+            peer_name_ver: Math.max(resolvedPeerNameVer, this.sessions[sid].peer_name_ver || 0),
+            peer_avatar_ver: Math.max(resolvedPeerAvatarVer, this.sessions[sid].peer_avatar_ver || 0),
+            online
+          });
+          return;
+        }
+      }
+
+      if (!this.sessions[sid]) {
+        this.sessions[sid] = {
+          cryptoKeys: {},
+          online,
+          isConnected: true,
+        };
+      }
+      
+      // Synchronously assign metadata upfront so that synchronous event orchestrators
+      // checking `peerEmailHash` don't find it missing while crypto deriving is pending.
+      // Also assign public keys so that concurrent calls don't think keys need rotating.
+      this.sessions[sid].peerEmail = normalizedPeerEmail || this.sessions[sid].peerEmail;
+      this.sessions[sid].peerEmailHash = resolvedPeerEmailHash || this.sessions[sid].peerEmailHash;
+      this.sessions[sid].online = online;
+      this.sessions[sid].peerPubKeys = remotePubB64s;
+      this.sessions[sid].ownPubKeys = ownPubKeys || [];
 
     const cryptoKeysMap: Record<string, CryptoKey> = {};
     const jwksMap: Record<string, any> = {};
@@ -284,62 +316,69 @@ export class SessionService extends EventEmitter {
       }
     }
 
-    const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
-    const resolvedPeerAvatarVer = peerAvatarFile
-      ? Number(peerAvatarVer || 0)
-      : 0;
+      const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
+      const resolvedPeerAvatarVer = peerAvatarFile
+        ? Number(peerAvatarVer || 0)
+        : 0;
 
-    this.sessions[sid] = {
-      cryptoKeys: cryptoKeysMap,
-      online,
-      peerEmail: normalizedPeerEmail || undefined,
-      peerEmailHash: resolvedPeerEmailHash,
-      peerName: peerName || undefined,
-      peerAvatar: peerAvatarFile || undefined,
-      peer_name_ver: resolvedPeerNameVer,
-      peer_avatar_ver: resolvedPeerAvatarVer,
-      isConnected: true,
-      peerPubKeys: remotePubB64s,
-      ownPubKeys: ownPubKeys || [],
+      Object.assign(this.sessions[sid], {
+        cryptoKeys: cryptoKeysMap,
+        peerEmail: normalizedPeerEmail || this.sessions[sid].peerEmail,
+        peerEmailHash: resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
+        peerName: peerName || this.sessions[sid].peerName,
+        peerAvatar: peerAvatarFile || this.sessions[sid].peerAvatar,
+        peer_name_ver: Math.max(resolvedPeerNameVer, this.sessions[sid].peer_name_ver || 0),
+        peer_avatar_ver: Math.max(resolvedPeerAvatarVer, this.sessions[sid].peer_avatar_ver || 0),
+        isConnected: true,
+        peerPubKeys: remotePubB64s,
+        ownPubKeys: ownPubKeys || [],
+      });
+
+      await WorkerManager.getInstance().initSession(sid, jwksMap);
+      await executeDB(
+        "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys) VALUES (?, ?, ?)",
+        [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s)],
+      );
+      await executeDB(
+        `UPDATE sessions
+         SET keyJWK = ?,
+             peer_pub_keys = ?,
+             peer_email = COALESCE(?, peer_email),
+             peer_hash = COALESCE(?, peer_hash),
+             peer_name = COALESCE(?, peer_name),
+             peer_avatar = COALESCE(?, peer_avatar),
+             peer_name_ver = CASE
+               WHEN ? > COALESCE(peer_name_ver, 0) THEN ?
+               ELSE COALESCE(peer_name_ver, 0)
+             END,
+             peer_avatar_ver = CASE
+               WHEN ? > COALESCE(peer_avatar_ver, 0) THEN ?
+               ELSE COALESCE(peer_avatar_ver, 0)
+             END
+         WHERE sid = ?`,
+        [
+          JSON.stringify(jwksMap),
+          JSON.stringify(remotePubB64s),
+          normalizedPeerEmail || null,
+          resolvedPeerEmailHash || null,
+          peerName || null,
+          peerAvatarFile || null,
+          resolvedPeerNameVer,
+          resolvedPeerNameVer,
+          resolvedPeerAvatarVer,
+          resolvedPeerAvatarVer,
+          sid,
+        ],
+      );
+      this.emit("session_created", sid);
     };
 
-    await WorkerManager.getInstance().initSession(sid, jwksMap);
-    await executeDB(
-      "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys) VALUES (?, ?, ?)",
-      [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s)],
-    );
-    await executeDB(
-      `UPDATE sessions
-       SET keyJWK = ?,
-           peer_pub_keys = ?,
-           peer_email = COALESCE(?, peer_email),
-           peer_hash = COALESCE(?, peer_hash),
-           peer_name = COALESCE(?, peer_name),
-           peer_avatar = COALESCE(?, peer_avatar),
-           peer_name_ver = CASE
-             WHEN ? > COALESCE(peer_name_ver, 0) THEN ?
-             ELSE COALESCE(peer_name_ver, 0)
-           END,
-           peer_avatar_ver = CASE
-             WHEN ? > COALESCE(peer_avatar_ver, 0) THEN ?
-             ELSE COALESCE(peer_avatar_ver, 0)
-           END
-       WHERE sid = ?`,
-      [
-        JSON.stringify(jwksMap),
-        JSON.stringify(remotePubB64s),
-        normalizedPeerEmail || null,
-        resolvedPeerEmailHash || null,
-        peerName || null,
-        peerAvatarFile || null,
-        resolvedPeerNameVer,
-        resolvedPeerNameVer,
-        resolvedPeerAvatarVer,
-        resolvedPeerAvatarVer,
-        sid,
-      ],
-    );
-    this.emit("session_created", sid);
+    let lock = this.finalizeLocks.get(sid) || Promise.resolve();
+    lock = lock.then(() => runFinalize()).catch(e => {
+      console.error("[SessionService] finalizeSession error:", e);
+    });
+    this.finalizeLocks.set(sid, lock);
+    await lock;
   }
 
   private async deriveSharedKey(pubB64: string) {
@@ -773,6 +812,36 @@ export class SessionService extends EventEmitter {
           }
         }
       }
+    } else {
+      let ownSid = "";
+      if (this.authService.userEmail) {
+        const emailStr = this.normalizeEmail(this.authService.userEmail);
+        try {
+          ownSid = await sha256(emailStr + ":" + emailStr);
+        } catch (e) {}
+      }
+
+      if (ownSid && sid === ownSid && isOnline && newPeerPubKeys && newPeerPubKeys.length > 0) {
+        console.log(`[SessionService] PEER_ONLINE: Reconstructing newly online own-device session ${sid}`);
+        const emailStr = this.normalizeEmail(this.authService.userEmail || "");
+        const myHash = await sha256(emailStr);
+        try {
+          await this.finalizeSession(
+            sid,
+            newPeerPubKeys,
+            undefined,
+            myHash,
+            undefined,
+            undefined,
+            0,
+            0,
+            undefined, // ownPubKeys will be picked up properly
+            true
+          );
+        } catch (e) {
+          console.error("Failed to derive session for newly online own device", e);
+        }
+      }
     }
   }
 
@@ -841,15 +910,23 @@ export class SessionService extends EventEmitter {
           );
         }
       } else {
-        console.warn(
-          "[SessionService] Server has session not found locally:",
-          item.sid,
-        );
+        console.warn("[SessionService] Server has session not found locally:", item.sid);
+
         if ((item.peerPubKeys || item.ownPubKeys) && item.peerHash) {
-          console.log(
-            "[SessionService] Reconstructing missing local session from server data",
-            item.sid,
-          );
+          let ownSid = "";
+          if (this.authService.userEmail) {
+            const emailStr = this.normalizeEmail(this.authService.userEmail);
+            try {
+              ownSid = await sha256(emailStr + ":" + emailStr);
+            } catch (e) {}
+          }
+
+          if (ownSid && item.sid === ownSid && !item.online) {
+            console.log("[SessionService] Skipping offline own-device session reconstruction", item.sid);
+            continue;
+          }
+
+          console.log("[SessionService] Reconstructing missing local session from server data", item.sid);
           promises.push(
             this.finalizeSession(
               item.sid,

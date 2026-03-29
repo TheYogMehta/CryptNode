@@ -92,7 +92,7 @@ export const Sidebar = React.memo(
                 lastMsgType: "text",
                 lastTs: Date.now(),
                 unread: 0,
-                online: true,
+                online: false,
               }}
               isActive={activeChat === "secure-vault"}
               onSelect={() => onOpenVault()}

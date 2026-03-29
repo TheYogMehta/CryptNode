@@ -165,7 +165,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         );
       } else {
         await executeDB(
-          "INSERT INTO me (id, public_name, public_avatar, name_version, avatar_version) VALUES (1, ?, ?, 1, 1)",
+          "INSERT OR REPLACE INTO me (id, public_name, public_avatar, name_version, avatar_version) VALUES (1, ?, ?, 1, 1)",
           [data.username, finalAvatar],
         );
       }
