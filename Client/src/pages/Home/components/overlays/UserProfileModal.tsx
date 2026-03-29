@@ -165,8 +165,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const renderMediaItem = (item: any) => {
+    if (item.mime_type?.startsWith("image/") && item.localUrl) {
+      return <img src={item.localUrl} alt={item.original_name} />;
+    }
     if (item.mime_type?.startsWith("image/")) {
-      return <img src={item.localUrl || item.thumbnail} alt={item.original_name} />;
+      return (
+        <div className="file-icon">
+          <ImageIcon size={24} />
+          <span style={{ fontSize: '10px', wordBreak: 'break-all', padding: '0 4px', textAlign: 'center' }}>
+            {item.original_name?.substring(0, 15)}...
+          </span>
+        </div>
+      );
     }
     if (item.mime_type?.startsWith("video/")) {
       return (
@@ -187,8 +197,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   const lightboxImages = mediaItems
-    .filter(i => i.mime_type?.startsWith("image/") && (i.localUrl || i.thumbnail))
-    .map(i => ({ src: i.localUrl || i.thumbnail || "", item: i }));
+    .filter(i => i.mime_type?.startsWith("image/") && i.localUrl)
+    .map(i => ({ src: i.localUrl, item: i }));
 
   const filteredMediaItems = mediaItems.filter(item => {
     // 1. Sender Filter

@@ -561,7 +561,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
 
       case "SESSION_LIST":
-        this.sessionService.handleSessionList(data);
+        await this.sessionService.handleSessionList(data);
         if (Array.isArray(data)) {
           for (const sess of data) {
             if (sess.online && sess.sid) {
@@ -574,7 +574,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.messageService.broadcastManifestToOwnDevices().catch(() => { });
         break;
       case "PEER_ONLINE":
-        this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
+        await this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
         this.messageService.sendManifestToPeer(sid).catch(() => { });

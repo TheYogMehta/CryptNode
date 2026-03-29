@@ -2,7 +2,7 @@ import styled from "styled-components";
 import { colors, spacing, radii, typography } from "../../../../theme/design-system";
 
 export const Overlay = styled.div`
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
@@ -25,7 +25,7 @@ export const ModalContainer = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   width: 100%;
-  max-width: 520px;
+  max-width: 600px;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
@@ -288,6 +288,7 @@ export const FilterSelect = styled.select`
   padding: 8px 12px;
   font-family: inherit;
   font-size: 13px;
+  width: 100%;
   outline: none;
   cursor: pointer;
 
@@ -304,6 +305,7 @@ export const FilterInput = styled.input`
   padding: 8px 12px;
   font-family: inherit;
   font-size: 13px;
+  width: 100%;
   outline: none;
 
   &:focus { border-color: #6366f1; }

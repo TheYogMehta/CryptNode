@@ -86,6 +86,7 @@ if (electronIsDev) {
         "notifications",
         "clipboard-read",
         "clipboard-write",
+        "clipboard-sanitized-write",
       ];
       if (allowedPermissions.includes(permission)) {
         callback(true);

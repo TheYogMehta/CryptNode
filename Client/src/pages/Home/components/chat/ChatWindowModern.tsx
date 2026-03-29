@@ -90,23 +90,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
 
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
-  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
-  const optionsMenuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        optionsMenuRef.current &&
-        !optionsMenuRef.current.contains(event.target as Node)
-      ) {
-        setShowOptionsMenu(false);
-      }
-    };
-    if (showOptionsMenu) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showOptionsMenu]);
 
   const generateQuickReplies = async () => {
     if (isGeneratingReplies) return;
@@ -209,62 +193,10 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
         </HeaderInfo>
         <div
           style={{ display: "flex", gap: spacing[2], position: "relative" }}
-          ref={optionsMenuRef}
         >
-          <ActionButton onClick={() => setShowOptionsMenu(!showOptionsMenu)}>
-            <MoreVertical size={20} />
+          <ActionButton onClick={() => onStartCall("Audio")} title="Start Call">
+            <Phone size={20} />
           </ActionButton>
-
-          {showOptionsMenu && (
-            <div
-              style={{
-                position: "absolute",
-                top: "100%",
-                right: 0,
-                marginTop: "8px",
-                backgroundColor: "rgba(20, 20, 30, 0.95)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                borderRadius: "8px",
-                padding: "8px",
-                zIndex: 200,
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-                minWidth: "160px",
-                backdropFilter: "blur(10px)",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-              }}
-            >
-              <button
-                onClick={() => {
-                  onStartCall("Audio");
-                  setShowOptionsMenu(false);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "10px 12px",
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  borderRadius: "4px",
-                  textAlign: "left",
-                  fontSize: "14px",
-                  transition: "background 0.2s",
-                }}
-                onMouseOver={(e) =>
-                  (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-                }
-                onMouseOut={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                <Phone size={18} /> Call
-              </button>
-            </div>
-          )}
         </div>
       </Header>
 

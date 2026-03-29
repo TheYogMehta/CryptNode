@@ -221,6 +221,25 @@ export class SessionService extends EventEmitter {
     ownPubKeys?: string[],
     online: boolean = true,
   ) {
+    const normalizedPeerEmail = this.normalizeEmail(peerEmail);
+    const resolvedPeerEmailHash =
+      peerEmailHash ||
+      (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
+
+    if (!this.sessions[sid]) {
+      this.sessions[sid] = {
+        cryptoKeys: {},
+        online,
+        isConnected: true,
+      };
+    }
+    
+    // Synchronously assign metadata upfront so that synchronous event orchestrators
+    // checking `peerEmailHash` don't find it missing while crypto deriving is pending.
+    this.sessions[sid].peerEmail = normalizedPeerEmail || this.sessions[sid].peerEmail;
+    this.sessions[sid].peerEmailHash = resolvedPeerEmailHash || this.sessions[sid].peerEmailHash;
+    this.sessions[sid].online = online;
+
     const cryptoKeysMap: Record<string, CryptoKey> = {};
     const jwksMap: Record<string, any> = {};
 
@@ -235,10 +254,6 @@ export class SessionService extends EventEmitter {
       cryptoKeysMap[pubB64] = sharedKey;
       jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", sharedKey);
     }
-    const normalizedPeerEmail = this.normalizeEmail(peerEmail);
-    const resolvedPeerEmailHash =
-      peerEmailHash ||
-      (normalizedPeerEmail ? await sha256(normalizedPeerEmail) : undefined);
 
     let peerAvatarFile: string | undefined = undefined;
     if (peerAvatar) {
@@ -708,7 +723,7 @@ export class SessionService extends EventEmitter {
     console.log("Profile update received", sid, data);
   }
 
-  public setPeerOnline(
+  public async setPeerOnline(
     sid: string,
     isOnline: boolean,
     newPeerPubKeys?: string[],
@@ -729,28 +744,30 @@ export class SessionService extends EventEmitter {
           console.log(
             `[SessionService] PEER_ONLINE: PublicKeys for ${sid} changed. Re-deriving shared keys...`,
           );
-          this.finalizeSession(
-            sid,
-            newPeerPubKeys,
-            this.sessions[sid].peerEmail,
-            this.sessions[sid].peerEmailHash,
-            this.sessions[sid].peerName,
-            this.sessions[sid].peerAvatar,
-            this.sessions[sid].peer_name_ver,
-            this.sessions[sid].peer_avatar_ver,
-            this.sessions[sid].ownPubKeys,
-          ).catch((e) =>
+          try {
+            await this.finalizeSession(
+              sid,
+              newPeerPubKeys,
+              this.sessions[sid].peerEmail,
+              this.sessions[sid].peerEmailHash,
+              this.sessions[sid].peerName,
+              this.sessions[sid].peerAvatar,
+              this.sessions[sid].peer_name_ver,
+              this.sessions[sid].peer_avatar_ver,
+              this.sessions[sid].ownPubKeys,
+            );
+          } catch (e) {
             console.error(
               "Failed to re-derive session key on PEER_ONLINE pubKey rotation:",
               e,
-            ),
-          );
+            );
+          }
         }
       }
     }
   }
 
-  public handleSessionList(
+  public async handleSessionList(
     list: {
       sid: string;
       online: boolean;
@@ -768,6 +785,8 @@ export class SessionService extends EventEmitter {
         changed = true;
       }
     }
+
+    const promises: Promise<any>[] = [];
 
     for (const item of list) {
       if (this.sessions[item.sid]) {
@@ -792,22 +811,24 @@ export class SessionService extends EventEmitter {
           console.log(
             `[SessionService] PublicKeys for ${item.sid} changed. Re-deriving shared keys...`,
           );
-          this.finalizeSession(
-            item.sid,
-            item.peerPubKeys || [],
-            this.sessions[item.sid].peerEmail,
-            this.sessions[item.sid].peerEmailHash,
-            this.sessions[item.sid].peerName,
-            this.sessions[item.sid].peerAvatar,
-            this.sessions[item.sid].peer_name_ver,
-            this.sessions[item.sid].peer_avatar_ver,
-            item.ownPubKeys || this.sessions[item.sid].ownPubKeys,
-            item.online,
-          ).catch((e) =>
-            console.error(
-              "Failed to re-derive session key on pubKey rotation:",
-              e,
-            ),
+          promises.push(
+            this.finalizeSession(
+              item.sid,
+              item.peerPubKeys || [],
+              this.sessions[item.sid].peerEmail,
+              this.sessions[item.sid].peerEmailHash,
+              this.sessions[item.sid].peerName,
+              this.sessions[item.sid].peerAvatar,
+              this.sessions[item.sid].peer_name_ver,
+              this.sessions[item.sid].peer_avatar_ver,
+              item.ownPubKeys || this.sessions[item.sid].ownPubKeys,
+              item.online,
+            ).catch((e) =>
+              console.error(
+                "Failed to re-derive session key on pubKey rotation:",
+                e,
+              )
+            )
           );
         }
       } else {
@@ -820,26 +841,33 @@ export class SessionService extends EventEmitter {
             "[SessionService] Reconstructing missing local session from server data",
             item.sid,
           );
-          this.finalizeSession(
-            item.sid,
-            item.peerPubKeys || [],
-            undefined,
-            item.peerHash,
-            undefined,
-            undefined,
-            0,
-            0,
-            item.ownPubKeys,
-            item.online,  // Respect actual online status from server
-          ).catch((e) =>
-            console.error(
-              "Failed to auto-restore session from server list:",
-              e,
-            ),
+          promises.push(
+            this.finalizeSession(
+              item.sid,
+              item.peerPubKeys || [],
+              undefined,
+              item.peerHash,
+              undefined,
+              undefined,
+              0,
+              0,
+              item.ownPubKeys,
+              item.online,  // Respect actual online status from server
+            ).catch((e) =>
+              console.error(
+                "Failed to auto-restore session from server list:",
+                e,
+              )
+            )
           );
         }
       }
     }
+
+    if (promises.length > 0) {
+      await Promise.allSettled(promises);
+    }
+
     if (changed) {
       this.emit("session_updated");
     }

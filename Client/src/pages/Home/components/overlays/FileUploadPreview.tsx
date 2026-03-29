@@ -342,6 +342,19 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
 
+  React.useEffect(() => {
+    if (isEditing) {
+      const observer = new MutationObserver(() => {
+        const modalBtn = document.querySelector('.FIE_buttons-save-btn') as HTMLButtonElement | null;
+        if (modalBtn) {
+          modalBtn.click();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      return () => observer.disconnect();
+    }
+  }, [isEditing]);
+
   const currentFile = fileList[currentIndex];
 
   const handleRemove = (e: React.MouseEvent, index: number) => {
@@ -451,6 +464,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
               backgroundColor: "#000",
             }}
           >
+            <style>{`.FIE_save-modal-wrapper { display: none !important; opacity: 0 !important; pointer-events: none !important; }`}</style>
             <FilerobotImageEditor
               source={currentFile.previewUrl}
               onSave={saveEdit}
@@ -476,16 +490,6 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                   "bg-primary-active": "#222222",
                 }
               }}
-              removeSaveButton={true}
-              moreSaveOptions={[
-                {
-                  label: "Send",
-                  icon: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>',
-                  onClick: (triggerSaveModalFn, triggerSavingFn) => {
-                    triggerSavingFn();
-                  }
-                }
-              ]}
               translations={{
                 save: "Send",
                 saveAs: "Send"

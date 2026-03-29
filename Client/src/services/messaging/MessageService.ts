@@ -830,7 +830,7 @@ export class MessageService extends EventEmitter {
               for (const entry of manifest.aliases) {
                 if (!entry.sid) continue;
                 const existing = await queryDB(
-                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver FROM sessions WHERE sid = ? LIMIT 1",
+                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver, peer_name, peer_avatar FROM sessions WHERE sid = ? LIMIT 1",
                   [entry.sid],
                 );
                 if (existing.length > 0) {
@@ -847,24 +847,32 @@ export class MessageService extends EventEmitter {
                   const peerNameVer = entry.peerNameVer || 0;
                   const peerAvatarVer = entry.peerAvatarVer || 0;
 
-                  if (peerNameVer > (current.peer_name_ver ?? 0) || peerAvatarVer > (current.peer_avatar_ver ?? 0)) {
-                     const nameToSet = peerNameVer > (current.peer_name_ver ?? 0) ? entry.peerName : undefined;
-                     const avatarToSet = peerAvatarVer > (current.peer_avatar_ver ?? 0) ? entry.peerAvatar : undefined;
+                  const currentNameVer = current.peer_name_ver ?? 0;
+                  const currentAvatarVer = current.peer_avatar_ver ?? 0;
+                  
+                  const shouldUpdateName = (peerNameVer > currentNameVer) || (!current.peer_name && entry.peerName);
+                  const shouldUpdateAvatar = (peerAvatarVer > currentAvatarVer) || (!current.peer_avatar && entry.peerAvatar);
+
+                  if (shouldUpdateName || shouldUpdateAvatar) {
+                     const nameToSet = shouldUpdateName ? entry.peerName : undefined;
+                     const avatarToSet = shouldUpdateAvatar ? entry.peerAvatar : undefined;
+                     const targetNameVer = shouldUpdateName ? peerNameVer : currentNameVer;
+                     const targetAvatarVer = shouldUpdateAvatar ? peerAvatarVer : currentAvatarVer;
                      
                      if (nameToSet !== undefined && avatarToSet !== undefined) {
                         await executeDB(
                           "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
-                          [nameToSet, avatarToSet, peerNameVer, peerAvatarVer, entry.sid]
+                          [nameToSet, avatarToSet, targetNameVer, targetAvatarVer, entry.sid]
                         );
                      } else if (nameToSet !== undefined) {
                         await executeDB(
                           "UPDATE sessions SET peer_name = ?, peer_name_ver = ? WHERE sid = ?",
-                          [nameToSet, peerNameVer, entry.sid]
+                          [nameToSet, targetNameVer, entry.sid]
                         );
                      } else if (avatarToSet !== undefined) {
                         await executeDB(
                            "UPDATE sessions SET peer_avatar = ?, peer_avatar_ver = ? WHERE sid = ?",
-                           [avatarToSet, peerAvatarVer, entry.sid]
+                           [avatarToSet, targetAvatarVer, entry.sid]
                         );
                      }
                      changed = true;

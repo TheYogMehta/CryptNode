@@ -620,6 +620,14 @@ export const ChatWindowDefault = ({
 
         <HeaderActions>
           <IconButton
+            variant="ghost"
+            size="md"
+            onClick={() => onStartCall("Audio")}
+            title="Start Call"
+          >
+            <Phone size={20} />
+          </IconButton>
+          <IconButton
             variant={showSearch ? "primary" : "ghost"}
             size="md"
             onClick={() => {
@@ -663,34 +671,6 @@ export const ChatWindowDefault = ({
                   boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
                 }}
               >
-                <button
-                  onClick={() => {
-                    onStartCall("Audio");
-                    setShowOptionsMenu(false);
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "10px 12px",
-                    background: "transparent",
-                    border: "none",
-                    color: "#fff",
-                    cursor: "pointer",
-                    borderRadius: "4px",
-                    textAlign: "left",
-                    fontSize: "14px",
-                    transition: "background 0.2s",
-                  }}
-                  onMouseOver={(e) =>
-                    (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-                  }
-                  onMouseOut={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  <Phone size={18} /> Call
-                </button>
                 {isAiInstalled && (
                   <button
                     onClick={() => {
@@ -738,37 +718,6 @@ export const ChatWindowDefault = ({
                     {isSummarizing || qwenLocalService.isLoading
                       ? "Loading AI..."
                       : "Summarize Chat"}
-                  </button>
-                )}
-                {canScreenShare && (
-                  <button
-                    onClick={() => {
-                      onStartCall("Screen");
-                      setShowOptionsMenu(false);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "10px 12px",
-                      background: "transparent",
-                      border: "none",
-                      color: "#fff",
-                      cursor: "pointer",
-                      borderRadius: "4px",
-                      textAlign: "left",
-                      fontSize: "14px",
-                      transition: "background 0.2s",
-                    }}
-                    onMouseOver={(e) =>
-                    (e.currentTarget.style.background =
-                      "rgba(255,255,255,0.1)")
-                    }
-                    onMouseOut={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                  >
-                    <Monitor size={18} /> Screen Share
                   </button>
                 )}
               </div>
@@ -959,7 +908,7 @@ export const ChatWindowDefault = ({
               fontSize: "0.9rem",
             }}
           >
-            No messages match your search.
+            {normalizedSearch ? "No messages match your search." : "No messages yet."}
           </div>
         )}
       </MessageList>
@@ -1364,13 +1313,11 @@ export const ChatWindowDefault = ({
                   return;
                 }
 
-                if (
-                  e.key === "Enter" &&
-                  !e.shiftKey &&
-                  (input.trim() || pendingAttachments.length > 0)
-                ) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleSendMessage();
+                  if (input.trim() || pendingAttachments.length > 0) {
+                    handleSendMessage();
+                  }
                 }
               }}
               placeholder={isRecording ? "" : "Message..."}
