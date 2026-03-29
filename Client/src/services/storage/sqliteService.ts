@@ -227,7 +227,7 @@ export const dbInit = () => {
       // Check for 0-byte file corruption which causes "file is not a database" error
       const filename = `${currentDbName}SQLite.db`;
       const directoriesToCheck = [Directory.Library, Directory.Documents, Directory.Data];
-      
+
       for (const dir of directoriesToCheck) {
         try {
           const stats = await Filesystem.stat({ path: filename, directory: dir });
@@ -236,7 +236,7 @@ export const dbInit = () => {
             await Filesystem.deleteFile({ path: filename, directory: dir });
             try {
               await CapacitorSQLite.closeConnection({ database: currentDbName, readonly: false });
-            } catch (ignore) {}
+            } catch (ignore) { }
           }
         } catch (e) {
           // File likely doesn't exist in this directory, continue
@@ -434,43 +434,38 @@ export const getMediaFilenames = async (): Promise<string[]> => {
 
 export const deleteDatabase = async (databaseName: string = currentDbName) => {
   try {
-    try {
-      await CapacitorSQLite.closeConnection({
-        database: databaseName,
-        readonly: false,
-      });
-    } catch (ignore) {
-      // ignore
-    }
+    const isElectron = Capacitor.getPlatform() === "electron";
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Check if we are on Electron
-    if (
-      Capacitor.getPlatform() === "electron" &&
-      (window as any).electron?.deleteDatabaseFiles
-    ) {
-      const result = await (window as any).electron.deleteDatabaseFiles(
-        databaseName,
-      );
-      if (result?.success) {
-        if (databaseName === currentDbName) {
-          dbReady = null;
-        }
-        console.log(`[sqlite] Deleted database files via electron IPC.`);
-      } else {
-        console.error(
-          `[sqlite] Failed to delete database ${databaseName} via electron IPC`,
-          result?.error,
-        );
+    if (isElectron) {
+      try {
+        await CapacitorSQLite.closeConnection({
+          database: databaseName,
+          readonly: false,
+        });
+      } catch (ignore) {
+        // ignore
       }
-      return;
-    }
 
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // For Android, iOS, and Web, let the CapacitorSQLite plugin handle its own database deletion 
-    // since it knows the exact internal application storage path.
-    if (Capacitor.getPlatform() !== "electron") {
+      if ((window as any).electron?.deleteDatabaseFiles) {
+        const result = await (window as any).electron.deleteDatabaseFiles(
+          databaseName,
+        );
+        if (result?.success) {
+          if (databaseName === currentDbName) {
+            dbReady = null;
+          }
+          console.log(`[sqlite] Deleted database files via electron IPC.`);
+        } else {
+          console.error(
+            `[sqlite] Failed to delete database ${databaseName} via electron IPC`,
+            result?.error,
+          );
+        }
+        return;
+      }
+    } else {
       try {
         await CapacitorSQLite.deleteDatabase({ database: databaseName });
         if (databaseName === currentDbName) dbReady = null;

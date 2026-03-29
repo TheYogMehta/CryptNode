@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"log"
@@ -9,7 +10,7 @@ import (
 	"os"
 	"strings"
 	"time"
-	"database/sql"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -145,13 +146,19 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			err = s.db.QueryRow("SELECT 1 FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.PublicKey).Scan(&deviceExists)
 			if err != nil {
 				if d.PublicKey != "" {
-					s.db.Exec(`
+					_, insertErr := s.db.Exec(`
 						INSERT INTO devices (email_hash, public_key, last_active) 
 						VALUES (?, ?, ?)`,
 						eh, d.PublicKey, time.Now())
+					if insertErr != nil {
+						log.Printf("[AUTH] Failed to insert device: %v", insertErr)
+					}
 				}
 			} else {
-				s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
+				_, updateErr := s.db.Exec("UPDATE devices SET last_active = ? WHERE email_hash = ? AND public_key = ?", time.Now(), eh, d.PublicKey)
+				if updateErr != nil {
+					log.Printf("[AUTH] Failed to update device last_active: %v", updateErr)
+				}
 			}
 
 			s.db.Exec("INSERT INTO sockets (email_hash, socket_id, public_key) VALUES (?, ?, ?)", eh, client.id, d.PublicKey)
@@ -211,14 +218,14 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						}
 						keyRows.Close()
 					}
-					
+
 					var singlePubKey string
 					if len(pubKeys) > 0 {
 						singlePubKey = pubKeys[0]
 					} else {
 						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 					}
-					
+
 					if len(pubKeys) == 0 && singlePubKey != "" {
 						pubKeys = []string{singlePubKey}
 					}
@@ -232,7 +239,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					})
 				}
 				rows.Close()
-				
+
 				if len(pending) > 0 {
 					s.db.Exec("DELETE FROM requests WHERE target_hash = ? AND (target_public_key = ? OR target_public_key IS NULL OR target_public_key = '')", eh, d.PublicKey)
 					respBytes, _ := json.Marshal(pending)
@@ -379,7 +386,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(frame.Data, &d)
 			if d.Token != "" {
 				eh := emailHash(client.email)
-				// Insert or update token 
+				// Insert or update token
 				_, err := s.db.Exec(`
 					INSERT INTO fcm_tokens (email_hash, token, last_updated) 
 					VALUES (?, ?, ?) 
@@ -433,7 +440,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(frame.Data, &d)
 
 			targetHash := emailHash(normalizeEmail(d.TargetEmail))
-			
+
 			var pubKeys []string
 			rows, err := s.db.Query("SELECT DISTINCT public_key FROM devices WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", targetHash)
 			if err == nil {
@@ -612,7 +619,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 							break
 						}
 					}
-					
+
 					if packetForDevice != "" {
 						respData, _ := json.Marshal(map[string]any{
 							"senderHash":      senderHash,
@@ -626,7 +633,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			rows.Close()
 
-			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"`+targetEmail+`"}`)})
+			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"` + targetEmail + `"}`)})
 
 		case "FRIEND_DENY":
 			if client.email == "" {
@@ -722,7 +729,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			// Broadcast SYNC_BLOCK to own devices
 			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]string{"targetHash": targetHash})
 
-			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"`+d.TargetEmail+`"}`)})
+			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"` + d.TargetEmail + `"}`)})
 
 		case "UNFRIEND":
 			if client.email == "" {
@@ -776,7 +783,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				s.broadcastToOwnDevices(client.id, senderHash, "SYNC_UNFRIEND", map[string]string{"targetHash": d.TargetHash, "sid": sid})
 			}
 
-			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"`+d.TargetHash+`"}`)})
+			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"` + d.TargetHash + `"}`)})
 
 		case "DELETE_ACCOUNT":
 			if client.email == "" {
@@ -987,11 +994,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						if u1 == senderHash {
 							targetHash = u2
 						}
-						
+
 						// Get unread messages count approx (including this one which isn't saved as offline_notifications anymore usually, but they get the MSG frame)
 						var unreadCount int
 						s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
-						
+
 						// Fetch tokens & push
 						tokens := fetchFCMTokens(s.db, targetHash)
 						go sendPushNotification(tokens, targetHash, unreadCount+1)

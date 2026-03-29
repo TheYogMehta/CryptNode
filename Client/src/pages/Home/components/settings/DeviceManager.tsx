@@ -191,19 +191,28 @@ export const DeviceManager: React.FC = () => {
           </div>
         )}
 
-        {devices.map((device, idx) => {
-          const isMe = device.publicKey === localPubKey;
-          const isMaster = device.isMaster;
-
-          let title = `Public Key: ${device.publicKey}`;
-          if (isMe) title += " (This Device)";
-
-          return (
-            <DeviceItem key={idx}>
-              <DeviceInfo>
-                <IconWrapper $isMaster={isMaster}>
-                  {isMaster ? <Key size={24} /> : <Monitor size={24} />}
-                </IconWrapper>
+        {devices
+          .slice()
+          .sort((a, b) => {
+            const aIsMe = a.publicKey.trim() === localPubKey.trim();
+            const bIsMe = b.publicKey.trim() === localPubKey.trim();
+            if (aIsMe) return -1;
+            if (bIsMe) return 1;
+             return new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime();
+          })
+          .map((device, idx) => {
+            const isMe = device.publicKey.trim() === localPubKey.trim();
+            const isMaster = device.isMaster;
+  
+            let title = `Device ID: ${device.publicKey.trim()}`;
+            if (isMe) title += " (This Device)";
+  
+            return (
+              <DeviceItem key={idx}>
+                <DeviceInfo>
+                  <IconWrapper $isMaster={isMaster}>
+                    {isMaster ? <Key size={24} /> : <Monitor size={24} />}
+                  </IconWrapper>
                 <DeviceDetails>
                   <DeviceName>
                     {title}
