@@ -118,9 +118,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   useEffect(() => {
     if (!localPreviewRef.current || !localStream) return;
+    
     localPreviewRef.current.srcObject = localStream;
     localPreviewRef.current.muted = true;
-  }, [localStream]);
+    
+    localPreviewRef.current.play().catch(e => {
+        console.warn("Failed to auto-play local stream PIP", e);
+    });
+  }, [localStream, isVideoEnabled, isScreenEnabled, isMinimized]);
 
   useEffect(() => {
     const handleRemoteStream = (stream: MediaStream | null) => {
@@ -212,9 +217,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       : "Voice Call";
 
   const shouldShowRemoteVideo =
-    callState?.type === "Video" ||
-    callState?.type === "Screen" ||
-    hasRemoteVideo;
+    callState?.type === "Screen" || hasRemoteVideo;
 
   if (!callState || callState.status === "idle") return null;
 

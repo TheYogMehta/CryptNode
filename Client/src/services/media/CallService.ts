@@ -392,6 +392,7 @@ export class CallService {
         this.client.emit("remote_stream_ready", this.remoteStream);
       } else if (!this.remoteStream.getTracks().includes(event.track)) {
         this.remoteStream.addTrack(event.track);
+        this.client.emit("remote_stream_ready", this.remoteStream);
       }
     };
 
@@ -893,6 +894,11 @@ export class CallService {
 
       if (!this.peerConnection) {
         console.warn("[CallService] No peer connection for RTC answer");
+        return;
+      }
+
+      if (this.peerConnection.signalingState !== "have-local-offer") {
+        console.warn("[CallService] Ignoring RTC_ANSWER because signalingState is", this.peerConnection.signalingState);
         return;
       }
 

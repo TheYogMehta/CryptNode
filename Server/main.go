@@ -17,8 +17,8 @@ var upgrader = websocket.Upgrader{
 }
 
 const (
-	maxWSFrameBytes       = 1024 * 1024
-	maxEncryptedDataBytes = 400 * 1024
+	maxWSFrameBytes       = 1024 * 1024 * 1024 // 1GB
+	maxEncryptedDataBytes = 1024 * 1024 * 1024 // 1GB
 	maxSIDLength          = 128
 )
 
