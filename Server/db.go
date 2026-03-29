@@ -26,7 +26,6 @@ func (s *Server) initDB() error {
 			email_hash TEXT,
 			public_key TEXT,
 			last_active DATETIME,
-			is_master BOOLEAN DEFAULT 0,
 			PRIMARY KEY (email_hash, public_key)
 		);`,
 		`CREATE TABLE IF NOT EXISTS requests (
@@ -92,11 +91,6 @@ func (s *Server) initDB() error {
 		s.db.Exec("ALTER TABLE requests ADD COLUMN target_public_key TEXT")
 	}
 
-	var isMasterColCount int
-	s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('devices') WHERE name='is_master'").Scan(&isMasterColCount)
-	if isMasterColCount == 0 {
-		s.db.Exec("ALTER TABLE devices ADD COLUMN is_master BOOLEAN DEFAULT 0")
-	}
 
 
 	return nil

@@ -67,7 +67,6 @@ func (s *Server) initDBTest() error {
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS devices (
 			email_hash TEXT, public_key TEXT, last_active DATETIME,
-			is_master BOOLEAN DEFAULT 0,
 			PRIMARY KEY (email_hash, public_key))`,
 		`CREATE TABLE IF NOT EXISTS requests (
 			sender_hash TEXT, target_hash TEXT, encrypted_packet TEXT, timestamp DATETIME,

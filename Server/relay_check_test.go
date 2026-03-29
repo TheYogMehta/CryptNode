@@ -29,7 +29,7 @@ func TestRelayWorks(t *testing.T) {
 	}
 	db, _ := sql.Open("sqlite3", "file:relaytest?mode=memory&cache=private")
 	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS devices (email_hash TEXT, public_key TEXT, last_active DATETIME, is_master BOOLEAN DEFAULT 0, PRIMARY KEY (email_hash, public_key))`,
+		`CREATE TABLE IF NOT EXISTS devices (email_hash TEXT, public_key TEXT, last_active DATETIME, PRIMARY KEY (email_hash, public_key))`,
 		`CREATE TABLE IF NOT EXISTS requests (sender_hash TEXT, target_hash TEXT, encrypted_packet TEXT, timestamp DATETIME, PRIMARY KEY (sender_hash, target_hash))`,
 		`CREATE TABLE IF NOT EXISTS friends (user1_hash TEXT, user2_hash TEXT, since DATETIME, sid TEXT, PRIMARY KEY (user1_hash, user2_hash))`,
 		`CREATE TABLE IF NOT EXISTS sockets (email_hash TEXT, socket_id TEXT, public_key TEXT, PRIMARY KEY (email_hash, socket_id))`,

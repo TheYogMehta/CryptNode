@@ -528,7 +528,6 @@ The backend relay server uses an independent SQLite database (`server.db`) to ma
    - `email_hash` (TEXT): Hashed email address.
    - `public_key` (TEXT): Device's ECDH public key.
    - `last_active` (DATETIME): Last seen timestamp.
-   - `is_master` (BOOLEAN): Flag for the first/primary device.
 
 2. **`requests`**: Queues pending friend requests for offline users.
    - `sender_hash` (TEXT): Sender's hashed email.

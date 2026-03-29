@@ -87,7 +87,7 @@ func (s *Server) logConnection(initiator, target string) {
 }
 
 func (s *Server) broadcastDeviceList(emailHash string) {
-	rows, err := s.db.Query("SELECT public_key, last_active, is_master, status FROM devices WHERE email_hash = ?", emailHash)
+	rows, err := s.db.Query("SELECT public_key, last_active, status FROM devices WHERE email_hash = ?", emailHash)
 	if err != nil {
 		s.logger.Printf("Failed to get devices for broadcast: %v", err)
 		return
@@ -96,12 +96,10 @@ func (s *Server) broadcastDeviceList(emailHash string) {
 	for rows.Next() {
 		var pk, status string
 		var lastActive time.Time
-		var isMaster int
-		if err := rows.Scan(&pk, &lastActive, &isMaster, &status); err == nil {
+		if err := rows.Scan(&pk, &lastActive, &status); err == nil {
 			devicesList = append(devicesList, map[string]any{
 				"publicKey": pk,
 				"lastActive": lastActive.Format(time.RFC3339),
-				"isMaster": isMaster == 1,
 				"status": status,
 			})
 		}

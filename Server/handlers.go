@@ -216,10 +216,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					if len(pubKeys) > 0 {
 						singlePubKey = pubKeys[0]
 					} else {
-						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
-						if singlePubKey == "" {
-							s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
-						}
+						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 					}
 					
 					if len(pubKeys) == 0 && singlePubKey != "" {
@@ -398,7 +395,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
 			rows, err := s.db.Query(`
-				SELECT d.public_key, d.last_active, d.is_master, 
+				SELECT d.public_key, d.last_active, 
 				       CASE WHEN s.socket_id IS NOT NULL THEN 'online' ELSE 'offline' END as status 
 				FROM devices d 
 				LEFT JOIN sockets s ON d.public_key = s.public_key AND d.email_hash = s.email_hash 
@@ -412,8 +409,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var pk, status string
 				var lastActive time.Time
-				var isMaster int
-				if err := rows.Scan(&pk, &lastActive, &isMaster, &status); err == nil {
+				if err := rows.Scan(&pk, &lastActive, &status); err == nil {
 					devicesList = append(devicesList, map[string]any{
 						"publicKey":  pk,
 						"lastActive": lastActive.Format(time.RFC3339),
@@ -506,10 +502,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if len(senderPubKeys) > 0 {
 				singlePubKey = senderPubKeys[0]
 			} else {
-				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? AND is_master = 1 LIMIT 1", senderHash).Scan(&singlePubKey)
-				if singlePubKey == "" {
-					s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
-				}
+				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 			}
 
 			if len(senderPubKeys) == 0 && singlePubKey != "" {
