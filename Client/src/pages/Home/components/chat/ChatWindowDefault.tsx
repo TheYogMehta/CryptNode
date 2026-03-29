@@ -1331,9 +1331,6 @@ export const ChatWindowDefault = ({
               }}
               placeholder={isRecording ? "" : "Message..."}
             />
-            {Capacitor.getPlatform() !== "android" &&
-              Capacitor.getPlatform() !== "ios" && (
-                <>
                   <IconButton
                     variant="ghost"
                     size="sm"
@@ -1386,8 +1383,7 @@ export const ChatWindowDefault = ({
                   >
                     <Smile size={24} />
                   </IconButton>
-                </>
-              )}
+
           </InputWrapper>
 
           <SendButton

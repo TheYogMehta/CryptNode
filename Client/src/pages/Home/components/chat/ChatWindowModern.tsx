@@ -11,6 +11,8 @@ import {
   Lightbulb,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
+import { EmojiPicker } from "../../../../components/EmojiPicker";
+import { GifPicker } from "../../../../components/GifPicker";
 import { colors, spacing } from "../../../../theme/design-system";
 import { ChatMessage, SessionData } from "../../types";
 import { useTheme } from "../../../../theme/ThemeContext";
@@ -70,6 +72,8 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
   const [inputText, setInputText] = useState("");
   const [showAiSuggestions, setShowAiSuggestions] = useState(true);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const sessionService = ChatClient.sessionService;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -114,12 +118,18 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
       setQuickReplies([]);
     }
   }, [inputText]);
+  
+  const handleEmojiClick = (emojiData: any) => {
+    setInputText((prev) => prev + emojiData.emoji);
+  };
 
   const handleSend = () => {
     if (inputText.trim()) {
       onSend(inputText, replyingTo || undefined);
       setInputText("");
       setReplyingTo(null);
+      setShowEmojiPicker(false);
+      setShowGifPicker(false);
     }
   };
 
@@ -437,7 +447,10 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
               placeholder="Type a message..."
               disabled={isRateLimited}
             />
-            <ActionButton>
+            <ActionButton onClick={() => {
+              setShowEmojiPicker(!showEmojiPicker);
+              setShowGifPicker(false);
+            }}>
               <Smile size={20} />
             </ActionButton>
             <SendButton
@@ -448,6 +461,35 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
             </SendButton>
           </InputWrapper>
         </InputArea>
+      )}
+
+      {showEmojiPicker && (
+        <EmojiPicker
+          onEmojiClick={handleEmojiClick}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+      )}
+
+      {showGifPicker && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1100,
+            background: "transparent",
+          }}
+          onClick={() => setShowGifPicker(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <GifPicker
+              onSelect={(url) => {
+                onSend(url);
+                setShowGifPicker(false);
+              }}
+              onClose={() => setShowGifPicker(false)}
+            />
+          </div>
+        </div>
       )}
 
       {showProfileModal && session && (

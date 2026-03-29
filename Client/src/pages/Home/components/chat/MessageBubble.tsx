@@ -20,6 +20,7 @@ import {
   Play,
   Download,
   Sparkles,
+  Plus as PlusIcon,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { Avatar } from "../../../../components/ui/Avatar";
@@ -50,6 +51,9 @@ import {
   ReactionButton,
   MoreReactionsButton,
   ReactionBubble,
+  HoverReactionBar,
+  HoverReactionButton,
+  HoverMoreReactionsButton,
   EditInputContainer,
   EditInput,
   EditActionButtons,
@@ -92,6 +96,7 @@ export const MessageBubble = React.memo(
 
     const [reactions, setReactions] = useState<Reaction[]>([]);
     const [showPicker, setShowPicker] = useState(false);
+    const [isHovered, setIsHovered] = useState(false);
     const { recentEmojis, trackEmoji } = useRecentEmojis();
 
     // Context Menu State
@@ -275,6 +280,8 @@ export const MessageBubble = React.memo(
       if (msg.sid && msg.id) {
         ChatClient.sendReaction(msg.sid, msg.id, emojiData.emoji, "add");
         setShowPicker(false);
+        // Force a local update for immediate feedback
+        loadReactions();
       }
     };
 
@@ -688,6 +695,36 @@ export const MessageBubble = React.memo(
           </ReplyButton>
         )}
 
+        <HoverReactionBar
+          isMe={isModernLayout ? false : isMe}
+          style={{
+            opacity: isHovered ? 1 : 0,
+            visibility: isHovered ? "visible" : "hidden",
+            transform: isHovered ? "translateY(0)" : "translateY(10px)",
+          }}
+        >
+          {recentEmojis.map((emoji) => (
+            <HoverReactionButton
+              key={emoji}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReaction({ emoji });
+                trackEmoji(emoji);
+              }}
+            >
+              {emoji}
+            </HoverReactionButton>
+          ))}
+          <HoverMoreReactionsButton
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              setShowPicker(true);
+            }}
+          >
+            <PlusIcon size={14} />
+          </HoverMoreReactionsButton>
+        </HoverReactionBar>
+
         {msg.replyTo && (
           <ReplyContext>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -912,6 +949,8 @@ export const MessageBubble = React.memo(
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
       >
         {!isModernLayout && (
           <div

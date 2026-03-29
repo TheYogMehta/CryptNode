@@ -427,6 +427,66 @@ export const ReplyButton = styled.button<{ isMe: boolean }>`
   }
 `;
 
+export const HoverReactionBar = styled.div<{ isMe: boolean }>`
+  position: absolute;
+  top: -38px;
+  ${(props) => (props.isMe ? "right: 0;" : "left: 0;")}
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #232d36;
+  padding: 4px 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 100;
+
+  ${BubbleWrapper}:hover & {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+`;
+
+export const HoverReactionButton = styled.button`
+  background: none;
+  border: none;
+  font-size: 18px;
+  padding: 2px 4px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  line-height: 1;
+
+  &:hover {
+    transform: scale(1.3);
+  }
+`;
+
+export const HoverMoreReactionsButton = styled.button`
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #aebac1;
+  margin-left: 2px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+`;
+
+
 export const FileAttachment = styled.div`
   display: flex;
   align-items: center;
