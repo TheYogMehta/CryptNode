@@ -36,12 +36,15 @@ function renderLatest(release) {
   container.innerHTML = "";
 
   const { version, files } = release;
-  const baseUrl = `/releases/${version}/`;
+  const baseUrl = `https://github.com/TheYogMehta/CryptNode/releases/download/${version}/`;
 
   // Helper to create button
   const createBtn = (label, icon, filename) => {
     if (!filename) return "";
-    return `<a class="btn btn-primary" href="${baseUrl}${filename}" download>
+    const versionNumber = version.replace(/^v/, '');
+    const actualFilename = filename.replace('{version}', versionNumber);
+    const downloadUrl = actualFilename.startsWith('http') ? actualFilename : `${baseUrl}${actualFilename}`;
+    return `<a class="btn btn-primary" href="${downloadUrl}">
       ${icon} Download for ${label}
     </a>`;
   };
@@ -66,12 +69,15 @@ function renderAllVersions(releases) {
 
   list.innerHTML = releases
     .map((r) => {
-      const baseUrl = `/releases/${r.version}/`;
+      const baseUrl = `https://github.com/TheYogMehta/CryptNode/releases/download/${r.version}/`;
 
       const links = Object.entries(r.files)
         .map(([os, filename]) => {
           const label = os.charAt(0).toUpperCase() + os.slice(1);
-          return `<a class="v-link" href="${baseUrl}${filename}" download>${label}</a>`;
+          const versionNumber = r.version.replace(/^v/, '');
+          const actualFilename = filename.replace('{version}', versionNumber);
+          const downloadUrl = actualFilename.startsWith('http') ? actualFilename : `${baseUrl}${actualFilename}`;
+          return `<a class="v-link" href="${downloadUrl}">${label}</a>`;
         })
         .join("");
 

@@ -405,7 +405,7 @@ export class FileTransferService {
     }
   }
 
-  public async handleFileInfo(sid: string, data: any) {
+  public async handleFileInfo(sid: string, data: any, sender: string = "other") {
     const isImage = data.mimeType.startsWith("image/");
     const isVideo = data.mimeType.startsWith("video/");
     const isAudio = data.mimeType.startsWith("audio/");
@@ -421,11 +421,11 @@ export class FileTransferService {
       sid,
       data.caption || "",
       msgType,
-      "other",
+      sender,
       data.messageId,
     );
     console.log(
-      `[FileTransfer] Received FILE_INFO: name=${data.name}, caption=${data.caption}, mime=${data.mimeType}, size=${data.size}`,
+      `[FileTransfer] Received FILE_INFO: name=${data.name}, caption=${data.caption}, mime=${data.mimeType}, size=${data.size}, sender=${sender}`,
     );
     await StorageService.initMediaEntry(
       localId,
@@ -439,7 +439,7 @@ export class FileTransferService {
     this.client.emit("message", {
       sid,
       text: data.caption || "",
-      sender: "other",
+      sender: sender,
       type: msgType,
       thumbnail: data.thumbnail,
       id: localId,

@@ -144,7 +144,6 @@ export const decryptFromPackedString = async (
 
     return await decryptData(ciphertext, iv, key);
   } catch (e) {
-    console.error("Decryption failed:", e);
     return null;
   }
 };

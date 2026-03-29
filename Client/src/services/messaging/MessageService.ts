@@ -1039,7 +1039,7 @@ export class MessageService extends EventEmitter {
         }
 
         case "FILE_INFO":
-          await this.client.fileTransfer.handleFileInfo(sid, data);
+          await this.client.fileTransfer.handleFileInfo(sid, data, senderString);
           break;
         case "FILE_REQ_CHUNK":
           this.client.fileTransfer.streamAllChunks(
