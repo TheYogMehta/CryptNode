@@ -460,8 +460,20 @@ export class MessageService extends EventEmitter {
     priority: number = 1,
   ) {
     if (!this.client.sessionService.sessions[sid]) {
-      console.warn(`[MessageService] Received MSG for unknown session ${sid}`);
-      return;
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        if (this.client.sessionService.sessions[sid]) break;
+      }
+
+      if (!this.client.sessionService.sessions[sid]) {
+        console.warn(`[MessageService] Session ${sid} not found, reloading sessions...`);
+        await this.client.sessionService.loadSessions();
+      }
+
+      if (!this.client.sessionService.sessions[sid]) {
+        console.warn(`[MessageService] Received MSG for unknown session ${sid}`);
+        return;
+      }
     }
 
     try {

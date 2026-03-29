@@ -652,13 +652,16 @@ const Home = () => {
             <WelcomeView onAddFriend={() => actions.setView("add")} />
           )}
 
-          <CallOverlay
-            callState={state.activeCall}
-            localStream={state.localStream}
-            onAccept={actions.acceptCall}
-            onReject={actions.rejectCall}
-            onHangup={actions.endCall}
-          />
+          {state.activeCall && state.activeCall.status !== "idle" && (
+            <CallOverlay
+              key={state.activeCall.sid}
+              callState={state.activeCall}
+              localStream={state.localStream}
+              onAccept={actions.acceptCall}
+              onReject={actions.rejectCall}
+              onHangup={actions.endCall}
+            />
+          )}
         </MainContent>
 
 

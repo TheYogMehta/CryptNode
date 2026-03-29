@@ -60,6 +60,123 @@ import {
   EditButton,
 } from "./Chat.styles";
 
+// ─── GifBubble ────────────────────────────────────────────────────────────────
+// Renders tenor/giphy GIFs without layout shift by reserving an aspect-ratio
+// box with a shimmer skeleton, then fading in the media once it loads.
+const GifBubble: React.FC<{
+  media: { resolvedUrl: string; type: "image" | "video"; sourceUrl?: string };
+  onLoad?: () => void;
+  onError?: () => void;
+}> = ({ media, onLoad, onError }) => {
+  const [loaded, setLoaded] = useState(false);
+
+  const handleLoad = () => { setLoaded(true); onLoad?.(); };
+  const handleError = () => { onError?.(); };
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        maxWidth: "280px",
+        marginBottom: "8px",
+        borderRadius: "10px",
+        overflow: "hidden",
+        background: "#1a1a2e",
+        aspectRatio: "4 / 3",
+      }}
+    >
+      {/* Shimmer skeleton shown while loading */}
+      {!loaded && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(90deg, #1e1e2e 25%, #2a2a3e 50%, #1e1e2e 75%)",
+            backgroundSize: "200% 100%",
+            animation: "gifShimmer 1.4s ease-in-out infinite",
+            borderRadius: "10px",
+          }}
+        />
+      )}
+
+      {/* Actual media */}
+      {media.type === "video" ? (
+        <video
+          src={media.resolvedUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+          onLoadedData={handleLoad}
+          onError={handleError}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            borderRadius: "10px",
+            opacity: loaded ? 1 : 0,
+            transition: "opacity 0.3s ease",
+          }}
+        />
+      ) : (
+        <img
+          src={media.resolvedUrl}
+          alt="GIF"
+          onLoad={handleLoad}
+          onError={handleError}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            borderRadius: "10px",
+            opacity: loaded ? 1 : 0,
+            transition: "opacity 0.3s ease",
+          }}
+        />
+      )}
+
+      {/* GIF badge */}
+      {loaded && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "6px",
+            left: "6px",
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(4px)",
+            color: "#fff",
+            fontSize: "10px",
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            padding: "2px 5px",
+            borderRadius: "4px",
+            lineHeight: 1.4,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          GIF
+        </div>
+      )}
+
+      {/* Keyframes injected once */}
+      <style>{`
+        @keyframes gifShimmer {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
 export const MessageBubble = React.memo(
   ({
     msg,
@@ -92,8 +209,11 @@ export const MessageBubble = React.memo(
     const [isLoading, setIsLoading] = useState(false);
     const [isRequestingDownload, setIsRequestingDownload] = useState(false);
     const [inlineMedia, setInlineMedia] = useState<
-      Array<{ sourceUrl: string; resolvedUrl: string; type: "image" | "video" }>
+      Array<{ sourceUrl: string; resolvedUrl: string; type: "image" | "video"; isGif?: boolean }>
     >([]);
+    // Tracks per-GIF load outcome so GIF-only messages can hide the URL on success
+    // and fall back to showing the raw URL on error.
+    const [gifLoadStates, setGifLoadStates] = useState<Record<string, "loaded" | "error">>({});
 
     const [reactions, setReactions] = useState<Reaction[]>([]);
     const [showPicker, setShowPicker] = useState(false);
@@ -349,6 +469,7 @@ export const MessageBubble = React.memo(
         }
         inlineObjectUrlsRef.current = [];
         setInlineMedia([]);
+        setGifLoadStates({});
         prevMsgId.current = msg.id;
       }
 
@@ -373,6 +494,19 @@ export const MessageBubble = React.memo(
       }
       inlineObjectUrlsRef.current = [];
       setInlineMedia([]);
+
+      const isGifUrl = (url: string): boolean => {
+        try {
+          const { pathname, hostname } = new URL(url);
+          const path = pathname.toLowerCase();
+          // Tenor media served as mp4, giphy .gif, discord CDN .gif
+          if (hostname.includes("tenor.com") && /\.mp4$/i.test(path)) return true;
+          if (/\.gif$/i.test(path)) return true;
+          return false;
+        } catch {
+          return false;
+        }
+      };
 
       const mediaTypeFromUrl = (url: string): "image" | "video" | null => {
         try {
@@ -417,6 +551,7 @@ export const MessageBubble = React.memo(
           sourceUrl: string;
           resolvedUrl: string;
           type: "image" | "video";
+          isGif?: boolean;
         }> = [];
 
         for (const candidate of candidates) {
@@ -463,6 +598,7 @@ export const MessageBubble = React.memo(
               sourceUrl: candidate.url,
               resolvedUrl: objectUrl,
               type: candidate.type,
+              isGif: isGifUrl(candidate.url),
             });
           } catch (_e) {
             // Fetch-only mode: if fetch/CORS fails, skip inline embed.
@@ -863,61 +999,96 @@ export const MessageBubble = React.memo(
               </EditInputContainer>
             ) : (
               <>
-                {renderMediaContent() || (
-                  <div
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "break-word",
-                    }}
-                  >
-                    {inlineMedia.map((media, idx) => (
-                      <MediaContainer
-                        style={{ marginBottom: "8px" }}
-                        key={`${media.sourceUrl}-${idx}`}
-                      >
-                        {media.type === "image" ? (
-                          <img
-                            src={media.resolvedUrl}
-                            alt="preview"
-                            style={{
-                              width: "100%",
-                              height: "auto",
-                              maxHeight: "300px",
-                              borderRadius: "8px",
-                              cursor: "zoom-in",
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              onMediaClick?.(
-                                media.resolvedUrl,
-                                "image",
-                                msg.text,
-                                {
-                                  sender: msg.sender,
-                                  senderName: senderName,
-                                  timestamp: msg.timestamp,
-                                },
-                              );
-                            }}
+                {renderMediaContent() || (() => {
+                  // Detect GIF-only message: the entire text is a single GIF URL.
+                  // In that case suppress the raw URL and show only the GIF.
+                  const singleGif =
+                    inlineMedia.length === 1 &&
+                    inlineMedia[0].isGif &&
+                    (msg.text || "").trim() === (inlineMedia[0].sourceUrl || "");
+
+                  return (
+                    <div
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "break-word",
+                      }}
+                    >
+                      {inlineMedia.map((media, idx) => {
+                        if (!media.isGif) {
+                          return (
+                            <MediaContainer
+                              style={{ marginBottom: "8px" }}
+                              key={`${media.sourceUrl}-${idx}`}
+                            >
+                              {media.type === "image" ? (
+                                <img
+                                  src={media.resolvedUrl}
+                                  alt="preview"
+                                  style={{
+                                    width: "100%",
+                                    height: "auto",
+                                    maxHeight: "300px",
+                                    borderRadius: "8px",
+                                    cursor: "zoom-in",
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    e.preventDefault();
+                                    onMediaClick?.(
+                                      media.resolvedUrl,
+                                      "image",
+                                      msg.text,
+                                      {
+                                        sender: msg.sender,
+                                        senderName: senderName,
+                                        timestamp: msg.timestamp,
+                                      },
+                                    );
+                                  }}
+                                />
+                              ) : (
+                                <video
+                                  controls
+                                  src={media.resolvedUrl}
+                                  style={{
+                                    width: "100%",
+                                    height: "auto",
+                                    maxHeight: "300px",
+                                    borderRadius: "8px",
+                                  }}
+                                />
+                              )}
+                            </MediaContainer>
+                          );
+                        }
+
+                        // GIF with load/error feedback
+                        const state = gifLoadStates[media.sourceUrl];
+                        // If this GIF-only message errored → don't render the GifBubble at all
+                        if (singleGif && state === "error") return null;
+
+                        return (
+                          <GifBubble
+                            key={`${media.sourceUrl}-${idx}`}
+                            media={media}
+                            onLoad={() =>
+                              setGifLoadStates((prev) => ({ ...prev, [media.sourceUrl]: "loaded" }))
+                            }
+                            onError={() =>
+                              setGifLoadStates((prev) => ({ ...prev, [media.sourceUrl]: "error" }))
+                            }
                           />
-                        ) : (
-                          <video
-                            controls
-                            src={media.resolvedUrl}
-                            style={{
-                              width: "100%",
-                              height: "auto",
-                              maxHeight: "300px",
-                              borderRadius: "8px",
-                            }}
-                          />
-                        )}
-                      </MediaContainer>
-                    ))}
-                    {msg.text && renderTextWithLinks(msg.text)}
-                  </div>
-                )}
+                        );
+                      })}
+
+                      {/* URL text: suppress when GIF-only and not errored */}
+                      {msg.text &&
+                        !(singleGif && gifLoadStates[inlineMedia[0]?.sourceUrl] !== "error") &&
+                        renderTextWithLinks(msg.text)}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </>

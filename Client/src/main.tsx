@@ -1,5 +1,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+
+// Expose React globally for third-party scripts/libraries (e.g. react-filerobot-image-editor)
+window.React = window.React || React;
+import Konva from "konva";
+// @ts-ignore
+window.Konva = window.Konva || Konva;
 import { defineCustomElements } from "@ionic/pwa-elements/loader";
 import App from "./App";
 

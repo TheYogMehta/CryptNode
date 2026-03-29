@@ -522,8 +522,6 @@ export const MediaContainer = styled.div`
   border-radius: ${radii.lg};
   overflow: hidden;
   background-color: transparent;
-  min-width: 200px;
-  min-height: 150px;
   display: flex;
   align-items: center;
   justify-content: center;

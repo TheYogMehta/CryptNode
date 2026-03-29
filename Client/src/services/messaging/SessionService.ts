@@ -68,7 +68,7 @@ export class SessionService extends EventEmitter {
 
   public async loadSessions() {
     const previousSessions = this.sessions;
-    this.sessions = {};
+    const newSessions: Record<string, ChatSession> = {};
     const rows = await queryDB("SELECT * FROM sessions");
     for (const row of rows) {
       try {
@@ -101,7 +101,7 @@ export class SessionService extends EventEmitter {
           ? JSON.parse(row.peer_pub_keys)
           : [];
 
-        this.sessions[row.sid] = {
+        newSessions[row.sid] = {
           cryptoKeys: cryptoKeysMap,
           online: previousSessions[row.sid]?.online || false,
           peerEmail: normalizedPeerEmail || undefined,
@@ -115,11 +115,17 @@ export class SessionService extends EventEmitter {
           notes: row.notes || undefined,
         };
 
+        // Don't await worker init blindly, do it synchronously or let it buffer?
+        // Let's await it since it was awaited before
         await WorkerManager.getInstance().initSession(row.sid, jwksMap);
       } catch (e) {
         console.error("Failed to load session", row.sid, e);
       }
     }
+
+    // Atomically swap the sessions map to prevent dropping messages
+    // Merge dynamically added sessions (e.g. from concurrent finalizeSession calls)
+    this.sessions = { ...this.sessions, ...newSessions };
   }
 
   private async getLocalProfileForHandshake() {

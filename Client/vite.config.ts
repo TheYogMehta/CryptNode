@@ -41,6 +41,9 @@ function copyWasmPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  resolve: {
+    dedupe: ["konva"],
+  },
   plugins: [
     copyWasmPlugin(),
     react(),

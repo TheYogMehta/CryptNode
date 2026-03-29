@@ -50,9 +50,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 }) => {
   const [duration, setDuration] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
-  const [isScreenEnabled, setIsScreenEnabled] = useState(false);
+  const client = ChatClient.getInstance();
+  const [isMuted, setIsMuted] = useState(!client.isMicEnabled);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(client.isVideoEnabled);
+  const [isScreenEnabled, setIsScreenEnabled] = useState(client.isScreenEnabled);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localPreviewRef = useRef<HTMLVideoElement | null>(null);
   const [position, setPosition] = useState({ x: 20, y: 20 });
@@ -85,7 +87,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     };
   }, [callState?.peerAvatar]);
 
-  const client = ChatClient.getInstance();
   const canScreenShare = client.canScreenShare;
   useEffect(() => {
     const handleVideoToggle = (data: { enabled: boolean }) => {
@@ -127,12 +128,23 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         if (stream) {
           if (remoteVideoRef.current.srcObject !== stream) {
             remoteVideoRef.current.srcObject = stream;
-            remoteVideoRef.current.play().catch((err) => {
-              console.error("Error playing remote video:", err);
-            });
           }
+          // Always ensure play is called just in case
+          remoteVideoRef.current.play().catch((err) => {
+            console.error("Error playing remote video:", err);
+          });
+          
+          const checkRemoteVideo = () => {
+             const hasActiveVideo = stream.getVideoTracks().some(track => track.enabled && track.readyState === 'live');
+             setHasRemoteVideo(hasActiveVideo);
+          };
+          
+          checkRemoteVideo();
+          stream.onaddtrack = checkRemoteVideo;
+          stream.onremovetrack = checkRemoteVideo;
         } else {
           remoteVideoRef.current.srcObject = null;
+          setHasRemoteVideo(false);
         }
       }
     };
@@ -202,8 +214,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const shouldShowRemoteVideo =
     callState?.type === "Video" ||
     callState?.type === "Screen" ||
-    isVideoEnabled ||
-    isScreenEnabled;
+    hasRemoteVideo;
 
   if (!callState || callState.status === "idle") return null;
 
