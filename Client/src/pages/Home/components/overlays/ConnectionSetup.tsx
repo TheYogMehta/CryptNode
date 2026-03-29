@@ -84,7 +84,9 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
           <span style={{ 
             padding: "0 12px", 
             color: colors.text.secondary,
-            borderLeft: `1px solid ${colors.border}`
+            borderLeft: `1px solid ${colors.border}`,
+            whiteSpace: "nowrap",
+            flexShrink: 0
           }}>
             @gmail.com
           </span>

@@ -123,9 +123,18 @@ export class SessionService extends EventEmitter {
       }
     }
 
-    // Atomically swap the sessions map to prevent dropping messages
-    // Merge dynamically added sessions (e.g. from concurrent finalizeSession calls)
-    this.sessions = { ...this.sessions, ...newSessions };
+    // Replace the sessions map entirely with what the current DB contains.
+    // Previously this spread old sessions first then overlaid newSessions, which
+    // caused stale sessions from a previous account (after an account switch) to
+    // leak into the new user's in-memory map and corrupt peerName/peerEmailHash.
+    // We still preserve `online` status for sessions that exist in both maps so that
+    // concurrent finalizeSession calls (e.g. SESSION_LIST arriving mid-load) aren't lost.
+    for (const sid of Object.keys(newSessions)) {
+      if (previousSessions[sid]) {
+        newSessions[sid].online = previousSessions[sid].online;
+      }
+    }
+    this.sessions = newSessions;
   }
 
   private async getLocalProfileForHandshake() {

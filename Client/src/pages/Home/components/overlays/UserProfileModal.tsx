@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus, Filter, Trash2 } from "lucide-react";
+import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus, Filter, Trash2, UserPlus } from "lucide-react";
 import {
   Overlay,
   ModalContainer,
@@ -22,6 +22,7 @@ import {
   SaveButtonContainer,
   SaveButton,
   RemoveConnectionButton,
+  SendRequestButton,
   MonthHeader,
   FilterPanel,
   FilterRow,
@@ -60,6 +61,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [mediaItems, setMediaItems] = useState<any[]>([]);
   const [columns, setColumns] = useState<number>(4);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSendingRequest, setIsSendingRequest] = useState(false);
+  const [requestSent, setRequestSent] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filterFrom, setFilterFrom] = useState<"all" | "me" | "them">("all");
   const [filterType, setFilterType] = useState<"all" | "image" | "video" | "document">("all");
@@ -161,6 +164,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       console.error(e);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSendRequest = async () => {
+    if (!session.peerEmail || isSendingRequest || requestSent) return;
+    setIsSendingRequest(true);
+    try {
+      await ChatClient.connectToPeer(session.peerEmail);
+      setRequestSent(true);
+    } catch (e) {
+      console.error("Failed to send request", e);
+    } finally {
+      setIsSendingRequest(false);
     }
   };
 
@@ -400,19 +416,32 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               Remove Connection
             </RemoveConnectionButton>
           ) : (
-            <RemoveConnectionButton
-              onClick={() => {
-                if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages.")) {
-                  setIsSaving(true);
-                  onClose();
-                  ChatClient.removeConnection(session.peerEmailHash || "", session.sid, true);
-                }
-              }}
-              disabled={isSaving}
-            >
-              <Trash2 size={18} />
-              Delete Chat
-            </RemoveConnectionButton>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <RemoveConnectionButton
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages.")) {
+                    setIsSaving(true);
+                    onClose();
+                    ChatClient.removeConnection(session.peerEmailHash || "", session.sid, true);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <Trash2 size={18} />
+                Delete Chat
+              </RemoveConnectionButton>
+
+              {session.peerEmail && (
+                <SendRequestButton
+                  onClick={handleSendRequest}
+                  disabled={isSendingRequest || requestSent}
+                  title={`Send friend request to ${session.peerEmail}`}
+                >
+                  <UserPlus size={18} />
+                  {requestSent ? "Request Sent" : isSendingRequest ? "Sending..." : "Send Request"}
+                </SendRequestButton>
+              )}
+            </div>
           )}
           
           {(aliasName !== (session.alias_name || "") || notes !== (session.notes || "")) && (

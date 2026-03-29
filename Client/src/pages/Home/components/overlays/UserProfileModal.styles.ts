@@ -424,3 +424,33 @@ export const RemoveConnectionButton = styled.button`
     cursor: not-allowed;
   }
 `;
+
+export const SendRequestButton = styled.button`
+  background: transparent;
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-family: ${typography.fontFamily.sans};
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: all 0.18s;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.6);
+    color: #6ee7b7;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: #94a3b8;
+    border-color: rgba(148, 163, 184, 0.2);
+  }
+`;

@@ -9,6 +9,7 @@ import {
   Trash2,
   Send,
   Plus,
+  FileText,
 } from "lucide-react";
 import FilerobotImageEditor, {
   TABS,
@@ -500,8 +501,18 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
           <PreviewArea>
             {currentFile.type === "image" ? (
               <img src={currentFile.previewUrl} alt="Preview" />
-            ) : (
+            ) : currentFile.type === "video" ? (
               <video src={currentFile.previewUrl} controls />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                <FileText size={64} style={{ opacity: 0.8 }} />
+                <span style={{ fontSize: '18px', fontWeight: 500, textAlign: 'center', wordBreak: 'break-all', maxWidth: '80%' }}>
+                  {currentFile.file.name}
+                </span>
+                <span style={{ fontSize: '14px', opacity: 0.6 }}>
+                  {(currentFile.file.size / 1024 / 1024).toFixed(2)} MB
+                </span>
+              </div>
             )}
             {currentIndex > 0 && (
               <IconButton
@@ -560,8 +571,12 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                 >
                   {f.type === "image" ? (
                     <img src={f.previewUrl} alt="" />
-                  ) : (
+                  ) : f.type === "video" ? (
                     <video src={f.previewUrl} />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' }}>
+                      <FileText size={24} color="white" />
+                    </div>
                   )}
                 </Thumbnail>
               ))}

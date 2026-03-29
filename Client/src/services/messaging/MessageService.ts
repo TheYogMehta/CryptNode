@@ -764,7 +764,7 @@ export class MessageService extends EventEmitter {
             const manifest = data.manifest as {
               blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
               requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
-              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number }[];
+              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string }[];
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
             };
@@ -825,12 +825,39 @@ export class MessageService extends EventEmitter {
             }
 
             // ── aliases section ──
+            // Each alias entry carries peerEmail + peerHash so that sessions
+            // missing locally (e.g. on a freshly-installed Device B) can be
+            // created as stubs before their messages are inserted. Without this,
+            // contacts known only to Device A were silently dropped on Device B,
+            // causing the sidebar to show only the own-device session ("User1 <-> User1").
             if (Array.isArray(manifest.aliases)) {
               let changed = false;
               for (const entry of manifest.aliases) {
                 if (!entry.sid) continue;
+
+                // Ensure the session row exists — INSERT OR IGNORE creates a stub;
+                // subsequent UPDATE fills in the details.
+                if (entry.peerEmail || entry.peerHash) {
+                  const beforeCount = await queryDB(
+                    "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
+                    [entry.sid],
+                  );
+                  await executeDB(
+                    "INSERT OR IGNORE INTO sessions (sid, peer_email, peer_hash) VALUES (?, ?, ?)",
+                    [entry.sid, entry.peerEmail || null, entry.peerHash || null],
+                  );
+                  const afterCount = await queryDB(
+                    "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
+                    [entry.sid],
+                  );
+                  // If a new row was created, flag as changed so the sidebar refreshes
+                  if ((afterCount[0]?.n ?? 0) > (beforeCount[0]?.n ?? 0)) {
+                    changed = true;
+                  }
+                }
+
                 const existing = await queryDB(
-                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver, peer_name, peer_avatar FROM sessions WHERE sid = ? LIMIT 1",
+                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver, peer_name, peer_avatar, peer_email, peer_hash FROM sessions WHERE sid = ? LIMIT 1",
                   [entry.sid],
                 );
                 if (existing.length > 0) {
@@ -877,9 +904,26 @@ export class MessageService extends EventEmitter {
                      }
                      changed = true;
                   }
+
+                  // Backfill peer_email / peer_hash if the row was created without them
+                  if (entry.peerEmail && !current.peer_email) {
+                    await executeDB(
+                      "UPDATE sessions SET peer_email = ? WHERE sid = ?",
+                      [entry.peerEmail, entry.sid],
+                    );
+                  }
+                  if (entry.peerHash && !current.peer_hash) {
+                    await executeDB(
+                      "UPDATE sessions SET peer_hash = ? WHERE sid = ?",
+                      [entry.peerHash, entry.sid],
+                    );
+                  }
                 }
               }
               if (changed) {
+                // Reload in-memory sessions so that the newly-created stub sessions
+                // are available for crypto and sidebar display before messages are applied.
+                this.client.sessionService.loadSessions().catch(() => {});
                 this.client.emit("session_updated");
               }
             }
@@ -1116,6 +1160,13 @@ export class MessageService extends EventEmitter {
           break;
         case "GET_PROFILE":
           try {
+            // If the request came from our own hash (self-echo via lingering socket
+            // or same-device re-authentication), ignore it — we should never write
+            // our own profile data as the peer's name.
+            if (isOwnMessage) {
+              console.warn(`[MessageService] Ignoring GET_PROFILE self-echo on ${sid}`);
+              break;
+            }
             const meRows = await queryDB(
               "SELECT public_name, public_avatar, name_version, avatar_version FROM me WHERE id = 1",
             );
@@ -1221,6 +1272,13 @@ export class MessageService extends EventEmitter {
           break;
         case "PROFILE_DATA":
           try {
+            // Guard: if this PROFILE_DATA came from our own hash (self-echo via
+            // a lingering or re-authenticated socket), discard it.  Storing our
+            // own name as peer_name is what caused "User1 <-> User1" in the UI.
+            if (isOwnMessage) {
+              console.warn(`[MessageService] Ignoring PROFILE_DATA self-echo on ${sid}`);
+              break;
+            }
             const {
               name,
               avatar,

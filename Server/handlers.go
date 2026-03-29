@@ -606,10 +606,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			keyRows.Close()
 
-			rows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
-			for rows.Next() {
+			// Collect target clients and send FRIEND_ACCEPTED per-device
+			var targetClients []*Client
+			var targetActivePubKeys []string
+			tRows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
+			for tRows.Next() {
 				var socketID, targetSocketPubKey string
-				rows.Scan(&socketID, &targetSocketPubKey)
+				tRows.Scan(&socketID, &targetSocketPubKey)
 				s.mu.Lock()
 				if targetClient, ok := s.clients[socketID]; ok {
 					var packetForDevice string
@@ -627,13 +630,63 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 							"publicKeys":      myPubKeys,
 						})
 						s.send(targetClient, Frame{T: "FRIEND_ACCEPTED", Data: json.RawMessage(respData)})
+						targetClients = append(targetClients, targetClient)
+						if targetSocketPubKey != "" {
+							targetActivePubKeys = append(targetActivePubKeys, targetSocketPubKey)
+						}
 					}
 				}
 				s.mu.Unlock()
 			}
-			rows.Close()
+			tRows.Close()
 
 			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"` + targetEmail + `"}`)})
+
+			// ── Wire up the new session room immediately ─────────────────────────────
+			// Without this, any MSG (SYNC_HINT) sent right after FRIEND_ACCEPTED is
+			// silently dropped because s.sessions[sid] has no members yet.
+			// Sending PEER_ONLINE triggers the existing sync handshake on the client.
+			s.mu.Lock()
+			newSess, sessExists := s.sessions[sid]
+			if !sessExists {
+				newSess = &Session{
+					id:      sid,
+					clients: map[string]*Client{},
+				}
+				s.sessions[sid] = newSess
+			}
+			newSess.mu.Lock()
+			newSess.clients[client.id] = client // acceptor (User 2)
+			for _, tc := range targetClients {
+				newSess.clients[tc.id] = tc // requester (User 1)
+			}
+			newSess.mu.Unlock()
+			s.mu.Unlock()
+
+			// Collect acceptor's (User 2 / sender) active pub keys
+			var senderActivePubKeys []string
+			sActKeyRows, _ := s.db.Query("SELECT DISTINCT s.public_key FROM sockets s JOIN devices d ON s.public_key = d.public_key WHERE s.email_hash = ? AND s.public_key IS NOT NULL AND s.public_key != ''", senderHash)
+			for sActKeyRows.Next() {
+				var pk string
+				if err := sActKeyRows.Scan(&pk); err == nil {
+					senderActivePubKeys = append(senderActivePubKeys, pk)
+				}
+			}
+			sActKeyRows.Close()
+
+			// Notify requester (User 1) that acceptor is online → triggers sync
+			if len(senderActivePubKeys) > 0 {
+				pOForTarget, _ := json.Marshal(map[string]any{"peerPubKeys": senderActivePubKeys})
+				for _, tc := range targetClients {
+					s.send(tc, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForTarget)})
+				}
+			}
+
+			// Notify acceptor (User 2) that requester is online → triggers sync
+			if len(targetActivePubKeys) > 0 {
+				pOForSender, _ := json.Marshal(map[string]any{"peerPubKeys": targetActivePubKeys})
+				s.send(client, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForSender)})
+			}
 
 		case "FRIEND_DENY":
 			if client.email == "" {

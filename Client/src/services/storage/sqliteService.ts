@@ -506,9 +506,11 @@ export const getAllAliasesEntries = async (): Promise<{
   peerAvatar: string;
   peerNameVer: number;
   peerAvatarVer: number;
+  peerEmail: string;
+  peerHash: string;
 }[]> => {
   const rows = await queryDB(
-    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver FROM sessions",
+    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver, peer_email, peer_hash FROM sessions",
   );
   return rows.map((r: any) => ({
     sid: r.sid,
@@ -519,6 +521,8 @@ export const getAllAliasesEntries = async (): Promise<{
     peerAvatar: r.peer_avatar || "",
     peerNameVer: r.peer_name_ver || 0,
     peerAvatarVer: r.peer_avatar_ver || 0,
+    peerEmail: r.peer_email || "",
+    peerHash: r.peer_hash || "",
   }));
 };
 
