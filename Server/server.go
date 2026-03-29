@@ -87,7 +87,12 @@ func (s *Server) logConnection(initiator, target string) {
 }
 
 func (s *Server) broadcastDeviceList(emailHash string) {
-	rows, err := s.db.Query("SELECT public_key, last_active, status FROM devices WHERE email_hash = ?", emailHash)
+	rows, err := s.db.Query(`
+		SELECT d.public_key, d.last_active, 
+		       CASE WHEN s.socket_id IS NOT NULL THEN 'online' ELSE 'offline' END as status 
+		FROM devices d 
+		LEFT JOIN sockets s ON d.public_key = s.public_key AND d.email_hash = s.email_hash 
+		WHERE d.email_hash = ? GROUP BY d.public_key`, emailHash)
 	if err != nil {
 		s.logger.Printf("Failed to get devices for broadcast: %v", err)
 		return

@@ -271,10 +271,11 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                       fontSize: "12px",
                       marginTop: "4px",
                       fontFamily: "monospace",
+                      wordBreak: "break-all",
                     }}
                     title={localPubKey}
                   >
-                    Key: {localPubKey.substring(0, 16)}...
+                    Key: {localPubKey}
                   </div>
                 )}
               </div>

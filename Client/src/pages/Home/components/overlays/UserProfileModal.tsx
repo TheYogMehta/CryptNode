@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus, Filter } from "lucide-react";
+import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus, Filter, Trash2 } from "lucide-react";
 import {
   Overlay,
   ModalContainer,
@@ -385,19 +385,35 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </Content>
 
         <SaveButtonContainer>
-          <RemoveConnectionButton
-            onClick={() => {
-              if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
-                setIsSaving(true);
-                onClose();
-                ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
-              }
-            }}
-            disabled={isSaving}
-          >
-            <UserMinus size={18} />
-            Remove Connection
-          </RemoveConnectionButton>
+          {session.isConnected !== false ? (
+            <RemoveConnectionButton
+              onClick={() => {
+                if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
+                  setIsSaving(true);
+                  onClose();
+                  ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
+                }
+              }}
+              disabled={isSaving}
+            >
+              <UserMinus size={18} />
+              Remove Connection
+            </RemoveConnectionButton>
+          ) : (
+            <RemoveConnectionButton
+              onClick={() => {
+                if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages.")) {
+                  setIsSaving(true);
+                  onClose();
+                  ChatClient.removeConnection(session.peerEmailHash || "", session.sid, true);
+                }
+              }}
+              disabled={isSaving}
+            >
+              <Trash2 size={18} />
+              Delete Chat
+            </RemoveConnectionButton>
+          )}
           
           {(aliasName !== (session.alias_name || "") || notes !== (session.notes || "")) && (
             <SaveButton onClick={handleSave} disabled={isSaving}>

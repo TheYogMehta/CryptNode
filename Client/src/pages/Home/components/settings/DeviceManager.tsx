@@ -69,6 +69,7 @@ const DeviceName = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
+  word-break: break-all;
 `;
 
 const Badge = styled.span<{ $type?: "master" }>`
@@ -194,7 +195,7 @@ export const DeviceManager: React.FC = () => {
           const isMe = device.publicKey === localPubKey;
           const isMaster = device.isMaster;
 
-          let title = `Device ID: ${device.publicKey.substring(0, 16)}...`;
+          let title = `Public Key: ${device.publicKey}`;
           if (isMe) title += " (This Device)";
 
           return (
@@ -216,15 +217,6 @@ export const DeviceManager: React.FC = () => {
                   </DeviceMeta>
                 </DeviceDetails>
               </DeviceInfo>
-
-              {!isMe && (
-                <RemoveButton
-                  onClick={() => handleRevoke(device.publicKey)}
-                  title="Revoke Access"
-                >
-                  <Trash2 size={20} />
-                </RemoveButton>
-              )}
             </DeviceItem>
           );
         })}

@@ -714,7 +714,7 @@ export class SessionService extends EventEmitter {
     this.connectedSids.delete(sid);
 
     await executeDB("DELETE FROM sessions WHERE sid = ?", [sid]);
-    await executeDB("DELETE FROM messages WHERE session_id = ?", [sid]);
+    await executeDB("DELETE FROM messages WHERE sid = ?", [sid]);
 
     this.emit("session_updated");
   }

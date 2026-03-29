@@ -679,8 +679,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.sessionService.denyFriendByHash(targetHash);
   }
 
-  public removeConnection(targetHash: string, sid: string) {
-    return this.sessionService.removeConnection(targetHash, sid);
+  public removeConnection(targetHash: string, sid: string, skipNetwork?: boolean) {
+    return this.sessionService.removeConnection(targetHash, sid, skipNetwork);
   }
 
   public async blockUser(targetEmail: string) {

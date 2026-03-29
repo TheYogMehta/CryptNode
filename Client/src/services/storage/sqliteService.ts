@@ -468,41 +468,19 @@ export const deleteDatabase = async (databaseName: string = currentDbName) => {
     }
 
 
-    const directoriesToTry = [
-      Directory.Library,
-      Directory.Documents,
-      Directory.Data,
-    ];
-
-
-    const targets = [
-      `${databaseName}SQLite.db`,
-      `${databaseName}SQLite.db-journal`,
-      `${databaseName}SQLite.db-wal`,
-      `${databaseName}SQLite.db-shm`,
-    ];
-
-    let filesDeleted = 0;
-    for (const dir of directoriesToTry) {
-      for (const file of targets) {
-        try {
-          await Filesystem.deleteFile({ path: file, directory: dir });
-          filesDeleted++;
-          console.log(`[sqlite] Deleted file via FS: ${file} (dir=${dir})`);
-        } catch (_err) {
-          // File not in this directory — try next
-        }
+    // For Android, iOS, and Web, let the CapacitorSQLite plugin handle its own database deletion 
+    // since it knows the exact internal application storage path.
+    if (Capacitor.getPlatform() !== "electron") {
+      try {
+        await CapacitorSQLite.deleteDatabase({ database: databaseName });
+        if (databaseName === currentDbName) dbReady = null;
+        console.log(`[sqlite] Deleted database ${databaseName} via CapacitorSQLite plugin.`);
+      } catch (err) {
+        console.error(`[sqlite] Failed to delete database ${databaseName} via CapacitorSQLite plugin`, err);
       }
     }
-
-    if (filesDeleted > 0) {
-      if (databaseName === currentDbName) dbReady = null;
-      console.log(`[sqlite] Deleted database files via filesystem fallback.`);
-    } else {
-      console.error(`[sqlite] Failed to delete database ${databaseName}`);
-    }
   } catch (e) {
-    console.error(`[sqlite] Failed to delete database ${databaseName}`, e);
+    console.error(`[sqlite] Failed to process delete database ${databaseName}`, e);
   }
 };
 
