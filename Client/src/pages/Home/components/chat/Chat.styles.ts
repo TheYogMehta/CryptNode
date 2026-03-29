@@ -521,7 +521,7 @@ export const MediaContainer = styled.div`
   position: relative;
   border-radius: ${radii.lg};
   overflow: hidden;
-  background-color: black;
+  background-color: transparent;
   min-width: 200px;
   min-height: 150px;
   display: flex;

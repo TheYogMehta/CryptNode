@@ -22,6 +22,7 @@ interface ImageBubbleProps {
     url: string,
     type: "image" | "video",
     description?: string,
+    meta?: any
   ) => void;
 }
 
@@ -48,6 +49,8 @@ export const ImageBubble: React.FC<ImageBubbleProps> = ({
           onClick={(e: React.MouseEvent) => {
             e.stopPropagation();
             if (onMediaClick) {
+              // Note: meta is passed down from MessageBubble, but if this bubble has its own props,
+              // we just call it with 3 arguments here and let MessageBubble wrap it if needed.
               onMediaClick(src || thumbnailSrc || "", "image", text || "");
             } else {
               window.open(src || thumbnailSrc || "", "_blank");

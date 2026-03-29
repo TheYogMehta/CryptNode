@@ -75,6 +75,7 @@ export const MessageBubble = React.memo(
       url: string,
       type: "image" | "video",
       description?: string,
+      meta?: any,
     ) => void;
     messageLayout?: "bubble" | "modern";
     senderName?: string;
@@ -118,6 +119,14 @@ export const MessageBubble = React.memo(
     const [msgSummary, setMsgSummary] = useState("");
     const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
     const [isInitializingForMsg, setIsInitializingForMsg] = useState(false);
+
+    const handleMediaClickWrapper = (url: string, type: "image" | "video", description?: string) => {
+      onMediaClick?.(url, type, description, {
+        sender: msg.sender,
+        senderName: senderName,
+        timestamp: msg.timestamp,
+      });
+    };
 
     const normalizeUrlToken = (value: string): string =>
       value.replace(/[),.;!?]+$/g, "");
@@ -315,7 +324,11 @@ export const MessageBubble = React.memo(
       const matchedInline = inlineMedia.find((m) => m.sourceUrl === url);
       if (matchedInline) {
         if (matchedInline.type === "image") {
-          onMediaClick?.(matchedInline.resolvedUrl, "image", msg.text);
+          onMediaClick?.(matchedInline.resolvedUrl, "image", msg.text, {
+            sender: msg.sender,
+            senderName: senderName,
+            timestamp: msg.timestamp,
+          });
         }
         return;
       }
@@ -536,7 +549,7 @@ export const MessageBubble = React.memo(
             isLoading={isLoading}
             onDownload={handleDownload}
             onSave={handleSave}
-            onMediaClick={onMediaClick}
+            onMediaClick={handleMediaClickWrapper}
           />
         );
       }
@@ -564,7 +577,7 @@ export const MessageBubble = React.memo(
             isRequestingDownload={isRequestingDownload}
             progress={msg.mediaProgress || 0}
             onDownload={handleDownload}
-            onMediaClick={onMediaClick}
+            onMediaClick={handleMediaClickWrapper}
             text={msg.text || null}
           />
         );
@@ -675,10 +688,15 @@ export const MessageBubble = React.memo(
             : "transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28)",
           ...(isModernLayout
             ? {
-              borderRadius: "8px",
-              backgroundColor: "rgba(255,255,255,0.04)",
-              color: "#e5e7eb",
+              background: "none",
+              backgroundColor: "transparent",
+              boxShadow: "none",
+              borderRadius: "0",
+              padding: "2px 0",
+              color: "#d1d5db",
               maxWidth: "100%",
+              fontSize: "0.95rem",
+              lineHeight: "1.5",
             }
             : {}),
         }}
@@ -875,6 +893,11 @@ export const MessageBubble = React.memo(
                                 media.resolvedUrl,
                                 "image",
                                 msg.text,
+                                {
+                                  sender: msg.sender,
+                                  senderName: senderName,
+                                  timestamp: msg.timestamp,
+                                },
                               );
                             }}
                           />
@@ -906,7 +929,7 @@ export const MessageBubble = React.memo(
             opacity: 0.6,
             textAlign: "right",
             marginTop: "4px",
-            display: "flex",
+            display: isModernLayout ? "none" : "flex",
             alignItems: "center",
             justifyContent: "flex-end",
             gap: "4px",
@@ -976,36 +999,42 @@ export const MessageBubble = React.memo(
           <div
             style={{
               display: "flex",
-              gap: "10px",
+              gap: "12px",
               width: "100%",
               alignItems: "flex-start",
+              padding: "2px 12px 2px 16px",
+              borderRadius: "4px",
+              backgroundColor: isHovered ? "rgba(255,255,255,0.04)" : "transparent",
+              transition: "background-color 0.1s",
             }}
           >
-            <Avatar
-              size="sm"
-              src={senderAvatar}
-              name={senderName || (isMe ? "You" : "User")}
-            />
+            <div style={{ flexShrink: 0, marginTop: "2px" }}>
+              <Avatar
+                size="sm"
+                src={senderAvatar}
+                name={senderName || (isMe ? "You" : "User")}
+              />
+            </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
                   display: "flex",
                   alignItems: "baseline",
-                  gap: "8px",
-                  marginBottom: "4px",
+                  gap: "6px",
+                  marginBottom: "2px",
                 }}
               >
-                <span style={{ fontWeight: 700, color: "#f3f4f6" }}>
+                <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "#f3f4f6", lineHeight: 1 }}>
                   {senderName || (isMe ? "You" : "User")}
                 </span>
-                <span style={{ fontSize: "12px", color: "#9ca3af", display: "flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ fontSize: "0.7rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "3px" }}>
                   {timeString}
                   {isMe && (
-                    <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.7 }}>
+                    <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.6 }}>
                       {msg.status === 2 ? (
-                        <CheckCheck size={12} strokeWidth={2.5} color="#60a5fa" />
+                        <CheckCheck size={10} strokeWidth={2.5} color="#60a5fa" />
                       ) : msg.status === 1 ? (
-                        <Check size={12} strokeWidth={2.5} />
+                        <Check size={10} strokeWidth={2.5} />
                       ) : (
                         <svg
                           width="10"
@@ -1033,6 +1062,7 @@ export const MessageBubble = React.memo(
           bubbleNode
         )}
 
+
         {groupedReactions.length > 0 && (
           <ReactionBubble
             isMe={isModernLayout ? false : isMe}
@@ -1044,37 +1074,51 @@ export const MessageBubble = React.memo(
                 }
                 : undefined
             }
-            onClick={(e) => {
-              e.stopPropagation();
-              handleContextMenu(e);
-            }}
           >
             {groupedReactions.map(([emoji, info]) => (
               <span
                 key={emoji}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!msg.sid || !msg.id) return;
+                  if (info.mine) {
+                    // My reaction exists — remove it
+                    ChatClient.sendReaction(msg.sid, msg.id, emoji, "remove");
+                  } else {
+                    // No reaction from me — add it
+                    ChatClient.sendReaction(msg.sid, msg.id, emoji, "add");
+                    trackEmoji(emoji);
+                  }
+                  loadReactions();
+                }}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "4px",
-                  padding: "2px 6px",
+                  padding: "2px 8px",
                   borderRadius: "999px",
                   border: info.mine
-                    ? "1px solid #3b82f6"
-                    : "1px solid rgba(255,255,255,0.08)",
+                    ? "1.5px solid #3b82f6"
+                    : "1px solid rgba(255,255,255,0.12)",
                   background: info.mine
                     ? "rgba(59,130,246,0.18)"
-                    : "rgba(255,255,255,0.02)",
-                  color: info.mine ? "#bfdbfe" : "inherit",
-                  fontSize: "11px",
+                    : "rgba(255,255,255,0.06)",
+                  color: info.mine ? "#bfdbfe" : "#d1d5db",
+                  fontSize: "12px",
                   lineHeight: 1.2,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  userSelect: "none",
                 }}
+                title={info.mine ? "Click to remove your reaction" : "Click to react"}
               >
-                <span>{emoji}</span>
-                <span>{info.count}</span>
+                <span style={{ fontSize: "14px" }}>{emoji}</span>
+                <span style={{ fontWeight: 500 }}>{info.count}</span>
               </span>
             ))}
           </ReactionBubble>
         )}
+
 
         {contextMenu !== null && (
           <Menu

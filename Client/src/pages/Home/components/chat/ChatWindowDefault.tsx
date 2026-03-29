@@ -129,6 +129,7 @@ export const ChatWindowDefault = ({
     url: string;
     type: "image" | "video";
     description?: string;
+    meta?: any;
   } | null>(null);
 
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
@@ -400,8 +401,9 @@ export const ChatWindowDefault = ({
     url: string,
     type: "image" | "video",
     description?: string,
+    meta?: any
   ) => {
-    setSelectedMedia({ url, type, description });
+    setSelectedMedia({ url, type, description, meta });
     setMediaModalOpen(true);
   };
 
@@ -540,7 +542,7 @@ export const ChatWindowDefault = ({
             e.preventDefault();
             setShowProfileModal(true);
           }}
-          style={{ cursor: "pointer" }}
+          style={{ cursor: "pointer", display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}
         >
           <Avatar
             src={resolvedAvatar}
@@ -548,14 +550,18 @@ export const ChatWindowDefault = ({
             size="md"
             status={peerOnline ? "online" : "offline"}
           />
+          <HeaderInfo>
+            <HeaderName>{headerName}</HeaderName>
+            {session?.alias_name && session.alias_name !== (session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "")) && (
+              <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
+                {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
+              </div>
+            )}
+            <HeaderStatus isOnline={peerOnline}>
+              {peerOnline ? "Online" : "Offline"}
+            </HeaderStatus>
+          </HeaderInfo>
         </div>
-
-        <HeaderInfo>
-          <HeaderName>{headerName}</HeaderName>
-          <HeaderStatus isOnline={peerOnline}>
-            {peerOnline ? "Online" : "Offline"}
-          </HeaderStatus>
-        </HeaderInfo>
 
         <HeaderActions>
           <IconButton
@@ -1484,6 +1490,13 @@ export const ChatWindowDefault = ({
              await updateSessionNotes(session.sid, notes);
              ChatClient.sessionService.updateSessionNotes(session.sid, notes);
              ChatClient.sessionService.emit("session_updated");
+          }}
+          onGoToMessage={(msgId) => {
+            setShowProfileModal(false);
+            const index = messages.findIndex(m => m.id === msgId);
+            if (index >= 0 && virtuosoRef.current) {
+               virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+            }
           }}
         />
       )}

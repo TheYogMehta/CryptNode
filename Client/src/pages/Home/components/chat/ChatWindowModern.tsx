@@ -36,6 +36,7 @@ import {
 import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { UserProfileModal } from "../overlays/UserProfileModal";
+import { MediaModal } from "./MediaModal";
 import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
 
@@ -75,6 +76,13 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [mediaModalOpen, setMediaModalOpen] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<{
+    url: string;
+    type: "image" | "video";
+    description?: string;
+    meta?: any;
+  } | null>(null);
   const sessionService = ChatClient.sessionService;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,6 +148,16 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
     }
   };
 
+  const handleMediaClick = (
+    url: string,
+    type: "image" | "video",
+    description?: string,
+    meta?: any
+  ) => {
+    setSelectedMedia({ url, type, description, meta });
+    setMediaModalOpen(true);
+  };
+
   if (!session) return null;
   const peerLabelFromEmail = session.peerEmail
     ? session.peerEmail.split("@")[0]
@@ -154,32 +172,39 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
               <ArrowLeft size={20} />
             </ActionButton>
           )}
-          <Avatar 
+          <div
             onClick={() => setShowProfileModal(true)} 
             onContextMenu={(e) => {
               e.preventDefault();
               setShowProfileModal(true);
             }}
-            style={{ cursor: "pointer" }}
+            style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: 0 }}
             title="View Profile"
           >
-            {session.alias_avatar ||
-              session.peer_name?.[0]?.toUpperCase() ||
-              peerLabelFromEmail?.[0]?.toUpperCase() ||
-              "?"}
-          </Avatar>
-          <div>
-            <Name>
-              {session.alias_name ||
-                session.peer_name ||
-                peerLabelFromEmail ||
-                "Unknown"}
-            </Name>
-            {peerOnline ? (
-              <Status isOnline={true}>Online</Status>
-            ) : (
-              <Status>Offline</Status>
-            )}
+            <Avatar>
+              {session.alias_avatar ||
+                session.peer_name?.[0]?.toUpperCase() ||
+                peerLabelFromEmail?.[0]?.toUpperCase() ||
+                "?"}
+            </Avatar>
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 0 }}>
+              <Name>
+                {session.alias_name ||
+                  session.peer_name ||
+                  peerLabelFromEmail ||
+                  "Unknown"}
+              </Name>
+              {session.alias_name && session.alias_name !== (session.peer_name || peerLabelFromEmail || "") && (
+                  <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
+                    {session.peer_name || peerLabelFromEmail || "User"}
+                  </div>
+              )}
+              {peerOnline ? (
+                <Status isOnline={true}>Online</Status>
+              ) : (
+                <Status>Offline</Status>
+              )}
+            </div>
           </div>
         </HeaderInfo>
         <div
@@ -299,9 +324,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
                 <MessageBubble
                   msg={msg}
                   onReply={setReplyingTo}
-                  onMediaClick={(url: string) =>
-                    window.open(url, "_blank", "noopener,noreferrer")
-                  }
+                  onMediaClick={handleMediaClick}
                   messageLayout={messageLayout}
                   senderName={
                     msg.sender === "me"
@@ -492,6 +515,12 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
         </div>
       )}
 
+      <MediaModal
+        isOpen={mediaModalOpen}
+        onClose={() => setMediaModalOpen(false)}
+        media={selectedMedia}
+      />
+
       {showProfileModal && session && (
         <UserProfileModal
           session={session}
@@ -501,6 +530,13 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
              await updateSessionNotes(session.sid, notes);
              sessionService.updateSessionNotes(session.sid, notes);
              sessionService.emit("session_updated");
+          }}
+          onGoToMessage={(msgId) => {
+            setShowProfileModal(false);
+            const index = messages.findIndex(m => m.id === msgId);
+            if (index >= 0 && virtuosoRef.current) {
+               virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+            }
           }}
         />
       )}

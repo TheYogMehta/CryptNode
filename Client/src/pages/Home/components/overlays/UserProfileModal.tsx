@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X, Save, Grid, LayoutGrid, File, Film, Image as ImageIcon, UserMinus, Filter } from "lucide-react";
 import {
   Overlay,
   ModalContainer,
@@ -20,7 +21,14 @@ import {
   MediaItem,
   SaveButtonContainer,
   SaveButton,
-  RemoveConnectionButton
+  RemoveConnectionButton,
+  MonthHeader,
+  FilterPanel,
+  FilterRow,
+  FilterGroup,
+  FilterLabel,
+  FilterSelect,
+  FilterInput
 } from "./UserProfileModal.styles";
 import { SessionData } from "../../types";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
@@ -28,16 +36,23 @@ import { StorageService } from "../../../../services/storage/StorageService";
 import { getMediaForSession } from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
 
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import Lightbox from "yet-another-react-lightbox";
+import "yet-another-react-lightbox/styles.css";
+
 interface UserProfileModalProps {
   session: SessionData;
   onClose: () => void;
   onSave: (aliasName: string, notes: string) => void;
+  onGoToMessage?: (messageId: string) => void;
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   session,
   onClose,
-  onSave
+  onSave,
+  onGoToMessage
 }) => {
   const [aliasName, setAliasName] = useState(session.alias_name || "");
   const [notes, setNotes] = useState(session.notes || "");
@@ -45,6 +60,40 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [mediaItems, setMediaItems] = useState<any[]>([]);
   const [columns, setColumns] = useState<number>(4);
   const [isSaving, setIsSaving] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterFrom, setFilterFrom] = useState<"all" | "me" | "them">("all");
+  const [filterType, setFilterType] = useState<"all" | "image" | "video" | "document">("all");
+  const [filterOnDate, setFilterOnDate] = useState("");
+  const [filterBeforeDate, setFilterBeforeDate] = useState("");
+  const [filterAfterDate, setFilterAfterDate] = useState("");
+  
+  const [contextMenu, setContextMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+    item: any;
+  } | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const formatDisplayDate = (isoString: string) => {
+    if (!isoString || !isoString.includes("-")) return isoString;
+    const [y, m, d] = isoString.split("-");
+    if (!y || !m || !d) return isoString;
+    return `${d} ${m} ${y}`;
+  };
+
+  const parseToISODate = (input: string) => {
+    const raw = input.replace(/[^0-9\s/.-]/g, '');
+    const parts = raw.split(/[\s/.-]/).filter(Boolean);
+    if (parts.length >= 3) {
+      let d = parts[0].padStart(2, '0');
+      let m = parts[1].padStart(2, '0');
+      let y = parts[2];
+      if (y.length === 2) y = '20' + y;
+      return `${y}-${m}-${d}`;
+    }
+    return input;
+  };
   const sessionService = ChatClient.sessionService;
 
   const displayName = session.alias_name || session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : `User`);
@@ -137,6 +186,56 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     );
   };
 
+  const lightboxImages = mediaItems
+    .filter(i => i.mime_type?.startsWith("image/") && (i.localUrl || i.thumbnail))
+    .map(i => ({ src: i.localUrl || i.thumbnail || "", item: i }));
+
+  const filteredMediaItems = mediaItems.filter(item => {
+    // 1. Sender Filter
+    if (filterFrom === "me" && item.sender !== "me") return false;
+    if (filterFrom === "them" && item.sender === "me") return false;
+
+    // 2. Type Filter
+    const isImage = item.mime_type?.startsWith("image/");
+    const isVideo = item.mime_type?.startsWith("video/");
+    if (filterType === "image" && !isImage) return false;
+    if (filterType === "video" && !isVideo) return false;
+    if (filterType === "document" && (isImage || isVideo)) return false;
+
+    // 3. Date Filters
+    if (item.timestamp) {
+      if (filterOnDate) {
+        const onDate = new Date(filterOnDate);
+        const itemDate = new Date(item.timestamp);
+        if (onDate.getFullYear() !== itemDate.getFullYear() ||
+            onDate.getMonth() !== itemDate.getMonth() ||
+            onDate.getDate() !== itemDate.getDate()) {
+          return false;
+        }
+      }
+      if (filterBeforeDate) {
+        const beforeDate = new Date(filterBeforeDate).getTime();
+        if (item.timestamp >= beforeDate) return false;
+      }
+      if (filterAfterDate) {
+        const afterDate = new Date(filterAfterDate).getTime() + 86400000;
+        if (item.timestamp <= afterDate) return false;
+      }
+    }
+    return true;
+  });
+
+  const mediaGroups: { month: string, items: any[] }[] = [];
+  filteredMediaItems.forEach(item => {
+    const monthYear = new Date(item.timestamp).toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    let group = mediaGroups.find(g => g.month === monthYear);
+    if (!group) {
+      group = { month: monthYear, items: [] };
+      mediaGroups.push(group);
+    }
+    group.items.push(item);
+  });
+
   return (
     <Overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <ModalContainer>
@@ -182,6 +281,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <MediaGridHeader>
                 <SectionTitle style={{ marginBottom: 0 }}>Shared Media</SectionTitle>
                 <GridControls>
+                  <GridButton active={showFilters} onClick={() => setShowFilters(!showFilters)} title="Filters">
+                    <Filter size={18} />
+                  </GridButton>
                   <GridButton active={columns === 2} onClick={() => setColumns(2)} title="2 Columns">
                     <Grid size={18} />
                   </GridButton>
@@ -190,20 +292,84 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   </GridButton>
                 </GridControls>
               </MediaGridHeader>
-              <MediaGridContent columns={columns}>
-                {mediaItems.map((item, index) => (
-                  <MediaItem
-                    key={item.filename || index}
-                    onClick={() => {
-                      if (item.localUrl) {
-                        window.open(item.localUrl, "_blank", "noopener,noreferrer");
-                      }
-                    }}
-                  >
-                    {renderMediaItem(item)}
-                  </MediaItem>
-                ))}
-              </MediaGridContent>
+
+              {showFilters && (
+                <FilterPanel>
+                  <FilterRow>
+                    <FilterGroup>
+                      <FilterLabel>From</FilterLabel>
+                      <FilterSelect value={filterFrom} onChange={e => setFilterFrom(e.target.value as any)}>
+                        <option value="all">Anyone</option>
+                        <option value="me">Me</option>
+                        <option value="them">{displayName}</option>
+                      </FilterSelect>
+                    </FilterGroup>
+                    <FilterGroup>
+                      <FilterLabel>Type</FilterLabel>
+                      <FilterSelect value={filterType} onChange={e => setFilterType(e.target.value as any)}>
+                        <option value="all">All</option>
+                        <option value="image">Images</option>
+                        <option value="video">Videos</option>
+                        <option value="document">Documents</option>
+                      </FilterSelect>
+                    </FilterGroup>
+                  </FilterRow>
+                  <FilterRow>
+                    <FilterGroup>
+                      <FilterLabel>On Date</FilterLabel>
+                      <FilterInput type="text" placeholder="DD MM YYYY" value={formatDisplayDate(filterOnDate)} onChange={e => { setFilterOnDate(parseToISODate(e.target.value)); setFilterBeforeDate(""); setFilterAfterDate(""); }} />
+                    </FilterGroup>
+                    <FilterGroup>
+                      <FilterLabel>Before Date</FilterLabel>
+                      <FilterInput type="text" placeholder="DD MM YYYY" value={formatDisplayDate(filterBeforeDate)} onChange={e => { setFilterBeforeDate(parseToISODate(e.target.value)); setFilterOnDate(""); }} />
+                    </FilterGroup>
+                    <FilterGroup>
+                      <FilterLabel>After Date</FilterLabel>
+                      <FilterInput type="text" placeholder="DD MM YYYY" value={formatDisplayDate(filterAfterDate)} onChange={e => { setFilterAfterDate(parseToISODate(e.target.value)); setFilterOnDate(""); }} />
+                    </FilterGroup>
+                  </FilterRow>
+                </FilterPanel>
+              )}
+
+              {mediaGroups.length === 0 ? (
+                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                  No media matches the active filters.
+                </div>
+              ) : (
+                mediaGroups.map(group => (
+                  <div key={group.month}>
+                    <MonthHeader>{group.month}</MonthHeader>
+                    <MediaGridContent columns={columns}>
+                      {group.items.map((item, index) => (
+                        <MediaItem
+                          key={item.filename || index}
+                          onClick={() => {
+                            if (item.mime_type?.startsWith("image/")) {
+                               const slideIndex = lightboxImages.findIndex(l => l.item.filename === item.filename);
+                               if (slideIndex >= 0) {
+                                  setLightboxIndex(slideIndex);
+                                  setLightboxOpen(true);
+                               }
+                            } else if (item.localUrl) {
+                              window.open(item.localUrl, "_blank", "noopener,noreferrer");
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({
+                              mouseX: e.clientX,
+                              mouseY: e.clientY,
+                              item
+                            });
+                          }}
+                        >
+                          {renderMediaItem(item)}
+                        </MediaItem>
+                      ))}
+                    </MediaGridContent>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </Content>
@@ -222,12 +388,105 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <UserMinus size={18} />
             Remove Connection
           </RemoveConnectionButton>
-          <SaveButton onClick={handleSave} disabled={isSaving}>
-            <Save size={18} />
-            {isSaving ? "Saving..." : "Save Changes"}
-          </SaveButton>
+          
+          {(aliasName !== (session.alias_name || "") || notes !== (session.notes || "")) && (
+            <SaveButton onClick={handleSave} disabled={isSaving}>
+              <Save size={18} />
+              {isSaving ? "Saving..." : "Save Changes"}
+            </SaveButton>
+          )}
         </SaveButtonContainer>
       </ModalContainer>
+
+      {contextMenu !== null && contextMenu.item && (
+        <Menu
+          open={contextMenu !== null}
+          onClose={(e: any) => { e.stopPropagation(); setContextMenu(null); }}
+          anchorReference="anchorPosition"
+          anchorPosition={
+            contextMenu !== null
+              ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+              : undefined
+          }
+          MenuListProps={{
+            style: {
+              backgroundColor: "#1f2937",
+              color: "white",
+              borderRadius: "8px",
+            },
+          }}
+        >
+          <MenuItem
+            onClick={() => {
+              if (contextMenu.item.localUrl) {
+                const a = document.createElement("a");
+                a.href = contextMenu.item.localUrl;
+                a.download = contextMenu.item.original_name || "download";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+              } else {
+                alert("File not fully downloaded yet.");
+              }
+              setContextMenu(null);
+            }}
+          >
+            Download
+          </MenuItem>
+          {onGoToMessage && contextMenu.item.message_id && (
+            <MenuItem
+              onClick={() => {
+                onGoToMessage(contextMenu.item.message_id);
+                setContextMenu(null);
+              }}
+            >
+              Go to Message
+            </MenuItem>
+          )}
+        </Menu>
+      )}
+
+      {lightboxOpen && (
+        <div onClick={e => e.stopPropagation()}>
+          <Lightbox
+            open={lightboxOpen}
+            close={() => setLightboxOpen(false)}
+            index={lightboxIndex}
+            on={{ view: ({ index: i }) => setLightboxIndex(i) }}
+            slides={lightboxImages.map(img => ({ src: img.src }))}
+          />
+          {lightboxImages[lightboxIndex] && createPortal(
+            <>
+              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '80px', zIndex: 999999, display: 'flex', alignItems: 'center', padding: '0 24px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)', pointerEvents: 'none' }}>
+                {lightboxImages[lightboxIndex].item.sender === 'me' ? (
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 'bold', color: 'white' }}>
+                    Y
+                  </div>
+                ) : (
+                  resolvedAvatar ? (
+                    <img src={resolvedAvatar} style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 'bold', color: 'white' }}>
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )
+                )}
+                <div style={{ marginLeft: '12px', color: 'white', fontWeight: 600, fontSize: '16px', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+                  {lightboxImages[lightboxIndex].item.sender === 'me' ? "You" : displayName}
+                </div>
+              </div>
+              
+              <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '80px', zIndex: 999999, display: 'flex', alignItems: 'flex-end', padding: '0 24px 24px 24px', background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)', pointerEvents: 'none' }}>
+                <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: '14px', textShadow: '0 1px 4px rgba(0,0,0,0.9)', fontWeight: 500 }}>
+                  {new Date(lightboxImages[lightboxIndex].item.timestamp).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}
+                </div>
+              </div>
+            </>,
+            document.body
+          )}
+        </div>
+      )}
     </Overlay>
   );
 };
+
