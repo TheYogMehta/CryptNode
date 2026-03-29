@@ -283,17 +283,22 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
       dbFolder = dbFolderConfig.electronWindowsLocation;
     }
 
-    let databasesPath = "";
     const appName = app.getName() || "cryptnode";
+    const databasesPathsToTry: string[] = [];
 
-    if (dbFolder.includes(path.sep)) {
-      databasesPath = dbFolder;
-      if (path.basename(dbFolder) !== appName) {
-        databasesPath = path.join(dbFolder, appName);
-      }
+    // Handle backslashes and forward slashes for absolute paths
+    if (dbFolder.includes(path.sep) || dbFolder.includes("/") || dbFolder.includes("\\")) {
+      databasesPathsToTry.push(dbFolder);
+      databasesPathsToTry.push(path.join(dbFolder, appName));
+      databasesPathsToTry.push(path.join(dbFolder, "cryptnode"));
+      databasesPathsToTry.push(path.join(dbFolder, "CryptNode"));
     } else {
-      databasesPath = path.join(os.homedir(), dbFolder, appName);
+      databasesPathsToTry.push(path.join(os.homedir(), dbFolder, appName));
+      databasesPathsToTry.push(path.join(os.homedir(), dbFolder, "cryptnode"));
+      databasesPathsToTry.push(path.join(os.homedir(), dbFolder, "CryptNode"));
     }
+
+    const uniquePaths = Array.from(new Set(databasesPathsToTry));
 
     const targets = [
       `${dbName}SQLite.db`,
@@ -303,21 +308,46 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
     ];
 
     let filesDeleted = 0;
-    for (const file of targets) {
-      const fullPath = path.join(databasesPath, file);
-      try {
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          filesDeleted++;
-          console.log(`[Main] Deleted DB file via IPC: ${fullPath}`);
+    let anyExisted = false;
+
+    for (const databasesPath of uniquePaths) {
+      for (const file of targets) {
+        const fullPath = path.join(databasesPath, file);
+        try {
+          if (fs.existsSync(fullPath)) {
+            anyExisted = true;
+            // Retry loop for Windows EBUSY/EPERM
+            let retries = 5;
+            while (retries > 0) {
+              try {
+                fs.unlinkSync(fullPath);
+                filesDeleted++;
+                console.log(`[Main] Deleted DB file via IPC: ${fullPath}`);
+                break; // Break retry loop on success
+              } catch (err: any) {
+                if (err.code === "EBUSY" || err.code === "EPERM") {
+                  retries--;
+                  if (retries === 0) throw err;
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                } else {
+                  throw err;
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error(`[Main] Error deleting DB file ${fullPath}:`, err);
+          return { success: false, error: err.message || String(err), count: filesDeleted };
         }
-      } catch (err) {
-        console.error(`[Main] Error deleting DB file ${fullPath}:`, err);
       }
     }
 
+    if (!anyExisted) {
+      return { success: false, error: "Database files not found in any known path. Attempted: " + uniquePaths[0], count: 0 };
+    }
+
     return { success: filesDeleted > 0, count: filesDeleted };
-  } catch (e) {
+  } catch (e: any) {
     console.error("[Main] Failed to delete database files:", e);
     return { success: false, error: String(e) };
   }

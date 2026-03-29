@@ -37,6 +37,7 @@ export const useMessageLogic = ({
     let query = `SELECT m.*, 
               md.status as mediaStatus, 
               md.filename as mediaFilename, 
+              md.original_name as mediaOriginalName,
               md.file_size as mediaTotalSize, 
               md.size as mediaCurrentSize,
               md.download_progress as mediaProgress,
@@ -268,7 +269,7 @@ export const useMessageLogic = ({
     loadSessions();
   };
 
-  const handleFile = async (file: File) => {
+  const handleFile = async (file: File, caption?: string) => {
     if (!activeChat) return;
 
     let fileToSend = file;
@@ -313,7 +314,7 @@ export const useMessageLogic = ({
       id: tempId,
       sid: activeChat,
       sender: "me",
-      text: fileToSend.name,
+      text: caption || fileToSend.name,
       type: fileToSend.type.startsWith("image")
         ? "image"
         : fileToSend.type.startsWith("video")
@@ -332,6 +333,7 @@ export const useMessageLogic = ({
       name: fileToSend.name,
       size: fileToSend.size,
       type: fileToSend.type,
+      caption: caption || "",
       compressed: (fileToSend as any).compressed,
     } as any).catch((err) => {
       console.error("Failed to send file", err);

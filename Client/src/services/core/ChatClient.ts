@@ -730,7 +730,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
   public async sendFile(
     sid: string,
     fileData: File | Blob | string,
-    fileInfo: { name: string; size: number; type: string },
+    fileInfo: { name: string; size: number; type: string; caption?: string },
   ) {
     return this.fileTransfer.sendFile(sid, fileData, fileInfo);
   }

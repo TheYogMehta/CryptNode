@@ -47,6 +47,7 @@ export interface ChatMessage {
   | "error"
   | "uploading";
   mediaFilename?: string;
+  mediaOriginalName?: string;
   mediaTotalSize?: number;
   mediaCurrentSize?: number;
   mediaProgress?: number;

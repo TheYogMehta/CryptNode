@@ -673,62 +673,93 @@ export const MessageBubble = React.memo(
 
       if (msg.type === "image") {
         return (
-          <ImageBubble
-            src={imageSrc}
-            thumbnailSrc={thumbnailSrc}
-            text={msg.text || null}
-            mediaStatus={msg.mediaStatus || ""}
-            isDownloaded={isDownloaded}
-            isDownloading={isDownloading}
-            isRequestingDownload={isRequestingDownload}
-            progress={msg.mediaProgress || 0}
-            isLoading={isLoading}
-            onDownload={handleDownload}
-            onSave={handleSave}
-            onMediaClick={handleMediaClickWrapper}
-          />
+          <>
+            <ImageBubble
+              src={imageSrc}
+              thumbnailSrc={thumbnailSrc}
+              text={msg.text || null}
+              mediaStatus={msg.mediaStatus || ""}
+              isDownloaded={isDownloaded}
+              isDownloading={isDownloading}
+              isRequestingDownload={isRequestingDownload}
+              progress={msg.mediaProgress || 0}
+              isLoading={isLoading}
+              onDownload={handleDownload}
+              onSave={handleSave}
+              onMediaClick={handleMediaClickWrapper}
+            />
+            {msg.text && (
+              <div style={{ marginTop: '8px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                {renderTextWithLinks(msg.text || "")}
+              </div>
+            )}
+          </>
         );
       }
 
       if (msg.type === "audio") {
         return (
-          <AudioBubble
-            src={imageSrc}
-            onDownload={handleDownload}
-            isDownloaded={isDownloaded}
-            isDownloading={isDownloading}
-            progress={msg.mediaProgress || 0}
-            isMe={isMe}
-            onSave={handleSave}
-          />
+          <>
+            <AudioBubble
+              src={imageSrc}
+              onDownload={handleDownload}
+              isDownloaded={isDownloaded}
+              isDownloading={isDownloading}
+              progress={msg.mediaProgress || 0}
+              isMe={isMe}
+              onSave={handleSave}
+            />
+            {msg.text && (
+              <div style={{ marginTop: '8px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                {renderTextWithLinks(msg.text || "")}
+              </div>
+            )}
+          </>
         );
       }
 
       if (msg.type === "video") {
         return (
-          <VideoBubble
-            src={imageSrc}
-            isDownloaded={isDownloaded}
-            isDownloading={isDownloading}
-            isRequestingDownload={isRequestingDownload}
-            progress={msg.mediaProgress || 0}
-            onDownload={handleDownload}
-            onMediaClick={handleMediaClickWrapper}
-            text={msg.text || null}
-          />
+          <>
+            <VideoBubble
+              src={imageSrc}
+              isDownloaded={isDownloaded}
+              isDownloading={isDownloading}
+              isRequestingDownload={isRequestingDownload}
+              progress={msg.mediaProgress || 0}
+              onDownload={handleDownload}
+              onMediaClick={handleMediaClickWrapper}
+              text={msg.text || null}
+            />
+            {msg.text && (
+              <div style={{ marginTop: '8px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                {renderTextWithLinks(msg.text || "")}
+              </div>
+            )}
+          </>
         );
       }
 
       if (msg.type === "file") {
+        const fileNameToDisplay = msg.mediaOriginalName || msg.mediaFilename || msg.text || "File";
+        // If the text is the same as the file name, don't show it twice.
+        const shouldShowCaption = msg.text && msg.text !== fileNameToDisplay;
         return (
-          <FileBubble
-            text={msg.text || null}
-            isDownloaded={isDownloaded}
-            isDownloading={isDownloading}
-            progress={msg.mediaProgress || 0}
-            onDownload={handleDownload}
-            onSave={handleSave}
-          />
+          <>
+            <FileBubble
+              text={fileNameToDisplay}
+              isDownloaded={isDownloaded}
+              isDownloading={isDownloading}
+              progress={msg.mediaProgress || 0}
+              onDownload={handleDownload}
+              onSave={handleSave}
+            />
+            {shouldShowCaption && (
+              <div style={{ marginTop: '8px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                {renderTextWithLinks(msg.text || "")}
+              </div>
+            )}
+          </>
         );
       }
 

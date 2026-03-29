@@ -7,7 +7,7 @@ interface ChatWindowProps {
   onSend: (text: string, replyTo?: any) => void;
   activeChat: string | null;
   session?: SessionData;
-  onFileSelect: (file: File) => void;
+  onFileSelect: (file: File, caption?: string) => void;
   peerOnline: boolean;
   onStartCall: (mode: "Audio" | "Video" | "Screen") => void;
   onBack?: () => void;

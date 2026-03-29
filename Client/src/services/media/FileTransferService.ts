@@ -50,7 +50,7 @@ export class FileTransferService {
   public async sendFile(
     sid: string,
     fileData: File | Blob | string,
-    fileInfo: { name: string; size: number; type: string },
+    fileInfo: { name: string; size: number; type: string; caption?: string },
   ) {
     if (!this.client.sessions[sid]) throw new Error("Session not found");
 
@@ -103,7 +103,7 @@ export class FileTransferService {
       : "file";
     const messageId = await this.client.insertMessageRecord(
       sid,
-      "",
+      fileInfo.caption || "",
       msgType,
       "me",
     );
@@ -125,6 +125,7 @@ export class FileTransferService {
         data: {
           type: "FILE_INFO",
           name: fileInfo.name,
+          caption: fileInfo.caption || "",
           size: fileInfo.size,
           mimeType: fileInfo.type,
           messageId,
@@ -418,13 +419,13 @@ export class FileTransferService {
 
     const localId = await this.client.insertMessageRecord(
       sid,
-      data.name,
+      data.caption || "",
       msgType,
       "other",
       data.messageId,
     );
     console.log(
-      `[FileTransfer] Received FILE_INFO: name=${data.name}, mime=${data.mimeType}, size=${data.size}`,
+      `[FileTransfer] Received FILE_INFO: name=${data.name}, caption=${data.caption}, mime=${data.mimeType}, size=${data.size}`,
     );
     await StorageService.initMediaEntry(
       localId,
@@ -437,7 +438,7 @@ export class FileTransferService {
     );
     this.client.emit("message", {
       sid,
-      text: data.name,
+      text: data.caption || "",
       sender: "other",
       type: msgType,
       thumbnail: data.thumbnail,

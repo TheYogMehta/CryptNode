@@ -69,7 +69,7 @@ interface ChatWindowProps {
   onSend: (text: string) => void;
   activeChat: string | null;
   session?: SessionData;
-  onFileSelect: (file: File) => void;
+  onFileSelect: (file: File, caption?: string) => void;
   onStartCall: (mode: "Audio" | "Video" | "Screen") => void;
   peerOnline?: boolean;
   onBack?: () => void;
@@ -286,11 +286,7 @@ export const ChatWindowDefault = ({
     // Let's stick to that but handle caption.
 
     processedFiles.forEach(({ file, caption }) => {
-      onFileSelect(file);
-      if (caption.trim()) {
-        // Send caption as separate text for now
-        onSend(caption);
-      }
+      onFileSelect(file, caption.trim() || undefined);
     });
     setSelectedFiles([]);
   };
@@ -472,10 +468,6 @@ export const ChatWindowDefault = ({
     }
 
     for (const item of pendingAttachments) {
-      if (item.description.trim()) {
-        onSend(item.description.trim());
-      }
-
       let fileToSend = item.file;
       if (item.name !== item.file.name) {
         fileToSend = new File([item.file], item.name, {
@@ -483,7 +475,7 @@ export const ChatWindowDefault = ({
           lastModified: item.file.lastModified,
         });
       }
-      await Promise.resolve(onFileSelect(fileToSend));
+      await Promise.resolve(onFileSelect(fileToSend, item.description.trim() || undefined));
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     }
 
