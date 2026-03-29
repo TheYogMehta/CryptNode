@@ -4,8 +4,8 @@
     "date": "2026-03-30",
     "notes": "Stable Release",
     "files": {
-      "windows": "cryptnode.Setup.{version}.exe",
-      "linux": "cryptnode-{version}.AppImage",
+      "windows": "cryptnode.Setup.exe",
+      "linux": "cryptnode.AppImage",
       "android": "cryptnode.apk"
     }
   }
