@@ -268,7 +268,26 @@ import * as fs from "fs";
 
 ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
   try {
-    const dbFolderConfig = capacitorFileConfig.plugins?.CapacitorSQLite;
+    let dbFolderConfig: any = (capacitorFileConfig as any).plugins?.CapacitorSQLite;
+
+    if (!dbFolderConfig) {
+      try {
+        const appPath = app.getAppPath();
+        const jsonPath = path.join(appPath, "capacitor.config.json");
+        if (fs.existsSync(jsonPath)) {
+          dbFolderConfig = JSON.parse(fs.readFileSync(jsonPath, "utf8"))?.plugins?.CapacitorSQLite;
+        } else {
+          const jsPath = path.join(appPath, "build", "capacitor.config.js");
+          if (fs.existsSync(jsPath)) {
+            const mod = require(jsPath);
+            dbFolderConfig = (mod.default || mod)?.plugins?.CapacitorSQLite;
+          }
+        }
+      } catch (err) {
+        console.warn("[Main] Could not fallback parse config for DB deletion:", err);
+      }
+    }
+
     let dbFolder = "Databases";
 
     const osType = os.type();
