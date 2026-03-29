@@ -529,15 +529,23 @@ export const getAllAliasesEntries = async (): Promise<{
   aliasName: string;
   aliasAvatar: string;
   timestamp: number;
+  peerName: string;
+  peerAvatar: string;
+  peerNameVer: number;
+  peerAvatarVer: number;
 }[]> => {
   const rows = await queryDB(
-    "SELECT sid, alias_name, alias_avatar, alias_timestamp FROM sessions WHERE alias_timestamp > 0",
+    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver FROM sessions",
   );
   return rows.map((r: any) => ({
     sid: r.sid,
     aliasName: r.alias_name || "",
     aliasAvatar: r.alias_avatar || "",
-    timestamp: r.alias_timestamp,
+    timestamp: r.alias_timestamp || 0,
+    peerName: r.peer_name || "",
+    peerAvatar: r.peer_avatar || "",
+    peerNameVer: r.peer_name_ver || 0,
+    peerAvatarVer: r.peer_avatar_ver || 0,
   }));
 };
 

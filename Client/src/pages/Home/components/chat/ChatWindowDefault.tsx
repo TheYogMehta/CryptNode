@@ -512,6 +512,12 @@ export const ChatWindowDefault = ({
   const lastMessageCount = useRef(filteredMessages.length);
   const lastMessageIdRef = useRef<string | undefined>(filteredMessages[filteredMessages.length - 1]?.id);
 
+  const isAtBottomRef = useRef(isAtBottom);
+  isAtBottomRef.current = isAtBottom;
+
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     if (filteredMessages.length > lastMessageCount.current) {
       const isMyMessage = filteredMessages[filteredMessages.length - 1]?.sender === "me";
@@ -521,27 +527,38 @@ export const ChatWindowDefault = ({
                            lastMessageIdRef.current === lastMsgId &&
                            lastMsgId !== undefined;
 
-      if (!wasPrepended && (isAtBottom || isMyMessage)) {
-        setTimeout(() => {
-          virtuosoRef.current?.scrollToIndex({
-            index: filteredMessages.length - 1,
-            align: 'end',
-            behavior: 'auto' 
-          });
-          setTimeout(() => {
+      if (!wasPrepended && (isAtBottomRef.current || isMyMessage)) {
+        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+        if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+
+        scrollTimeoutRef.current = setTimeout(() => {
+          if (isAtBottomRef.current || isMyMessage) {
             virtuosoRef.current?.scrollToIndex({
               index: filteredMessages.length - 1,
               align: 'end',
-              behavior: 'auto'
+              behavior: isMyMessage ? 'smooth' : 'auto' 
             });
-          }, 300);
+            scrollTimeoutRef2.current = setTimeout(() => {
+              if (isAtBottomRef.current || isMyMessage) {
+                virtuosoRef.current?.scrollToIndex({
+                  index: filteredMessages.length - 1,
+                  align: 'end',
+                  behavior: 'auto'
+                });
+              }
+            }, 300);
+          }
         }, 50);
       }
     }
     lastMessageCount.current = filteredMessages.length;
     lastMessageIdRef.current = filteredMessages[filteredMessages.length - 1]?.id;
-  }, [filteredMessages.length, isAtBottom]);
-
+    
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
+    };
+  }, [filteredMessages.length]);
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
@@ -672,35 +689,7 @@ export const ChatWindowDefault = ({
                     (e.currentTarget.style.background = "transparent")
                   }
                 >
-                  <Phone size={18} /> Voice Call
-                </button>
-                <button
-                  onClick={() => {
-                    onStartCall("Video");
-                    setShowOptionsMenu(false);
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "10px 12px",
-                    background: "transparent",
-                    border: "none",
-                    color: "#fff",
-                    cursor: "pointer",
-                    borderRadius: "4px",
-                    textAlign: "left",
-                    fontSize: "14px",
-                    transition: "background 0.2s",
-                  }}
-                  onMouseOver={(e) =>
-                    (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-                  }
-                  onMouseOut={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  <Video size={18} /> Video Call
+                  <Phone size={18} /> Call
                 </button>
                 {isAiInstalled && (
                   <button

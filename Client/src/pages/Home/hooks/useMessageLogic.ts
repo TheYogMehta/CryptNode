@@ -172,6 +172,12 @@ export const useMessageLogic = ({
       loadSessions(); // Update last message in sidebar
     };
 
+    const onMessagesSynced = ({ sid }: { sid: string }) => {
+      if (sid === activeChatRef.current) {
+        loadHistory(sid, undefined, Math.max(30, messagesRef.current.length));
+      }
+    };
+
     const handleRateLimit = () => {
       setIsRateLimited(true);
       setTimeout(() => setIsRateLimited(false), 1000);
@@ -181,6 +187,7 @@ export const useMessageLogic = ({
     client.on("file_downloaded", onFileDownloaded);
     client.on("message_status", onMessageStatus);
     client.on("message_updated", onMessageUpdated);
+    client.on("messages_synced", onMessagesSynced);
     client.on("rate_limit_exceeded", handleRateLimit);
 
     return () => {
@@ -191,6 +198,7 @@ export const useMessageLogic = ({
       client.off("message_status", onMessageStatus);
       client.off("message_updated", onMessageUpdated);
       client.off("message_deleted", onMessageDeleted);
+      client.off("messages_synced", onMessagesSynced);
       client.off("rate_limit_exceeded", handleRateLimit);
     };
   }, [loadSessions, activeChatRef]);

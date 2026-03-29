@@ -374,14 +374,22 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
 
     try {
       const dataUrl = editedImageObject.imageBase64;
-      fetch(dataUrl)
-        .then((res) => res.blob())
-        .then((blob) => {
-          const newFile = new File([blob], currentFile.file.name, {
-            type: blob.type || "image/png",
-            lastModified: Date.now(),
-          });
-          const newPreviewUrl = URL.createObjectURL(newFile);
+      const arr = dataUrl.split(",");
+      const mimeMatch = arr[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : "image/png";
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+
+      const newFile = new File([blob], currentFile.file.name, {
+        type: mime,
+        lastModified: Date.now(),
+      });
+      const newPreviewUrl = URL.createObjectURL(newFile);
 
           const newList = fileList.map((f, i) =>
             i === currentIndex
@@ -396,12 +404,11 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
           setFileList(newList);
           setIsEditing(false);
           
-          const processed = newList.map((f) => ({
-            file: f.file,
-            caption: f.caption,
-          }));
-          onSend(processed);
-        });
+      const processed = newList.map((f) => ({
+        file: f.file,
+        caption: f.caption,
+      }));
+      onSend(processed);
     } catch (e) {
       console.error("Failed to save edited image", e);
     }
@@ -469,6 +476,16 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                   "bg-primary-active": "#222222",
                 }
               }}
+              removeSaveButton={true}
+              moreSaveOptions={[
+                {
+                  label: "Send",
+                  icon: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>',
+                  onClick: (triggerSaveModalFn, triggerSavingFn) => {
+                    triggerSavingFn();
+                  }
+                }
+              ]}
               translations={{
                 save: "Send",
                 saveAs: "Send"

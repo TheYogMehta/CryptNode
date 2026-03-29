@@ -261,35 +261,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
                   (e.currentTarget.style.background = "transparent")
                 }
               >
-                <Phone size={18} /> Voice Call
-              </button>
-              <button
-                onClick={() => {
-                  onStartCall("Video");
-                  setShowOptionsMenu(false);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "10px 12px",
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  borderRadius: "4px",
-                  textAlign: "left",
-                  fontSize: "14px",
-                  transition: "background 0.2s",
-                }}
-                onMouseOver={(e) =>
-                  (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
-                }
-                onMouseOut={(e) =>
-                  (e.currentTarget.style.background = "transparent")
-                }
-              >
-                <Video size={18} /> Video Call
+                <Phone size={18} /> Call
               </button>
             </div>
           )}

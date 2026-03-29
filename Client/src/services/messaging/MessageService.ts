@@ -764,7 +764,7 @@ export class MessageService extends EventEmitter {
             const manifest = data.manifest as {
               blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
               requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
-              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number }[];
+              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number }[];
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
             };
@@ -828,20 +828,47 @@ export class MessageService extends EventEmitter {
             if (Array.isArray(manifest.aliases)) {
               let changed = false;
               for (const entry of manifest.aliases) {
-                if (!entry.sid || !entry.timestamp) continue;
+                if (!entry.sid) continue;
                 const existing = await queryDB(
-                  "SELECT alias_timestamp FROM sessions WHERE sid = ? LIMIT 1",
+                  "SELECT alias_timestamp, peer_name_ver, peer_avatar_ver FROM sessions WHERE sid = ? LIMIT 1",
                   [entry.sid],
                 );
-                if (
-                  existing.length > 0 &&
-                  entry.timestamp > (existing[0].alias_timestamp ?? 0)
-                ) {
-                  await executeDB(
-                    "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
-                    [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
-                  );
-                  changed = true;
+                if (existing.length > 0) {
+                  const current = existing[0];
+                  
+                  if (entry.timestamp && entry.timestamp > (current.alias_timestamp ?? 0)) {
+                    await executeDB(
+                      "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
+                      [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
+                    );
+                    changed = true;
+                  }
+
+                  const peerNameVer = entry.peerNameVer || 0;
+                  const peerAvatarVer = entry.peerAvatarVer || 0;
+
+                  if (peerNameVer > (current.peer_name_ver ?? 0) || peerAvatarVer > (current.peer_avatar_ver ?? 0)) {
+                     const nameToSet = peerNameVer > (current.peer_name_ver ?? 0) ? entry.peerName : undefined;
+                     const avatarToSet = peerAvatarVer > (current.peer_avatar_ver ?? 0) ? entry.peerAvatar : undefined;
+                     
+                     if (nameToSet !== undefined && avatarToSet !== undefined) {
+                        await executeDB(
+                          "UPDATE sessions SET peer_name = ?, peer_avatar = ?, peer_name_ver = ?, peer_avatar_ver = ? WHERE sid = ?",
+                          [nameToSet, avatarToSet, peerNameVer, peerAvatarVer, entry.sid]
+                        );
+                     } else if (nameToSet !== undefined) {
+                        await executeDB(
+                          "UPDATE sessions SET peer_name = ?, peer_name_ver = ? WHERE sid = ?",
+                          [nameToSet, peerNameVer, entry.sid]
+                        );
+                     } else if (avatarToSet !== undefined) {
+                        await executeDB(
+                           "UPDATE sessions SET peer_avatar = ?, peer_avatar_ver = ? WHERE sid = ?",
+                           [avatarToSet, peerAvatarVer, entry.sid]
+                        );
+                     }
+                     changed = true;
+                  }
                 }
               }
               if (changed) {
@@ -926,6 +953,7 @@ export class MessageService extends EventEmitter {
                   ]
                 );
               }
+              this.client.emit("messages_synced", { sid });
               this.client.emit("session_updated");
             }
 
