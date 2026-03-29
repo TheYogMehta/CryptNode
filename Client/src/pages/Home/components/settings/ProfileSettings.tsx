@@ -39,6 +39,13 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState("");
   const [editAvatar, setEditAvatar] = useState<string | null>(null);
+  const [localPubKey, setLocalPubKey] = useState<string>("");
+
+  React.useEffect(() => {
+    ChatClient.getPublicKeyString()
+      .then(setLocalPubKey)
+      .catch(console.error);
+  }, []);
 
   const handleEditProfile = async () => {
     const currentAcc = accounts.find((a) => a.email === currentUserEmail);
@@ -257,6 +264,19 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
                 >
                   {currentUserEmail}
                 </div>
+                {localPubKey && (
+                  <div
+                    style={{
+                      color: colors.text.tertiary,
+                      fontSize: "12px",
+                      marginTop: "4px",
+                      fontFamily: "monospace",
+                    }}
+                    title={localPubKey}
+                  >
+                    Key: {localPubKey.substring(0, 16)}...
+                  </div>
+                )}
               </div>
             </ProfileInfo>
             <button

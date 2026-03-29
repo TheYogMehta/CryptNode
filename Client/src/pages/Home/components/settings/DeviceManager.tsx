@@ -194,7 +194,7 @@ export const DeviceManager: React.FC = () => {
           const isMe = device.publicKey === localPubKey;
           const isMaster = device.isMaster;
 
-          let title = "CryptNode Client";
+          let title = `Device ID: ${device.publicKey.substring(0, 16)}...`;
           if (isMe) title += " (This Device)";
 
           return (
@@ -209,7 +209,6 @@ export const DeviceManager: React.FC = () => {
                     {isMaster && <Badge $type="master">Master</Badge>}
                   </DeviceName>
                   <DeviceMeta>
-                    <span>ID: {device.publicKey.substring(0, 16)}...</span>
                     <span>
                       Last Active:{" "}
                       {new Date(device.lastActive).toLocaleString()}
