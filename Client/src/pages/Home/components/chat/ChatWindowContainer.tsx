@@ -16,6 +16,7 @@ interface ChatWindowProps {
   onLoadMore: () => void;
   isRateLimited: boolean;
   isPending?: boolean;
+  isLoadingHistory?: boolean;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = (props) => {

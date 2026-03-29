@@ -383,18 +383,24 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
           });
           const newPreviewUrl = URL.createObjectURL(newFile);
 
-          setFileList((prev) =>
-            prev.map((f, i) =>
-              i === currentIndex
-                ? {
-                    ...f,
-                    file: newFile,
-                    previewUrl: newPreviewUrl,
-                  }
-                : f,
-            ),
+          const newList = fileList.map((f, i) =>
+            i === currentIndex
+              ? {
+                  ...f,
+                  file: newFile,
+                  previewUrl: newPreviewUrl,
+                }
+              : f,
           );
+
+          setFileList(newList);
           setIsEditing(false);
+          
+          const processed = newList.map((f) => ({
+            file: f.file,
+            caption: f.caption,
+          }));
+          onSend(processed);
         });
     } catch (e) {
       console.error("Failed to save edited image", e);
@@ -462,6 +468,10 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                   "bg-secondary": "#111111",
                   "bg-primary-active": "#222222",
                 }
+              }}
+              translations={{
+                save: "Send",
+                saveAs: "Send"
               }}
             />
           </div>

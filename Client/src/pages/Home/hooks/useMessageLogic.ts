@@ -17,6 +17,7 @@ export const useMessageLogic = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [isRateLimited, setIsRateLimited] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesRef = useRef<ChatMessage[]>([]);
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export const useMessageLogic = ({
   }, [activeChat]);
 
   const loadHistory = async (sid: string, beforeTimestamp?: number, maintainCount?: number) => {
+    setIsLoadingHistory(true);
     let query = `SELECT m.*, 
               md.status as mediaStatus, 
               md.filename as mediaFilename, 
@@ -74,6 +76,7 @@ export const useMessageLogic = ({
         return [...formatted.reverse(), ...prev];
       });
     }
+    setIsLoadingHistory(false);
   };
 
   const loadMoreHistory = () => {
@@ -86,12 +89,35 @@ export const useMessageLogic = ({
   useEffect(() => {
     const client = ChatClient;
 
+    let messageBuffer: ChatMessage[] = [];
+    let flushTimeout: NodeJS.Timeout | null = null;
+
+    const flushMessages = () => {
+      if (messageBuffer.length === 0) return;
+      const toAdd = [...messageBuffer];
+      messageBuffer = [];
+      setMessages((prev) => [...prev, ...toAdd]);
+      
+      if (activeChatRef.current) {
+        const ids = toAdd.map(m => m.id);
+        const chunkSize = 500;
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => '?').join(',');
+          executeDB(`UPDATE messages SET is_read = 1 WHERE id IN (${placeholders})`, chunk).catch(e => console.error("Batch update read status failed", e));
+        }
+      }
+    };
+
     const onMsg = async (msg: ChatMessage) => {
       if (msg.sid === activeChatRef.current) {
-        setMessages((prev) => [...prev, msg]);
-        await executeDB("UPDATE messages SET is_read = 1 WHERE id = ?", [
-          msg.id,
-        ]);
+        messageBuffer.push(msg);
+        if (!flushTimeout) {
+          flushTimeout = setTimeout(() => {
+            flushTimeout = null;
+            flushMessages();
+          }, 100);
+        }
       }
       loadSessions();
     };
@@ -158,6 +184,7 @@ export const useMessageLogic = ({
     client.on("rate_limit_exceeded", handleRateLimit);
 
     return () => {
+      if (flushTimeout) clearTimeout(flushTimeout);
       client.off("message", onMsg);
       client.off("download_progress", onDownloadProgress);
       client.off("file_downloaded", onFileDownloaded);
@@ -312,6 +339,7 @@ export const useMessageLogic = ({
       messages,
       replyingTo,
       isRateLimited,
+      isLoadingHistory,
     },
     actions: {
       setMessages,

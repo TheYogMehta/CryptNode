@@ -460,7 +460,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             </div>
           )}
 
-          {activeMode === "Voice Call" && (
+          {!shouldShowRemoteVideo && (
             <div
               style={{
                 position: "absolute",
@@ -509,22 +509,26 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         </MainVideoArea>
 
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <CallerName
-            style={{
-              color: "white",
-              marginBottom: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "10px",
-            }}
-          >
-            {displayName}
-            {callState.peerMicMuted && <MicOff size={16} color="red" />}
-          </CallerName>
-          <CallStatus style={{ color: "#94a3b8" }}>
-            {formatDuration(duration)} • {activeMode}
-          </CallStatus>
+          {shouldShowRemoteVideo && (
+            <>
+              <CallerName
+                style={{
+                  color: "white",
+                  marginBottom: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "10px",
+                }}
+              >
+                {displayName}
+                {callState.peerMicMuted && <MicOff size={16} color="red" />}
+              </CallerName>
+              <CallStatus style={{ color: "#94a3b8", marginBottom: 16 }}>
+                {formatDuration(duration)} • {activeMode}
+              </CallStatus>
+            </>
+          )}
 
           <ControlsRow>
             <IconButton

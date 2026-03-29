@@ -550,13 +550,27 @@ export class MessageService extends EventEmitter {
         // Result: B never re-sends what A already has. Zero double-bandwidth.
         case "SYNC_HINT": {
           try {
-            const peerLatestTs: number = Number(data.latestFromYou) || 0;
-            // Fetch own messages sent to this peer AFTER the timestamp the peer
-            // already has. INSERT OR IGNORE on their side ensures idempotency.
-            const missing = await queryDB(
+            const peerLatestFromYou: number = Number(data.latestFromYou) || 0;
+            const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
+            
+            // To the remote peer, "from you" means messages WE sent (sender='me' locally)
+            // and "from me" means messages THEY sent (sender='other' locally)
+            
+            const missingYou = await queryDB(
               "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
-              [sid, peerLatestTs],
+              [sid, peerLatestFromYou],
             );
+            
+            // Only query 'other' messages if the peer explicitly gave a latestFromMe hint
+            // (backward compatibility check).
+            const missingMe = data.latestFromMe !== undefined ? await queryDB(
+              "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
+              [sid, peerLatestFromMe],
+            ) : [];
+            
+            // Send back both the messages they are missing from us, and from themselves.
+            const missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+
             if (missing.length === 0) break;
             const payloads = await this.client.encryptForSession(
               sid,
@@ -894,8 +908,11 @@ export class MessageService extends EventEmitter {
               for (const msg of manifest.messages) {
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
                 // For peer manifests: messages the peer sent (sender="me" on their device)
-                // must be stored as sender="peer" on our device so they display correctly.
-                const senderValue = (!isOwnDevice && msg.sender === "me") ? "peer" : (msg.sender || "unknown");
+                // must be stored as sender="other" on our device so they display correctly.
+                // Conversely, messages WE sent (sender="other" on their device) must be stored as "me".
+                const senderValue = (!isOwnDevice)
+                  ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
+                  : (msg.sender || "unknown");
                 await executeDB(
                   "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 2, 2, ?)",
                   [
@@ -1589,22 +1606,30 @@ export class MessageService extends EventEmitter {
 
       // Find the latest timestamp of messages we received FROM this peer.
       // Sending this to them tells them exactly where our history ends, so
-      // they can send ONLY th delta we are missing.
-      const rows = await queryDB(
+      // they can send ONLY the delta we are missing.
+      const rowsYou = await queryDB(
         "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
         [sid],
       );
-      const latestFromYou: number = Number(rows?.[0]?.ts) || 0;
+      const latestFromYou: number = Number(rowsYou?.[0]?.ts) || 0;
+
+      // Also find the latest timestamp of messages we sent TO this peer.
+      // This is necessary so the peer can send us our own missing messages (e.g. from a new device).
+      const rowsMe = await queryDB(
+        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
+        [sid],
+      );
+      const latestFromMe: number = Number(rowsMe?.[0]?.ts) || 0;
 
       const payloads = await this.client.encryptForSession(
         sid,
-        JSON.stringify({ t: "MSG", data: { type: "SYNC_HINT", latestFromYou } }),
+        JSON.stringify({ t: "MSG", data: { type: "SYNC_HINT", latestFromYou, latestFromMe } }),
         0,
       );
 
       if (Object.keys(payloads).length > 0) {
         this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-        console.log(`[MessageService] Sent SYNC_HINT to ${sid} (latestFromYou=${latestFromYou})`);
+        console.log(`[MessageService] Sent SYNC_HINT to ${sid} (latestFromYou=${latestFromYou}, latestFromMe=${latestFromMe})`);
       }
     } catch (e) {
       console.warn(`[MessageService] Failed to send SYNC_HINT to peer ${sid}`, e);

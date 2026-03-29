@@ -105,7 +105,10 @@ export const ImageBubble: React.FC<ImageBubbleProps> = ({
   }
 
   return (
-    <MediaContainer onClick={!isDownloaded ? onDownload : undefined}>
+    <MediaContainer 
+      onClick={!isDownloaded ? onDownload : undefined}
+      style={{ minWidth: "240px", minHeight: "240px", backgroundColor: "rgba(255,255,255,0.05)" }}
+    >
       {thumbnailSrc && (
         <img
           src={thumbnailSrc}

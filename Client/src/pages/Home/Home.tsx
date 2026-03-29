@@ -640,6 +640,7 @@ const Home = () => {
               setReplyingTo={actions.setReplyingTo}
               onLoadMore={actions.loadMoreHistory}
               isRateLimited={state.isRateLimited}
+              isLoadingHistory={state.isLoadingHistory}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup

@@ -64,7 +64,11 @@ export class CallService {
         ? nav.getDisplayMedia.bind(nav)
         : null;
 
-    if (this.isElectronPlatform()) {
+    const isLinuxElectron =
+      this.isElectronPlatform() &&
+      navigator.userAgent.toLowerCase().includes("linux");
+
+    if (this.isElectronPlatform() && !isLinuxElectron) {
       try {
         const sources = await (window as any).electron.getDesktopSources();
         const source = Array.isArray(sources) ? sources[0] : null;

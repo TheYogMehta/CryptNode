@@ -77,6 +77,7 @@ interface ChatWindowProps {
   setReplyingTo?: (msg: ChatMessage | null) => void;
   onLoadMore?: () => void;
   isRateLimited?: boolean;
+  isLoadingHistory?: boolean;
 }
 
 interface PendingAttachment {
@@ -101,6 +102,7 @@ export const ChatWindowDefault = ({
   setReplyingTo,
   onLoadMore,
   isRateLimited,
+  isLoadingHistory,
 }: ChatWindowProps) => {
   const { messageLayout } = useTheme();
   const canScreenShare = ChatClient.canScreenShare;
@@ -508,10 +510,18 @@ export const ChatWindowDefault = ({
   }, [messages, normalizedSearch]);
 
   const lastMessageCount = useRef(filteredMessages.length);
+  const lastMessageIdRef = useRef<string | undefined>(filteredMessages[filteredMessages.length - 1]?.id);
+
   useEffect(() => {
     if (filteredMessages.length > lastMessageCount.current) {
       const isMyMessage = filteredMessages[filteredMessages.length - 1]?.sender === "me";
-      if (isAtBottom || isMyMessage) {
+      
+      const lastMsgId = filteredMessages[filteredMessages.length - 1]?.id;
+      const wasPrepended = filteredMessages.length - lastMessageCount.current > 0 && 
+                           lastMessageIdRef.current === lastMsgId &&
+                           lastMsgId !== undefined;
+
+      if (!wasPrepended && (isAtBottom || isMyMessage)) {
         setTimeout(() => {
           virtuosoRef.current?.scrollToIndex({
             index: filteredMessages.length - 1,
@@ -529,6 +539,7 @@ export const ChatWindowDefault = ({
       }
     }
     lastMessageCount.current = filteredMessages.length;
+    lastMessageIdRef.current = filteredMessages[filteredMessages.length - 1]?.id;
   }, [filteredMessages.length, isAtBottom]);
 
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
@@ -915,7 +926,17 @@ export const ChatWindowDefault = ({
           alignToBottom
           atBottomStateChange={(bottom) => setIsAtBottom(bottom)}
           atTopStateChange={(atTop: boolean) => {
-            if (atTop && onLoadMore) onLoadMore();
+            if (atTop && onLoadMore && !isLoadingHistory) onLoadMore();
+          }}
+          startReached={() => {
+            if (onLoadMore && !isLoadingHistory) onLoadMore();
+          }}
+          components={{
+            Header: () => isLoadingHistory ? (
+              <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
+                 Loading older messages...
+              </div>
+            ) : null
           }}
           itemContent={(index: number, msg: ChatMessage) => (
             <div style={{ marginBottom: 4 }}>
