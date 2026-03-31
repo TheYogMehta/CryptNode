@@ -1,40 +1,38 @@
 import { useState, useEffect } from "react";
-import { qwenLocalService } from "../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../services/ai/localAI.service";
 
-export const useAIStatus = () => {
-  const [isLoaded, setIsLoaded] = useState(qwenLocalService.isLoaded);
-  const [isLoading, setIsLoading] = useState(qwenLocalService.isLoading);
-  const [progress, setProgress] = useState(qwenLocalService.downloadProgress);
+export const useAIStatus = (trackProgress = true) => {
+  const [isLoaded, setIsLoaded] = useState(localAIService.isLoaded);
+  const [isLoading, setIsLoading] = useState(localAIService.isLoading);
+  const [progress, setProgress] = useState(trackProgress ? localAIService.downloadProgress : 0);
   const [isInstalled, setIsInstalled] = useState(false);
-  const [hasFailed, setHasFailed] = useState(qwenLocalService.failed);
-  const [installedSize, setInstalledSize] = useState(qwenLocalService.installedSize);
-  const [requiredSize, setRequiredSize] = useState(qwenLocalService.requiredSize);
-  const [downloadedBytes, setDownloadedBytes] = useState(qwenLocalService.downloadedBytes);
+  const [hasFailed, setHasFailed] = useState(localAIService.failed);
+  const [downloadInfo, setDownloadInfo] = useState(trackProgress ? localAIService.downloadInfo : null);
 
   useEffect(() => {
-    setIsLoaded(qwenLocalService.isLoaded);
-    setIsLoading(qwenLocalService.isLoading);
-    setProgress(qwenLocalService.downloadProgress);
-    setHasFailed(qwenLocalService.failed);
-    setInstalledSize(qwenLocalService.installedSize);
-    setRequiredSize(qwenLocalService.requiredSize);
-    setDownloadedBytes(qwenLocalService.downloadedBytes);
+    setIsLoaded(localAIService.isLoaded);
+    setIsLoading(localAIService.isLoading);
+    setHasFailed(localAIService.failed);
+    if (trackProgress) {
+        setProgress(localAIService.downloadProgress);
+        setDownloadInfo(localAIService.downloadInfo);
+    }
 
-    qwenLocalService.isModelInstalled().then(setIsInstalled);
+    localAIService.isModelInstalled().then(setIsInstalled);
 
-    const unsubscribe = qwenLocalService.subscribe(() => {
-      setIsLoaded(qwenLocalService.isLoaded);
-      setIsLoading(qwenLocalService.isLoading);
-      setProgress(qwenLocalService.downloadProgress);
-      setHasFailed(qwenLocalService.failed);
-      setInstalledSize(qwenLocalService.installedSize);
-      setRequiredSize(qwenLocalService.requiredSize);
-      setDownloadedBytes(qwenLocalService.downloadedBytes);
-      qwenLocalService.isModelInstalled().then(setIsInstalled);
+    const unsubscribe = localAIService.subscribe(() => {
+      setIsLoaded(localAIService.isLoaded);
+      setIsLoading(localAIService.isLoading);
+      setHasFailed(localAIService.failed);
+      if (trackProgress) {
+          setProgress(localAIService.downloadProgress);
+          setDownloadInfo(localAIService.downloadInfo);
+      }
+      localAIService.isModelInstalled().then(setIsInstalled);
     });
 
     return unsubscribe;
-  }, []);
+  }, [trackProgress]);
 
-  return { isLoaded, isLoading, progress, isInstalled, hasFailed, installedSize, requiredSize, downloadedBytes };
+  return { isLoaded, isLoading, progress, isInstalled, hasFailed, downloadInfo };
 };

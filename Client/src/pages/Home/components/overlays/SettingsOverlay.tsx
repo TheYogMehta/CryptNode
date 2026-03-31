@@ -40,9 +40,9 @@ import { SecuritySettings } from "../settings/SecuritySettings";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
 import { StorageService } from "../../../../services/storage/StorageService";
 import { deleteItemsByOwner } from "../../../../utils/secureStorage";
-import { useAIStatus } from "../../hooks/useAIStatus";
-import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../../services/ai/localAI.service";
 import { DeviceManager } from "../settings/DeviceManager";
+import { LocalAISettings } from "../settings/LocalAISettings";
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return "0.00 MB";
@@ -55,6 +55,7 @@ interface SettingsOverlayProps {
   isMobile?: boolean;
   onAddAccount?: () => void;
   onSwitchAccount?: (email: string) => void;
+  defaultTab?: SettingsCategory;
 }
 
 type SettingsCategory =
@@ -62,7 +63,8 @@ type SettingsCategory =
   | "Account"
   | "Security"
   | "Appearance"
-  | "Devices";
+  | "Devices"
+  | "Local AI";
 
 export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   onClose,
@@ -70,28 +72,19 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   isMobile,
   onAddAccount,
   onSwitchAccount,
+  defaultTab,
 }) => {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
-    isMobile ? null : "Profile",
+    isMobile ? (defaultTab || null) : (defaultTab || "Profile"),
   );
   const [accounts, setAccounts] = useState<StoredAccount[]>([]);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
-  const {
-    isInstalled,
-    isLoading: isDownloadingAi,
-    progress: aiProgress,
-    hasFailed: aiFailed,
-    installedSize,
-    requiredSize,
-    downloadedBytes,
-  } = useAIStatus();
-
   useEffect(() => {
     if (!isMobile && !activeCategory) {
-      setActiveCategory("Profile");
+      setActiveCategory(defaultTab || "Profile");
     }
-  }, [isMobile, activeCategory]);
+  }, [isMobile, activeCategory, defaultTab]);
 
   useEffect(() => {
     loadAccounts();
@@ -239,6 +232,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     { id: "Appearance", label: "Appearance" },
     { id: "Security", label: "Security" },
     { id: "Account", label: "Data & Storage" },
+    { id: "Local AI", label: "Local AI Models" },
   ];
 
   const renderContent = () => {
@@ -261,138 +255,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       case "Account":
         return (
           <div>
-            <h3 style={{ color: colors.text.primary }}>Local AI Model</h3>
-            <div
-              style={{
-                marginBottom: "30px",
-                background: colors.background.secondary,
-                padding: "16px",
-                borderRadius: "8px",
-              }}
-            >
-              <div
-                style={{
-                  marginBottom: "12px",
-                  color: colors.text.secondary,
-                  fontSize: "14px",
-                  lineHeight: "1.5",
-                }}
-              >
-                The AI model enables Smart Compose, Summarize, and Quick Replies
-                directly on your device without sending your chats to the cloud.
-                It requires {formatBytes(requiredSize)} of storage space.
-              </div>
-
-              {aiFailed && (
-                <div
-                  style={{
-                    marginBottom: "12px",
-                    padding: "12px",
-                    borderRadius: "6px",
-                    background: "rgba(239, 68, 68, 0.1)",
-                    color: "#ef4444",
-                    fontSize: "13px",
-                  }}
-                >
-                  <strong>Error: </strong> Local AI is not supported on this
-                  device architecture.
-                </div>
-              )}
-
-              {isInstalled ? (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        color: colors.status.success,
-                        fontWeight: 500,
-                        fontSize: "14px",
-                      }}
-                    >
-                      Installed ✓
-                    </div>
-                    <div
-                      style={{ fontSize: "12px", color: colors.text.tertiary }}
-                    >
-                      {formatBytes(installedSize)} Used
-                    </div>
-                  </div>
-                  <button
-                    disabled={isDeletingAccount}
-                    onClick={() => qwenLocalService.deleteModel()}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: "4px",
-                      background: "rgba(239, 68, 68, 0.1)",
-                      color: "#ef4444",
-                      border: "1px solid rgba(239, 68, 68, 0.2)",
-                      cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                      fontSize: "13px",
-                    }}
-                  >
-                    Delete Model
-                  </button>
-                </div>
-              ) : isDownloadingAi ? (
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "13px",
-                      marginBottom: "8px",
-                      color: colors.text.secondary,
-                    }}
-                  >
-                    <span>Downloading... ({formatBytes(downloadedBytes)} /{` `}
-                    {formatBytes(requiredSize)})</span>
-                    <span>{aiProgress}%</span>
-                  </div>
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "6px",
-                      background: "rgba(255,255,255,0.1)",
-                      borderRadius: "3px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${aiProgress}%`,
-                        height: "100%",
-                        background: colors.primary.main,
-                        transition: "width 0.2s ease",
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <button
-                  disabled={isDeletingAccount}
-                  onClick={() => qwenLocalService.downloadModel()}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
-                    background: colors.primary.main,
-                    color: colors.text.inverse,
-                    border: "none",
-                    cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                    fontWeight: 500,
-                    width: "100%",
-                  }}
-                >
-                  Download Model ({formatBytes(requiredSize)})
-                </button>
-              )}
-            </div>
-
             <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
             <DangerZone>
               <SignOutButton
@@ -410,6 +272,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             </DangerZone>
           </div>
         );
+      case "Local AI":
+        return <LocalAISettings />;
       case "Security":
         return <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {
           if (email === currentUserEmail) {
@@ -530,141 +394,6 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           )}
           {activeCategory === "Account" && (
             <div>
-              <h3 style={{ color: colors.text.primary }}>Local AI Model</h3>
-              <div
-                style={{
-                  marginBottom: "30px",
-                  background: colors.background.secondary,
-                  padding: "16px",
-                  borderRadius: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    marginBottom: "12px",
-                    color: colors.text.secondary,
-                    fontSize: "14px",
-                    lineHeight: "1.5",
-                  }}
-                >
-                  The AI model enables Smart Compose, Summarize, and Quick
-                  Replies directly on your device without sending your chats to
-                  the cloud. It requires {formatBytes(requiredSize)} of storage space.
-                </div>
-
-                {aiFailed && (
-                  <div
-                    style={{
-                      marginBottom: "12px",
-                      padding: "12px",
-                      borderRadius: "6px",
-                      background: "rgba(239, 68, 68, 0.1)",
-                      color: "#ef4444",
-                      fontSize: "13px",
-                    }}
-                  >
-                    <strong>Error: </strong> Local AI is not supported on this
-                    device architecture.
-                  </div>
-                )}
-
-                {isInstalled ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          color: colors.status.success,
-                          fontWeight: 500,
-                          fontSize: "14px",
-                        }}
-                      >
-                        Installed ✓
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: colors.text.tertiary,
-                        }}
-                      >
-                        {formatBytes(installedSize)} Used
-                      </div>
-                    </div>
-                    <button
-                      disabled={isDeletingAccount}
-                      onClick={() => qwenLocalService.deleteModel()}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: "4px",
-                        background: "rgba(239, 68, 68, 0.1)",
-                        color: "#ef4444",
-                        border: "1px solid rgba(239, 68, 68, 0.2)",
-                        cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                        fontSize: "13px",
-                      }}
-                    >
-                      Delete Model
-                    </button>
-                  </div>
-                ) : isDownloadingAi ? (
-                  <div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        fontSize: "13px",
-                        marginBottom: "8px",
-                        color: colors.text.secondary,
-                      }}
-                    >
-                      <span>Downloading... ({formatBytes(downloadedBytes)} /{` `}
-                      {formatBytes(requiredSize)})</span>
-                      <span>{aiProgress}%</span>
-                    </div>
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "6px",
-                        background: "rgba(255,255,255,0.1)",
-                        borderRadius: "3px",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${aiProgress}%`,
-                          height: "100%",
-                          background: colors.primary.main,
-                          transition: "width 0.2s ease",
-                        }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    disabled={isDeletingAccount}
-                    onClick={() => qwenLocalService.downloadModel()}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      background: colors.primary.main,
-                      color: colors.text.inverse,
-                      border: "none",
-                      cursor: isDeletingAccount ? "not-allowed" : "pointer",
-                      fontWeight: 500,
-                      width: "100%",
-                    }}
-                  >
-                    Download Model ({formatBytes(requiredSize)})
-                  </button>
-                )}
-              </div>
-
               <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
               <DangerZone>
                 <SignOutButton
@@ -682,6 +411,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               </DangerZone>
             </div>
           )}
+
+          {activeCategory === "Local AI" && <LocalAISettings />}
 
           {activeCategory === "Security" && (
             <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {

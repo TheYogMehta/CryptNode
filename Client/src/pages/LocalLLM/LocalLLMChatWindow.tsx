@@ -8,12 +8,13 @@ import {
   downloadOutline,
   closeCircleOutline,
 } from "ionicons/icons";
-import { qwenLocalService } from "../../services/ai/qwenLocal.service";
+import { localAIService } from "../../services/ai/localAI.service";
 import { colors } from "../../../src/theme/design-system";
 import "./LocalLLMChatWindow.css";
 
 interface LocalLLMChatWindowProps {
   onBack?: () => void;
+  onOpenSettings: () => void;
 }
 
 interface Message {
@@ -25,39 +26,50 @@ interface Message {
 
 export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   onBack,
+  onOpenSettings,
 }) => {
   const [isInstalled, setIsInstalled] = useState<boolean | null>(null);
+  const [hasAnyDownloaded, setHasAnyDownloaded] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadInfo, setDownloadInfo] = useState(localAIService.downloadInfo);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeModel = localAIService.getActiveModelInfo();
 
   // Sync service state
   useEffect(() => {
     const checkStatus = async () => {
-      const installed = await qwenLocalService.isModelInstalled();
+      const installed = await localAIService.isModelInstalled();
       setIsInstalled(installed);
-      setDownloadProgress(qwenLocalService.downloadProgress);
-      setIsDownloading(qwenLocalService.isLoading && !installed);
+
+      const enhanced = await localAIService.getEnhancedModels();
+      setHasAnyDownloaded(enhanced.some(m => m.isDownloaded));
+
+      setDownloadProgress(localAIService.downloadProgress);
+      setIsDownloading(localAIService.isLoading && !installed);
+      setDownloadInfo(localAIService.downloadInfo);
     };
 
     checkStatus();
 
-    const unsubscribe = qwenLocalService.subscribe(() => {
-      setIsDownloading(qwenLocalService.isLoading && !qwenLocalService.isLoaded);
-      setDownloadProgress(qwenLocalService.downloadProgress);
-      if (qwenLocalService.isLoaded || qwenLocalService.installedSize > 0) {
-        setIsInstalled(true);
-      } else {
-         setIsInstalled(false);
-      }
+    const unsubscribe = localAIService.subscribe(async () => {
+      setIsDownloading(localAIService.isLoading);
+      setDownloadProgress(localAIService.downloadProgress);
+      setDownloadInfo(localAIService.downloadInfo);
+      
+      const isInst = await localAIService.isModelInstalled();
+      setIsInstalled(isInst);
+
+      const enhanced = await localAIService.getEnhancedModels();
+      setHasAnyDownloaded(enhanced.some(m => m.isDownloaded));
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [activeModel?.id]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,9 +80,10 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   }, [messages, isGenerating]);
 
   const handleDownload = async () => {
+    if (!activeModel) return;
     try {
-      await qwenLocalService.downloadModel();
-      await qwenLocalService.init();
+      await localAIService.downloadModel(activeModel);
+      await localAIService.init();
       setIsInstalled(true);
     } catch (e: any) {
       alert("Failed to download or initialize the model: " + e.message);
@@ -79,7 +92,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
 
   const handleDeleteModel = async () => {
     if (confirm("Are you sure you want to delete the local AI model from your device?")) {
-      await qwenLocalService.deleteModel();
+      await localAIService.deleteModel();
       setIsInstalled(false);
       setMessages([]);
     }
@@ -107,8 +120,8 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
     setIsGenerating(true);
 
     try {
-      if (!qwenLocalService.isLoaded) {
-        await qwenLocalService.init();
+      if (!localAIService.isLoaded) {
+        await localAIService.init();
       }
 
       const conversation = [...messages, newMessage].map((m) => ({
@@ -131,7 +144,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
       const startMs = Date.now();
 
       let streamingContent = "";
-      const response = await qwenLocalService.generate(conversation, {
+      const response = await localAIService.generate(conversation, {
         maxNewTokens: 512,
         temperature: 0.7,
         onToken: (token) => {
@@ -196,7 +209,11 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
             />
           </div>
           <div>
-            <h2 className="local-llm-title">Local AI Agent</h2>
+            <h2 className="local-llm-title">
+              {isInstalled || hasAnyDownloaded === true
+                ? (activeModel ? activeModel.name : "Local AI Agent")
+                : "Local AI Agent"}
+            </h2>
             <p className="local-llm-caption">Offline & Private Chat</p>
           </div>
         </div>
@@ -223,30 +240,61 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
         )}
       </div>
 
-      {isInstalled === false && !isDownloading ? (
+      {!activeModel ? (
         <div className="local-llm-locked" style={themeVars}>
            <div className="local-llm-locked-inner">
-             <h2 className="sc-title">Download Required</h2>
+             <h2 className="sc-title">No Model Selected</h2>
              <p className="sc-subtitle" style={{marginBottom: "20px"}}>
-               To chat with the Local AI Agent entirely offline, you need to download the AI model ({Math.round(qwenLocalService.requiredSize / 1024 / 1024)} MB).
+               Go to Settings &gt; Local AI to select and download an AI model.
              </p>
-             <ul style={{textAlign: "left", fontSize: "0.9rem", color: "var(--sc-text-secondary)", marginBottom: "30px"}}>
-               <li>🔒 100% Private & Locally executed</li>
-               <li>🚀 Works entirely offline</li>
-               <li>🤖 Based on Qwen 0.8B architecture</li>
-             </ul>
-             <div className="local-llm-row" style={{justifyContent: "center"}}>
-               <button
-                 onClick={handleDownload}
-                 className="local-llm-btn-primary"
-                 style={{padding: "12px 24px"}}
-               >
-                 <IonIcon icon={downloadOutline} style={{marginRight: "8px", verticalAlign: "middle"}}/> 
-                 Download Model
-               </button>
-             </div>
            </div>
         </div>
+      ) : isInstalled === false && !isDownloading ? (
+        hasAnyDownloaded === false ? (
+          <div className="local-llm-locked" style={themeVars}>
+             <div className="local-llm-locked-inner">
+               <h2 className="sc-title">Enable Local AI</h2>
+               <p className="sc-subtitle" style={{marginBottom: "15px"}}>
+                 A Local Large Language Model (LLM) runs entirely on your device's processor. Unlike cloud AI, your chat text never leaves your phone, ensuring 100% privacy and unlocking fully offline capabilities.
+               </p>
+               <p className="sc-subtitle" style={{marginBottom: "25px"}}>
+                 To begin chatting with an AI offline, please select and download a model of your preference from your settings.
+               </p>
+               <div className="local-llm-row" style={{justifyContent: "center"}}>
+                 <button
+                   onClick={onOpenSettings}
+                   className="local-llm-btn-primary"
+                   style={{padding: "12px 24px"}}
+                 >
+                   Open Local AI Settings
+                 </button>
+               </div>
+             </div>
+          </div>
+        ) : (
+          <div className="local-llm-locked" style={themeVars}>
+             <div className="local-llm-locked-inner">
+               <h2 className="sc-title">Download Required</h2>
+               <p className="sc-subtitle" style={{marginBottom: "20px"}}>
+                 To chat with {activeModel.name} entirely offline, you need to download this model according to your preference from the Settings.
+               </p>
+               <ul style={{textAlign: "left", fontSize: "0.9rem", color: "var(--sc-text-secondary)", marginBottom: "30px"}}>
+                 <li>🔒 100% Private & Locally executed</li>
+                 <li>🚀 Works entirely offline</li>
+                 <li>🤖 {activeModel.description}</li>
+               </ul>
+               <div className="local-llm-row" style={{justifyContent: "center"}}>
+                 <button
+                   onClick={onOpenSettings}
+                   className="local-llm-btn-primary"
+                   style={{padding: "12px 24px"}}
+                 >
+                   Open Local AI Settings
+                 </button>
+               </div>
+             </div>
+          </div>
+        )
       ) : (isDownloading && !isInstalled) ? (
           <div className="local-llm-locked" style={themeVars}>
              <div className="local-llm-locked-inner">
@@ -259,9 +307,11 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
                     <p style={{marginTop: "10px", fontSize: "0.9rem", color: "var(--sc-text-secondary)"}}>
                         {downloadProgress}% Completed
                     </p>
-                    <p style={{marginTop: "5px", fontSize: "0.8rem", color: "var(--sc-text-secondary)", opacity: 0.7}}>
-                        {Math.round(qwenLocalService.downloadedBytes / 1024 / 1024)}MB / {Math.round(qwenLocalService.requiredSize / 1024 / 1024)}MB
-                    </p>
+                    {downloadInfo && (
+                        <p style={{marginTop: "5px", fontSize: "0.8rem", color: "var(--sc-text-secondary)", opacity: 0.7}}>
+                            {Math.round(downloadInfo.bytes / 1024 / 1024)}MB / {Math.round(downloadInfo.total / 1024 / 1024)}MB
+                        </p>
+                    )}
                  </div>
              </div>
           </div>
@@ -278,7 +328,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
                  </div>
                  <p className="local-llm-empty-title">Start a Conversation</p>
                  <p className="local-llm-empty-subtitle">
-                   Feel free to ask the Local AI Agent anything. 
+                   Feel free to ask {activeModel.name} anything. 
                    <br/>Note: Your messages are only saved until you close the app.
                  </p>
                </div>

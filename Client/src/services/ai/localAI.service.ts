@@ -1,22 +1,18 @@
-import type { ChatMessage } from "../../pages/Home/types";
 import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Preferences } from "@capacitor/preferences";
 import {
-  NativeLlamaContext,
   Llama as LlamaPlugin,
   TokenEvent,
 } from "@cantoo/capacitor-llama";
 import { Capacitor } from "@capacitor/core";
+import type { ChatMessage } from "../../pages/Home/types";
+import { LocalAIModel, RECOMMENDED_MODELS } from "./models";
 
 declare global {
   interface Window {
     Capacitor?: any;
   }
 }
-
-const MODEL_ID = "Qwen/Qwen3.5-0.8B";
-const GGUF_URL =
-  "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf";
-const GGUF_FILENAME = "Qwen3.5-0.8B-Q4_K_M.gguf";
 
 interface QwenGenerationOptions {
   maxNewTokens?: number;
@@ -74,7 +70,7 @@ const pendingRequests: Record<
 
 function getWorker(): Worker {
   if (!worker) {
-    console.log("[QwenLocalService] Initializing worker...");
+    console.log("[LocalAIService] Initializing worker...");
     worker = new Worker(
       new URL("../../workers/qwen.worker.ts", import.meta.url),
       {
@@ -85,7 +81,7 @@ function getWorker(): Worker {
     worker.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === "init_result") {
-        console.log("[QwenLocalService] Worker initialized");
+        console.log("[LocalAIService] Worker initialized");
       } else if (msg.type === "generate_result") {
         const req = pendingRequests[msg.id];
         if (req) {
@@ -111,17 +107,26 @@ function getWorker(): Worker {
   return worker;
 }
 
-export class QwenLocalService {
+export interface StoredModel extends LocalAIModel {
+  isDownloaded: boolean;
+  downloadedBytes: number;
+}
+
+export class LocalAIService {
   private _isLoaded = false;
   private _isLoading = false;
   public failed = false;
   private isNative = false;
   private nativeContextId = -1;
   private _downloadProgress = 0;
-  private _installedCache: boolean | null = null;
-  private _installedSize = 0;
-  private _requiredSize = 532517120; // Exact bytes for Qwen3.5-0.8B-Q4_K_M.gguf
-  private _downloadedBytes = 0;
+  private _installedCache = new Map<string, boolean>();
+  private _installedSizes = new Map<string, number>();
+  private _downloadInfo: { activeModelId: string, bytes: number, total: number } | null = null;
+  private _cancelFlag = false;
+  private _refreshingPromise: Promise<void> | null = null;
+
+  private _models: LocalAIModel[] = [];
+  private _activeModelId: string | null = null;
 
   constructor() {
     const platform =
@@ -129,26 +134,15 @@ export class QwenLocalService {
     if (platform === "android" || platform === "ios") {
       this.isNative = true;
     }
+    this.loadStateFromPreferences();
   }
 
-  get isLoaded() {
-    return this._isLoaded;
-  }
-  get isLoading() {
-    return this._isLoading;
-  }
-  get downloadProgress() {
-    return this._downloadProgress;
-  }
-  get installedSize() {
-    return this._installedSize;
-  }
-  get requiredSize() {
-    return this._requiredSize;
-  }
-  get downloadedBytes() {
-    return this._downloadedBytes;
-  }
+  get isLoaded() { return this._isLoaded; }
+  get isLoading() { return this._isLoading; }
+  get downloadProgress() { return this._downloadProgress; }
+  get downloadInfo() { return this._downloadInfo; }
+  get activeModelId() { return this._activeModelId; }
+  get storedModels() { return this._models; }
 
   private listeners: (() => void)[] = [];
 
@@ -163,52 +157,207 @@ export class QwenLocalService {
     this.listeners.forEach((l) => l());
   }
 
-  async isModelInstalled(): Promise<boolean> {
-    if (this._installedCache !== null) return this._installedCache;
+  // Persist the state of what models exist in our "library"
+  private async loadStateFromPreferences() {
     try {
-      const stat = await Filesystem.stat({
-        directory: Directory.Data,
-        path: GGUF_FILENAME,
-      });
-      this._installedCache = stat.size > 0;
-      this._installedSize = stat.size || 0;
-      return this._installedCache;
-    } catch {
-      this._installedCache = false;
-      this._installedSize = 0;
-      return false;
+      const { value: modelsJson } = await Preferences.get({ key: 'local_ai_models' });
+      if (modelsJson) {
+        this._models = JSON.parse(modelsJson);
+      } else {
+        // Fallback or migration for old users who downloaded Qwen
+        this._models = [RECOMMENDED_MODELS[0]];
+      }
+
+      const { value: activeId } = await Preferences.get({ key: 'local_ai_active_id' });
+      if (activeId && this._models.find(m => m.id === activeId)) {
+        this._activeModelId = activeId;
+      } else if (this._models.length > 0) {
+        this._activeModelId = this._models[0].id; // Fallback
+      }
+
+      // Check which ones are downloaded
+      await this.refreshInstalledStatus();
+    } catch (e) {
+      console.error("Failed to load AI preferences", e);
     }
   }
 
-  async deleteModel(): Promise<void> {
+  private async saveStateToPreferences() {
     try {
-      if (this.isNative && this.nativeContextId !== -1) {
-        await LlamaPlugin.releaseAllContexts();
+      await Preferences.set({ key: 'local_ai_models', value: JSON.stringify(this._models) });
+      if (this._activeModelId) {
+        await Preferences.set({ key: 'local_ai_active_id', value: this._activeModelId });
+      } else {
+        await Preferences.remove({ key: 'local_ai_active_id' });
       }
+    } catch (e) {
+      console.error("Failed to save AI preferences", e);
+    }
+  }
+
+  // Refreshes the `isDownloaded` / `installedSize` status for all models
+  async refreshInstalledStatus(): Promise<void> {
+    if (this._refreshingPromise) return this._refreshingPromise;
+
+    this._refreshingPromise = (async () => {
+      for (const model of this._models) {
+        try {
+          const stat = await Filesystem.stat({
+            directory: Directory.Data,
+            path: model.filename,
+          });
+          this._installedCache.set(model.id, stat.size > 0);
+          this._installedSizes.set(model.id, stat.size || 0);
+        } catch {
+          this._installedCache.set(model.id, false);
+          this._installedSizes.set(model.id, 0);
+        }
+      }
+      this.notify();
+    })();
+
+    try {
+      await this._refreshingPromise;
+    } finally {
+      this._refreshingPromise = null;
+    }
+  }
+
+  async getEnhancedModels(): Promise<StoredModel[]> {
+    await this.refreshInstalledStatus();
+    return this._models.map(m => ({
+      ...m,
+      isDownloaded: this._installedCache.get(m.id) || false,
+      downloadedBytes: this._installedSizes.get(m.id) || 0
+    }));
+  }
+
+  async addModelToLibrary(model: LocalAIModel) {
+    if (!this._models.find(m => m.id === model.id)) {
+      this._models.push(model);
+      await this.saveStateToPreferences();
+      this.notify();
+    }
+  }
+
+  async updateModelMetadata(modelId: string, name: string, description: string) {
+    const model = this._models.find(m => m.id === modelId);
+    if (!model) return;
+    model.name = name;
+    model.description = description;
+    await this.saveStateToPreferences();
+    this.notify();
+  }
+
+  async removeModelFromLibrary(modelId: string) {
+    const isCustom = !RECOMMENDED_MODELS.find(m => m.id === modelId);
+    if (!isCustom) return; // Only custom models can be fully removed from library
+
+    // Delete the physical file if it exists
+    await this.deleteModel(modelId);
+
+    // Remove from array and persist
+    this._models = this._models.filter(m => m.id !== modelId);
+    if (this._activeModelId === modelId) {
+      this._activeModelId = this._models.length > 0 ? this._models[0].id : null;
+    }
+    
+    await this.saveStateToPreferences();
+    this.notify();
+  }
+
+  async setActiveModel(modelId: string) {
+    if (this._activeModelId === modelId) return;
+    const model = this._models.find(m => m.id === modelId);
+    if (!model) throw new Error("Model not found in library");
+
+    this._activeModelId = modelId;
+    await this.saveStateToPreferences();
+    
+    // Release current context
+    if (this.isNative && this.nativeContextId !== -1) {
+      try {
+        await LlamaPlugin.releaseAllContexts();
+      } catch (e) {}
+    }
+    this._isLoaded = false; 
+    // It will be lazily loaded next time getActiveModel is called, or we can just preload.
+    this.notify();
+  }
+
+  getActiveModelInfo(): LocalAIModel | undefined {
+    return this._models.find(m => m.id === this._activeModelId);
+  }
+
+  async isModelInstalled(modelId?: string): Promise<boolean> {
+    const id = modelId || this._activeModelId;
+    if (!id) return false;
+
+    if (!this._installedCache.has(id)) {
+      await this.refreshInstalledStatus();
+    }
+    return this._installedCache.get(id) || false;
+  }
+
+  async deleteModel(modelId?: string): Promise<void> {
+    const id = modelId || this._activeModelId;
+    if (!id) return;
+
+    const modelToDelete = this._models.find(m => m.id === id);
+    if (!modelToDelete) return;
+
+    try {
+      if (id === this._activeModelId) {
+         if (this.isNative && this.nativeContextId !== -1) {
+           await LlamaPlugin.releaseAllContexts();
+         }
+         this._isLoaded = false;
+      }
+      
       await Filesystem.deleteFile({
         directory: Directory.Data,
-        path: GGUF_FILENAME,
+        path: modelToDelete.filename,
       });
-      this._isLoaded = false;
+
+      this._installedCache.set(id, false);
+      this._installedSizes.set(id, 0);
+
+      // If active is deleted, we keep it as active (so that they can redownload), or we can unset it.
+      // Keeping it as active but showing "Download Required" is better UX.
       this.failed = false;
-      this._installedCache = null;
-      this._installedSize = 0;
-      this._downloadedBytes = 0;
       this.notify();
     } catch (e) {
       console.warn("Model already deleted or could not delete", e);
     }
   }
 
-  async downloadModel(): Promise<void> {
+  abortDownload() {
+    if (this._isLoading) {
+      this._cancelFlag = true;
+    }
+  }
+
+  async downloadModel(model: LocalAIModel): Promise<void> {
     if (this._isLoading) return;
     this._isLoading = true;
     this.failed = false;
+    
+    // Auto-add to library if not there
+    await this.addModelToLibrary(model);
+
+    // Auto-set as active if there's no active model
+    if (!this._activeModelId) {
+        await this.setActiveModel(model.id);
+    }
+
+    this._downloadInfo = { activeModelId: model.id, bytes: 0, total: model.sizeBytes };
+    this._downloadProgress = 0;
+    this._cancelFlag = false;
     this.notify();
 
     try {
-      await this.ensureNativeModel();
-      this._installedCache = true;
+      await this.ensureNativeModel(model);
+      this._installedCache.set(model.id, true);
     } catch (e) {
       console.error("Failed to download model", e);
       this.failed = true;
@@ -216,13 +365,14 @@ export class QwenLocalService {
     } finally {
       this._isLoading = false;
       this._downloadProgress = 0;
+      this._downloadInfo = null;
       this.notify();
     }
   }
 
-  private async ensureNativeModel(): Promise<string> {
+  private async ensureNativeModel(model: LocalAIModel): Promise<string> {
     const dir = Directory.Data;
-    const path = GGUF_FILENAME;
+    const path = model.filename;
 
     try {
       const stat = await Filesystem.stat({ directory: dir, path });
@@ -234,8 +384,9 @@ export class QwenLocalService {
       // File doesn't exist, proceed to download
     }
 
-    console.log("[QwenLocalService] Downloading GGUF model...");
+    console.log("[LocalAIService] Downloading GGUF model...", model.name);
     this._downloadProgress = 1;
+    this._downloadInfo = { activeModelId: model.id, bytes: 0, total: model.sizeBytes };
     this.notify();
 
     return new Promise<string>(async (resolve, reject) => {
@@ -248,29 +399,59 @@ export class QwenLocalService {
         if (listener) listener.remove();
 
         this._downloadProgress = 100;
-        this._installedCache = true;
-        this._installedSize = this._requiredSize;
-        this.notify();
+        this._installedCache.set(model.id, true);
+        this._installedSizes.set(model.id, model.sizeBytes); // or whatever actual downloaded size is
 
         try {
           const uri = await Filesystem.getUri({ directory: dir, path });
+          if (this._cancelFlag) {
+            console.warn("[LocalAIService] Download finished but was soft-cancelled. Deleting file...");
+            await Filesystem.deleteFile({ directory: dir, path });
+            this._installedCache.set(model.id, false);
+            this._installedSizes.set(model.id, 0);
+            this._cancelFlag = false;
+            reject(new Error("Download aborted"));
+            this.notify();
+            return;
+          }
+
+          this.notify();
           resolve(uri.uri.replace("file://", ""));
         } catch (e) {
+          if (this._cancelFlag) {
+             this._cancelFlag = false;
+             reject(new Error("Download aborted"));
+             return;
+          }
           reject(e);
         }
       };
 
       try {
         listener = await Filesystem.addListener("progress", (status: any) => {
-          if (status.url && status.url !== GGUF_URL) return;
+          if (this._cancelFlag) {
+             // UI stops updating to give the illusion of cancel, file continues in background
+             if (!isDone) {
+                 isDone = true;
+                 if (listener) listener.remove();
+                 reject(new Error("Download aborted"));
+             }
+             return;
+          }
+          if (status.url && status.url !== model.hfUrl) return;
           if (status.contentLength && status.contentLength > 0) {
-            this._requiredSize = status.contentLength;
-            this._downloadedBytes = status.bytes;
+            this._downloadInfo = {
+                activeModelId: model.id,
+                bytes: status.bytes,
+                total: status.contentLength
+            };
+
             const pct = Math.round((status.bytes / status.contentLength) * 100);
             if (pct !== this._downloadProgress && pct <= 100) {
               this._downloadProgress = pct;
               this.notify();
             } else {
+              // still notify bytes update
               this.notify();
             }
             if (status.bytes >= status.contentLength) {
@@ -280,19 +461,17 @@ export class QwenLocalService {
         });
 
         Filesystem.downloadFile({
-          url: GGUF_URL,
+          url: model.hfUrl,
           path: path,
           directory: dir,
           progress: true,
         }).then(
-          (result) => {
-            finishAndResolve();
-          },
+          () => finishAndResolve(),
           (error) => {
             if (!isDone) {
               isDone = true;
               if (listener) listener.remove();
-              console.error("[QwenLocalService] Failed to download model", error);
+              console.error("[LocalAIService] Failed to download model", error);
               reject(error);
             }
           }
@@ -301,7 +480,7 @@ export class QwenLocalService {
         if (!isDone) {
           isDone = true;
           if (listener) listener.remove();
-          console.error("[QwenLocalService] Failed to start model download", error);
+          console.error("[LocalAIService] Failed to start model download", error);
           reject(error);
         }
       }
@@ -310,17 +489,22 @@ export class QwenLocalService {
 
   async init(): Promise<void> {
     if (this._isLoaded) return;
+    
+    const activeModel = this.getActiveModelInfo();
+    if (!activeModel) throw new Error("No active model selected");
+
+    if (!(await this.isModelInstalled(activeModel.id))) {
+      throw new Error(`Model ${activeModel.name} is selected but not downloaded.`);
+    }
+
     this._isLoading = true;
     this.notify();
 
     try {
       if (this.isNative) {
         try {
-          const absolutePath = await this.ensureNativeModel();
-          console.log(
-            "[QwenLocalService] Initializing Native Llama context:",
-            absolutePath,
-          );
+          const absolutePath = await this.ensureNativeModel(activeModel);
+          console.log("[LocalAIService] Initializing Native Llama context:", absolutePath);
 
           await LlamaPlugin.releaseAllContexts();
 
@@ -335,13 +519,11 @@ export class QwenLocalService {
           });
         } catch (nativeErr) {
           console.warn(
-            "[QwenLocalService] Native Llama init failed or timed out. WASM fallback disabled on mobile.",
+            "[LocalAIService] Native Llama init failed or timed out. WASM fallback disabled on mobile.",
             nativeErr,
           );
           this.isNative = false;
-          throw new Error(
-            "Local AI is not supported on this device architecture.",
-          );
+          throw new Error("Local AI is not supported on this device architecture.");
         }
       }
 
@@ -350,10 +532,8 @@ export class QwenLocalService {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       this._isLoaded = true;
-      this._installedCache = true; // model is on disk
     } catch (e: any) {
-      console.error("[QwenLocalService] Failed to load model:", e);
-      // Propagate the architecture unsupported error so 'generate' knows we failed
+      console.error("[LocalAIService] Failed to load model:", e);
       if (e.message && e.message.includes("not supported")) {
         throw e;
       }
@@ -418,10 +598,7 @@ export class QwenLocalService {
           tokenListener = await LlamaPlugin.addListener(
             "onToken",
             (event: TokenEvent) => {
-              // Log raw token event to catch native engine streaming activity
-              console.log("[Native Token]", event);
               if (event.contextId === this.nativeContextId) {
-                // Safely grab the token payload whether it varies by platform
                 const tokenStr = event.tokenResult?.token || (event.tokenResult as any)?.text || "";
                 if (tokenStr) {
                   options.onToken?.(tokenStr);
@@ -461,8 +638,7 @@ export class QwenLocalService {
     limit: number,
   ): Promise<string[]> {
     const context = clipContext(messages, draft);
-    const systemPrompt =
-      "You are a communication assistant. Your goal is to keep the conversation flowing.";
+    const systemPrompt = "You are a communication assistant. Your goal is to keep the conversation flowing.";
 
     const userContent = [
       `Context:\n${context || "No prior context."}`,
@@ -481,42 +657,30 @@ export class QwenLocalService {
         { role: "user", content: userContent },
       ],
       {
-        maxNewTokens: 54, // Reduced tokens for speed
-        temperature: 0.5, // Slightly higher for variety
+        maxNewTokens: 54,
+        temperature: 0.5,
       },
     );
 
-    const parsed = parseBulletList(raw, limit);
-    return parsed;
+    return parseBulletList(raw, limit);
   }
 
   async summarize(messages: ChatMessage[], limit: number): Promise<string> {
-    // Filter out noise (greetings, single words, very short messages)
-    const meaningful = messages.filter(
-      (m) => (m.text || "").trim().length >= 4,
-    );
+    const meaningful = messages.filter((m) => (m.text || "").trim().length >= 4);
 
-    if (meaningful.length === 0) {
-      return "Not enough content to summarize.";
-    }
+    if (meaningful.length === 0) return "Not enough content to summarize.";
 
     const context = meaningful
       .slice(-20)
       .map((m) => `${m.sender === "me" ? "Me" : "Peer"}: ${m.text!.trim()}`)
       .join("\n");
 
-    // Few-shot example teaches the model the exact format.
-    // Output is primed with "- " so the model jumps straight into bullets.
-    const systemPrompt =
-      "You extract key facts from chat logs. Output bullet points only. " +
-      "Never add anything not explicitly stated in the chat.";
+    const systemPrompt = "You extract key facts from chat logs. Output bullet points only. Never add anything not explicitly stated in the chat.";
 
     const userContent =
-      `Example:\n` +
-      `Chat:\nMe: can we move the meeting to 3pm?\nPeer: sure, also bring the Q3 report\nMe: will do\n` +
+      `Example:\nChat:\nMe: can we move the meeting to 3pm?\nPeer: sure, also bring the Q3 report\nMe: will do\n` +
       `Bullets:\n- Meeting moved to 3 PM\n- Peer requested Q3 report\n\n` +
-      `Now do the same for this chat:\n` +
-      `Chat:\n${context}\n` +
+      `Now do the same for this chat:\nChat:\n${context}\n` +
       `Bullets (max ${Math.max(3, limit)}, only facts from above):\n-`;
 
     const raw = await this.generate(
@@ -527,27 +691,19 @@ export class QwenLocalService {
       { maxNewTokens: 180, temperature: 0.1 },
     );
 
-    // Re-attach the leading "- " we used as a primer
     const trimmed = raw.trim();
     return trimmed.startsWith("-") ? trimmed : `- ${trimmed}`;
   }
 
   async summarizeSingleMessage(text: string): Promise<string> {
-    if (!text || text.trim().length < 20) {
-      return "Message is too short to summarize.";
-    }
+    if (!text || text.trim().length < 20) return "Message is too short to summarize.";
 
-    const systemPrompt =
-      "You rephrase a single message into a clear, concise summary. " +
-      "Use plain English. Output one or two sentences only. Never add anything not in the message.";
+    const systemPrompt = "You rephrase a single message into a clear, concise summary. Use plain English. Output one or two sentences only. Never add anything not in the message.";
 
     const userContent =
-      `Example:\n` +
-      `Message: "Hey sorry I missed your call earlier, I was in a meeting until like 3:30 and then had to run to pick up the kids. Can we catch up tomorrow morning maybe around 9 or 10?"\n` +
+      `Example:\nMessage: "Hey sorry I missed your call earlier, I was in a meeting until like 3:30 and then had to run to pick up the kids. Can we catch up tomorrow morning maybe around 9 or 10?"\n` +
       `Summary: Missed the call due to a meeting and errands. Suggests catching up tomorrow around 9–10 AM.\n\n` +
-      `Now summarize this message:\n` +
-      `Message: "${text.trim()}"\n` +
-      `Summary:`;
+      `Now summarize this message:\nMessage: "${text.trim()}"\nSummary:`;
 
     const raw = await this.generate(
       [
@@ -559,10 +715,10 @@ export class QwenLocalService {
 
     return raw.trim();
   }
+
   async smartCompose(draft: string): Promise<string> {
     if (!draft.trim()) return "";
-    const systemPrompt =
-      "You are a professional editor. Rewrite the input to be clear and polite, but keep it brief.";
+    const systemPrompt = "You are a professional editor. Rewrite the input to be clear and polite, but keep it brief.";
     const userContent = `Rules:\n1. Fix grammar/typos.\n2. Make it sound confident.\n3. Do not add facts.\n4. Output ONLY the rewritten text.\n\nInput: "${draft}"\nRewritten:`;
 
     const raw = await this.generate(
@@ -582,4 +738,4 @@ export class QwenLocalService {
   }
 }
 
-export const qwenLocalService = new QwenLocalService();
+export const localAIService = new LocalAIService();

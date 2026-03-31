@@ -58,7 +58,7 @@ import {
   ReplyText,
 } from "./Chat.styles";
 import { IconButton } from "../../../../components/ui/IconButton";
-import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import { UserProfileModal } from "../overlays/UserProfileModal";
@@ -108,7 +108,7 @@ export const ChatWindowDefault = ({
   const canScreenShare = ChatClient.canScreenShare;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
+  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus(false);
   const virtuosoRef = useRef<VirtuosoHandle>(null); // Replacement for scrollRef logic
   const [input, setInput] = useState("");
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -180,13 +180,13 @@ export const ChatWindowDefault = ({
     setShowSummary(true);
     const startTime = Date.now();
     try {
-      if (!qwenLocalService.isLoaded) {
+      if (!localAIService.isLoaded) {
         setIsInitializingModel(true);
-        await qwenLocalService.init();
+        await localAIService.init();
         setIsInitializingModel(false);
       }
       setIsSummarizing(true);
-      const result = await qwenLocalService.summarize(messages, 5);
+      const result = await localAIService.summarize(messages, 5);
       setSummary(result);
       setSummaryElapsedMs(Date.now() - startTime);
     } catch (e) {
@@ -567,8 +567,8 @@ export const ChatWindowDefault = ({
 
     setIsGeneratingReplies(true);
     try {
-      if (!qwenLocalService.isLoaded) await qwenLocalService.init();
-      const items = await qwenLocalService.quickReplies(messages, input, 3);
+      if (!localAIService.isLoaded) await localAIService.init();
+      const items = await localAIService.quickReplies(messages, input, 3);
       setQuickReplies(items);
     } catch (e) {
       console.error("Failed to generate replies", e);
@@ -679,7 +679,7 @@ export const ChatWindowDefault = ({
                       handleSummarize();
                       setShowOptionsMenu(false);
                     }}
-                    disabled={isSummarizing || qwenLocalService.isLoading}
+                    disabled={isSummarizing || localAIService.isLoading}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -688,11 +688,11 @@ export const ChatWindowDefault = ({
                       background: "transparent",
                       border: "none",
                       color:
-                        isSummarizing || qwenLocalService.isLoading
+                        isSummarizing || localAIService.isLoading
                           ? "rgba(255,255,255,0.5)"
                           : "#ccc",
                       cursor:
-                        isSummarizing || qwenLocalService.isLoading
+                        isSummarizing || localAIService.isLoading
                           ? "not-allowed"
                           : "pointer",
                       borderRadius: "4px",
@@ -701,7 +701,7 @@ export const ChatWindowDefault = ({
                       transition: "background 0.2s",
                     }}
                     onMouseOver={(e) => {
-                      if (!isSummarizing && !qwenLocalService.isLoading)
+                      if (!isSummarizing && !localAIService.isLoading)
                         e.currentTarget.style.background =
                           "rgba(255,255,255,0.1)";
                     }}
@@ -712,12 +712,12 @@ export const ChatWindowDefault = ({
                     <FileText
                       size={18}
                       color={
-                        isSummarizing || qwenLocalService.isLoading
+                        isSummarizing || localAIService.isLoading
                           ? "#eda515"
                           : undefined
                       }
                     />{" "}
-                    {isSummarizing || qwenLocalService.isLoading
+                    {isSummarizing || localAIService.isLoading
                       ? "Loading AI..."
                       : "Summarize Chat"}
                   </button>
@@ -1179,19 +1179,19 @@ export const ChatWindowDefault = ({
                 type="button"
                 onClick={async () => {
                   setShowAiSuggestions(true);
-                  if (!qwenLocalService.isLoaded) await qwenLocalService.init();
+                  if (!localAIService.isLoaded) await localAIService.init();
                 }}
-                disabled={qwenLocalService.isLoading}
+                disabled={localAIService.isLoading}
                 style={{
                   border: "1px solid rgba(255,255,255,0.2)",
                   borderRadius: 14,
-                  color: qwenLocalService.isLoading
+                  color: localAIService.isLoading
                     ? "rgba(255,255,255,0.5)"
                     : "#fff",
                   background: "rgba(255,255,255,0.06)",
                   padding: "5px 10px",
                   fontSize: 12,
-                  cursor: qwenLocalService.isLoading
+                  cursor: localAIService.isLoading
                     ? "not-allowed"
                     : "pointer",
                   display: "flex",
@@ -1200,7 +1200,7 @@ export const ChatWindowDefault = ({
                 }}
               >
                 <Lightbulb size={16} />
-                {qwenLocalService.isLoading ? "Loading AI..." : "Catch Up"}
+                {localAIService.isLoading ? "Loading AI..." : "Catch Up"}
               </button>
             </div>
           )}
@@ -1251,17 +1251,17 @@ export const ChatWindowDefault = ({
                 </button>
                 <button
                   onClick={handleSummarize}
-                  disabled={isSummarizing || qwenLocalService.isLoading}
+                  disabled={isSummarizing || localAIService.isLoading}
                   title="Summarize Chat"
                   style={{
                     background: "transparent",
                     border: "none",
                     cursor:
-                      isSummarizing || qwenLocalService.isLoading
+                      isSummarizing || localAIService.isLoading
                         ? "not-allowed"
                         : "pointer",
                     color:
-                      isSummarizing || qwenLocalService.isLoading
+                      isSummarizing || localAIService.isLoading
                         ? "rgba(255,255,255,0.5)"
                         : "#ccc",
                     marginRight: 10,
@@ -1273,13 +1273,13 @@ export const ChatWindowDefault = ({
                   <FileText
                     size={18}
                     color={
-                      isSummarizing || qwenLocalService.isLoading
+                      isSummarizing || localAIService.isLoading
                         ? "#eda515"
                         : undefined
                     }
                   />
                   <span style={{ fontSize: 12 }}>
-                    {isSummarizing || qwenLocalService.isLoading
+                    {isSummarizing || localAIService.isLoading
                       ? "Loading..."
                       : "Summarize Chat"}
                   </span>
@@ -1344,19 +1344,19 @@ export const ChatWindowDefault = ({
                     <IconButton
                       variant="ghost"
                       size="sm"
-                      disabled={qwenLocalService.isLoading}
+                      disabled={localAIService.isLoading}
                       onClick={async () => {
                         if (!input.trim()) return;
-                        if (!qwenLocalService.isLoaded)
-                          await qwenLocalService.init();
-                        const rewritten = await qwenLocalService.smartCompose(
+                        if (!localAIService.isLoaded)
+                          await localAIService.init();
+                        const rewritten = await localAIService.smartCompose(
                           input,
                         );
                         if (rewritten) setInput(rewritten);
                       }}
                       title="Rephrase"
                       style={{
-                        color: qwenLocalService.isLoading
+                        color: localAIService.isLoading
                           ? "rgba(139,92,246,0.5)"
                           : "#8b5cf6",
                       }}

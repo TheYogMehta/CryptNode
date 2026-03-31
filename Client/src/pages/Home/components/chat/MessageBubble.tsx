@@ -32,7 +32,7 @@ import { AudioBubble } from "./bubbles/AudioBubble";
 import { ImageBubble } from "./bubbles/ImageBubble";
 import { VideoBubble } from "./bubbles/VideoBubble";
 import { FileBubble } from "./bubbles/FileBubble";
-import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 
 import { queryDB } from "../../../../services/storage/sqliteService";
@@ -234,7 +234,8 @@ export const MessageBubble = React.memo(
     const inlineObjectUrlsRef = useRef<string[]>([]);
     const urlRegex = () => /https?:\/\/[^\s<>()]+/gi;
 
-    const { isInstalled: isAiInstalled } = useAIStatus();
+
+    const { isInstalled: isAiInstalled } = useAIStatus(false);
     const [msgSummaryOpen, setMsgSummaryOpen] = useState(false);
     const [msgSummary, setMsgSummary] = useState("");
     const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
@@ -356,13 +357,13 @@ export const MessageBubble = React.memo(
       setMsgSummaryOpen(true);
       const text = msg.text || "";
       try {
-        if (!qwenLocalService.isLoaded) {
+        if (!localAIService.isLoaded) {
           setIsInitializingForMsg(true);
-          await qwenLocalService.init();
+          await localAIService.init();
           setIsInitializingForMsg(false);
         }
         setIsSummarizingMsg(true);
-        const result = await qwenLocalService.summarizeSingleMessage(text);
+        const result = await localAIService.summarizeSingleMessage(text);
         setMsgSummary(result);
       } catch (e) {
         console.error("Message summarization failed", e);

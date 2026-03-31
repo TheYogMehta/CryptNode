@@ -76,6 +76,7 @@ const Home = () => {
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<any>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(true);
   const [storedAccounts, setStoredAccounts] = useState<any[]>([]);
   const [renameTarget, setRenameTarget] = useState<{
@@ -634,6 +635,10 @@ const Home = () => {
                   actions.setIsSidebarOpen(true);
                 }
               }}
+              onOpenSettings={() => {
+                setSettingsTab("Local AI");
+                setShowSettings(true);
+              }}
             />
           ) : state.view === "chat" && state.activeChat ? (
             <ChatWindow
@@ -689,7 +694,11 @@ const Home = () => {
 
         {showSettings && (
           <SettingsOverlay
-            onClose={() => setShowSettings(false)}
+            defaultTab={settingsTab}
+            onClose={() => {
+              setShowSettings(false);
+              setSettingsTab(null);
+            }}
             currentUserEmail={state.userEmail}
             isMobile={isMobile}
             onAddAccount={async () => {
