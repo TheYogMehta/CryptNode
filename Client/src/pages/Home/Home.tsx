@@ -26,6 +26,7 @@ import {
 } from "./components/sidebar/Sidebar.styles";
 
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
+import { LocalLLMChatWindow } from "../../pages/LocalLLM/LocalLLMChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { Capacitor } from "@capacitor/core";
 import {
@@ -616,6 +617,16 @@ const Home = () => {
 
           {state.view === "chat" && state.activeChat === "secure-vault" ? (
             <SecureChatWindow
+              onBack={() => {
+                actions.setActiveChat(null);
+                actions.setView("welcome");
+                if (isMobile) {
+                  actions.setIsSidebarOpen(true);
+                }
+              }}
+            />
+          ) : state.view === "chat" && state.activeChat === "local-llm" ? (
+            <LocalLLMChatWindow
               onBack={() => {
                 actions.setActiveChat(null);
                 actions.setView("welcome");

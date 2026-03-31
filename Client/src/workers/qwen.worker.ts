@@ -1,3 +1,5 @@
+// @ts-nocheck
+// @ts-ignore
 import {
   pipeline,
   env,
@@ -38,11 +40,11 @@ async function getPipeline() {
   generator = pipeline("text-generation", MODEL_ID, {
     device: "webgpu",
   } as any)
-    .then((p) => {
+    .then((p: any) => {
       console.log("[QwenWorker] Model loaded successfully (WebGPU)");
       return p;
     })
-    .catch(async (e) => {
+    .catch(async (e: any) => {
       console.warn("[QwenWorker] WebGPU failed, falling back to WASM/CPU", e);
       return pipeline("text-generation", MODEL_ID, {
         device: "wasm",

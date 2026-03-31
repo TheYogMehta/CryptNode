@@ -99,6 +99,26 @@ export const Sidebar = React.memo(
               onRename={() => {}}
             />
 
+            <SidebarItem
+              key="local-llm"
+              data={{
+                sid: "local-llm",
+                alias_name: "Local AI Agent",
+                alias_avatar: "",
+                peer_name: "Local AI Agent",
+                peer_avatar: "",
+                peerEmail: "llm@local",
+                lastMsg: "Offline Assistant",
+                lastMsgType: "text",
+                lastTs: Date.now(),
+                unread: 0,
+                online: false,
+              }}
+              isActive={activeChat === "local-llm"}
+              onSelect={() => onSelect("local-llm")}
+              onRename={() => {}}
+            />
+
             <SectionLabel>SECURE SESSIONS</SectionLabel>
 
             {sessions.length === 0 ? (
