@@ -116,12 +116,6 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
         content: m.content,
       }));
 
-      // Add a system prompt if it's the first message implicitly
-      const aiPrompt = [
-        { role: "system", content: "You are a helpful, uncensored, and highly capable local AI assistant." },
-        ...conversation
-      ];
-
       const tempId = (Date.now() + 1).toString();
       
       setMessages((prev) => [
@@ -136,17 +130,25 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
 
       const startMs = Date.now();
 
-      await qwenLocalService.generate(aiPrompt, {
+      let streamingContent = "";
+      const response = await qwenLocalService.generate(conversation, {
         maxNewTokens: 512,
         temperature: 0.7,
         onToken: (token) => {
-           setMessages((prev) => 
-               prev.map((m) => 
-                  m.id === tempId ? { ...m, content: m.content + token } : m
-               )
-           );
-        }
+          streamingContent += token;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, content: streamingContent } : m
+            )
+          );
+        },
       });
+      
+      setMessages((prev) => 
+          prev.map((m) => 
+             m.id === tempId ? { ...m, content: response } : m
+          )
+      );
       
     } catch (e: any) {
       console.error("Generation failed:", e);
@@ -245,7 +247,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
              </div>
            </div>
         </div>
-      ) : isDownloading ? (
+      ) : (isDownloading && !isInstalled) ? (
           <div className="local-llm-locked" style={themeVars}>
              <div className="local-llm-locked-inner">
                  <h2 className="sc-title">Downloading AI Model</h2>

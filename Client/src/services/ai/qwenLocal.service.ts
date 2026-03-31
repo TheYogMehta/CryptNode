@@ -431,15 +431,15 @@ export class QwenLocalService {
             temperature: options.temperature ?? 0.2,
             top_p: options.topP ?? 0.9,
             stop: ["<|im_end|>", "<|im_start|>"],
-            emit_partial_completion: false,
+            emit_partial_completion: !!options.onToken,
           },
         });
 
         if (tokenListener) await tokenListener.remove();
 
-        return res.content.trim();
+        return (res.content || res.text || "").trim();
       } else {
-        return await this.generateWasm(prompt, options);
+        return await this.generateWasm(prompt, { ...options, onToken: undefined });
       }
     } finally {
       this._isLoading = false;
