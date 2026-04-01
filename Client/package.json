@@ -16,7 +16,6 @@
     "android:start": "npx cap open android"
   },
   "dependencies": {
-    "@cantoo/capacitor-llama": "^0.1.2",
     "@capacitor-community/privacy-screen": "^6.0.0",
     "@capacitor-community/sqlite": "^7.0.2",
     "@capacitor-community/video-recorder": "^7.5.0",

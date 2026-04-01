@@ -105,6 +105,7 @@ export const ChatWindowDefault = ({
   isLoadingHistory,
 }: ChatWindowProps) => {
   const { messageLayout } = useTheme();
+  const isAndroidPlatform = Capacitor.getPlatform() === "android";
   const canScreenShare = ChatClient.canScreenShare;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -643,7 +644,7 @@ export const ChatWindowDefault = ({
           >
             <Search size={20} />
           </IconButton>
-          {isAiInstalled && (
+          {isAiInstalled && !isAndroidPlatform && (
             <div style={{ position: "relative" }} ref={optionsMenuRef}>
               <IconButton
                 variant="ghost"
@@ -1173,7 +1174,7 @@ export const ChatWindowDefault = ({
         </InputContainer>
       ) : (
         <InputContainer>
-          {!showAiSuggestions && !input.trim() && (
+          {!showAiSuggestions && !input.trim() && !isAndroidPlatform && (
             <div style={{ padding: "0 8px 8px 8px" }}>
               <button
                 type="button"
@@ -1205,6 +1206,7 @@ export const ChatWindowDefault = ({
             </div>
           )}
           {isAiInstalled &&
+            !isAndroidPlatform &&
             showAiSuggestions &&
             quickReplies.length > 0 &&
             !isRecording && (
@@ -1340,7 +1342,7 @@ export const ChatWindowDefault = ({
                   >
                     GIF
                   </IconButton>
-                  {isAiInstalled && (
+                  {isAiInstalled && !isAndroidPlatform && (
                     <IconButton
                       variant="ghost"
                       size="sm"

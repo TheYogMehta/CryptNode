@@ -236,6 +236,7 @@ export const MessageBubble = React.memo(
 
 
     const { isInstalled: isAiInstalled } = useAIStatus(false);
+    const isAndroidPlatform = Capacitor.getPlatform() === "android";
     const [msgSummaryOpen, setMsgSummaryOpen] = useState(false);
     const [msgSummary, setMsgSummary] = useState("");
     const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
@@ -1402,7 +1403,7 @@ export const MessageBubble = React.memo(
               <Copy size={18} /> Copy
             </MenuItem>
 
-            {isAiInstalled && msg.type === "text" && (msg.text || "").trim().length >= 20 && (
+            {isAiInstalled && !isAndroidPlatform && msg.type === "text" && (msg.text || "").trim().length >= 20 && (
               <MenuItem
                 onClick={(e) => {
                   e.stopPropagation();

@@ -61,22 +61,7 @@ export const LocalAISettings = () => {
 
   const handleDelete = async (modelId: string) => {
     if (confirm("Are you sure you want to delete this model?")) {
-      const active = localAIService.activeModelId;
-      if (active === modelId) {
-         await localAIService.deleteModel(); // Deletes active
-      } else {
-         // The service doesn't easily support deleting non-active right now
-         // We might need to switch to it, delete, and switch back.
-         // For now, if it's the active one, we delete it.
-         // To make it simple, let's just make it the active model, then delete it.
-         await localAIService.setActiveModel(modelId);
-         await localAIService.deleteModel();
-         // If there are other installed models, pick the first one
-         const others = Object.keys(installedModels).filter(id => id !== modelId && installedModels[id]);
-         if (others.length > 0) {
-           await localAIService.setActiveModel(others[0]);
-         }
-      }
+      await localAIService.deleteModel(modelId);
     }
   };
 

@@ -97,6 +97,8 @@ const Home = () => {
     typeof window !== "undefined" &&
     typeof window.SafeStorage?.googleLogin === "function";
 
+  const isAndroidPlatform = Capacitor.getPlatform() === "android";
+
   const [socialLoginInitialized, setSocialLoginInitialized] = useState(false);
 
   useEffect(() => {
@@ -467,7 +469,7 @@ const Home = () => {
 
   return (
     <ErrorBoundary>
-      {showSummaryModal && (
+      {showSummaryModal && !isAndroidPlatform && (
         <div
           style={{
             position: "fixed",

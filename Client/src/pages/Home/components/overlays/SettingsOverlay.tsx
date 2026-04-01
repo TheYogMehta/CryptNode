@@ -43,6 +43,7 @@ import { deleteItemsByOwner } from "../../../../utils/secureStorage";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { DeviceManager } from "../settings/DeviceManager";
 import { LocalAISettings } from "../settings/LocalAISettings";
+import { Capacitor } from "@capacitor/core";
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return "0.00 MB";
@@ -74,8 +75,10 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   onSwitchAccount,
   defaultTab,
 }) => {
+  const isAndroid = Capacitor.getPlatform() === "android";
+  const initialCategory = defaultTab === "Local AI" && isAndroid ? "Profile" : defaultTab;
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
-    isMobile ? (defaultTab || null) : (defaultTab || "Profile"),
+    isMobile ? (initialCategory || null) : (initialCategory || "Profile"),
   );
   const [accounts, setAccounts] = useState<StoredAccount[]>([]);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -232,8 +235,10 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     { id: "Appearance", label: "Appearance" },
     { id: "Security", label: "Security" },
     { id: "Account", label: "Data & Storage" },
-    { id: "Local AI", label: "Local AI Models" },
   ];
+  if (!isAndroid) {
+    menuItems.push({ id: "Local AI", label: "Local AI Models" });
+  }
 
   const renderContent = () => {
     switch (activeCategory) {
@@ -273,6 +278,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           </div>
         );
       case "Local AI":
+        if (isAndroid) return null;
         return <LocalAISettings />;
       case "Security":
         return <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {
@@ -412,7 +418,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             </div>
           )}
 
-          {activeCategory === "Local AI" && <LocalAISettings />}
+          {activeCategory === "Local AI" && !isAndroid && <LocalAISettings />}
 
           {activeCategory === "Security" && (
             <SecuritySettings currentUserEmail={currentUserEmail} onRestoreSuccess={async (email) => {

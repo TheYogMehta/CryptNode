@@ -17,6 +17,7 @@ import { Button } from "../../../../components/ui/Button";
 import { SidebarSkeleton } from "../../../../components/ui/Skeleton";
 
 import { useAIStatus } from "../../hooks/useAIStatus";
+import { Capacitor } from "@capacitor/core";
 
 export const Sidebar = React.memo(
   ({
@@ -47,6 +48,7 @@ export const Sidebar = React.memo(
     onGlobalSummary: () => void;
   }) => {
     const { isLoaded } = useAIStatus();
+    const isAndroid = Capacitor.getPlatform() === "android";
 
     return (
       <>
@@ -58,7 +60,7 @@ export const Sidebar = React.memo(
               Crypt<span>Node</span>
             </Logo>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              {isLoaded && (
+              {isLoaded && !isAndroid && (
                 <button
                   title="Catch Up"
                   onClick={onGlobalSummary}
@@ -99,25 +101,27 @@ export const Sidebar = React.memo(
               onRename={() => {}}
             />
 
-            <SidebarItem
-              key="local-llm"
-              data={{
-                sid: "local-llm",
-                alias_name: "Local AI Agent",
-                alias_avatar: "",
-                peer_name: "Local AI Agent",
-                peer_avatar: "",
-                peerEmail: "llm@local",
-                lastMsg: "Offline Assistant",
-                lastMsgType: "text",
-                lastTs: Date.now(),
-                unread: 0,
-                online: false,
-              }}
-              isActive={activeChat === "local-llm"}
-              onSelect={() => onSelect("local-llm")}
-              onRename={() => {}}
-            />
+            {!isAndroid && (
+              <SidebarItem
+                key="local-llm"
+                data={{
+                  sid: "local-llm",
+                  alias_name: "Local AI Agent",
+                  alias_avatar: "",
+                  peer_name: "Local AI Agent",
+                  peer_avatar: "",
+                  peerEmail: "llm@local",
+                  lastMsg: "Offline Assistant",
+                  lastMsgType: "text",
+                  lastTs: Date.now(),
+                  unread: 0,
+                  online: false,
+                }}
+                isActive={activeChat === "local-llm"}
+                onSelect={() => onSelect("local-llm")}
+                onRename={() => {}}
+              />
+            )}
 
             <SectionLabel>SECURE SESSIONS</SectionLabel>
 

@@ -1,9 +1,5 @@
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
-import {
-  Llama as LlamaPlugin,
-  TokenEvent,
-} from "@cantoo/capacitor-llama";
 import { Capacitor } from "@capacitor/core";
 import type { ChatMessage } from "../../pages/Home/types";
 import { LocalAIModel, RECOMMENDED_MODELS } from "./models";
@@ -116,8 +112,6 @@ export class LocalAIService {
   private _isLoaded = false;
   private _isLoading = false;
   public failed = false;
-  private isNative = false;
-  private nativeContextId = -1;
   private _downloadProgress = 0;
   private _installedCache = new Map<string, boolean>();
   private _installedSizes = new Map<string, number>();
@@ -129,11 +123,6 @@ export class LocalAIService {
   private _activeModelId: string | null = null;
 
   constructor() {
-    const platform =
-      typeof window !== "undefined" ? Capacitor.getPlatform() : "web";
-    if (platform === "android" || platform === "ios") {
-      this.isNative = true;
-    }
     this.loadStateFromPreferences();
   }
 
@@ -274,12 +263,6 @@ export class LocalAIService {
     this._activeModelId = modelId;
     await this.saveStateToPreferences();
     
-    // Release current context
-    if (this.isNative && this.nativeContextId !== -1) {
-      try {
-        await LlamaPlugin.releaseAllContexts();
-      } catch (e) {}
-    }
     this._isLoaded = false; 
     // It will be lazily loaded next time getActiveModel is called, or we can just preload.
     this.notify();
@@ -308,10 +291,9 @@ export class LocalAIService {
 
     try {
       if (id === this._activeModelId) {
-         if (this.isNative && this.nativeContextId !== -1) {
-           await LlamaPlugin.releaseAllContexts();
-         }
          this._isLoaded = false;
+         this._activeModelId = null;
+         await this.saveStateToPreferences();
       }
       
       await Filesystem.deleteFile({
@@ -322,8 +304,6 @@ export class LocalAIService {
       this._installedCache.set(id, false);
       this._installedSizes.set(id, 0);
 
-      // If active is deleted, we keep it as active (so that they can redownload), or we can unset it.
-      // Keeping it as active but showing "Download Required" is better UX.
       this.failed = false;
       this.notify();
     } catch (e) {
@@ -501,36 +481,8 @@ export class LocalAIService {
     this.notify();
 
     try {
-      if (this.isNative) {
-        try {
-          const absolutePath = await this.ensureNativeModel(activeModel);
-          console.log("[LocalAIService] Initializing Native Llama context:", absolutePath);
-
-          await LlamaPlugin.releaseAllContexts();
-
-          this.nativeContextId = Math.floor(Math.random() * 10000);
-          await LlamaPlugin.initContext({
-            id: this.nativeContextId,
-            model: absolutePath,
-            n_ctx: 1024,
-            n_threads: 2,
-            use_mmap: true,
-            use_mlock: false,
-          });
-        } catch (nativeErr) {
-          console.warn(
-            "[LocalAIService] Native Llama init failed or timed out. WASM fallback disabled on mobile.",
-            nativeErr,
-          );
-          this.isNative = false;
-          throw new Error("Local AI is not supported on this device architecture.");
-        }
-      }
-
-      if (!this.isNative) {
-        getWorker();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      getWorker();
+      await new Promise((resolve) => setTimeout(resolve, 100));
       this._isLoaded = true;
     } catch (e: any) {
       console.error("[LocalAIService] Failed to load model:", e);
@@ -592,40 +544,7 @@ export class LocalAIService {
       if (!this._isLoaded)
         throw new Error("Local AI model failed to initialize.");
 
-      if (this.isNative) {
-        let tokenListener: any;
-        if (options.onToken) {
-          tokenListener = await LlamaPlugin.addListener(
-            "onToken",
-            (event: TokenEvent) => {
-              if (event.contextId === this.nativeContextId) {
-                const tokenStr = event.tokenResult?.token || (event.tokenResult as any)?.text || "";
-                if (tokenStr) {
-                  options.onToken?.(tokenStr);
-                }
-              }
-            },
-          );
-        }
-
-        const res = await LlamaPlugin.completion({
-          id: this.nativeContextId,
-          params: {
-            prompt,
-            n_predict: options.maxNewTokens ?? 128,
-            temperature: options.temperature ?? 0.2,
-            top_p: options.topP ?? 0.9,
-            stop: ["<|im_end|>", "<|im_start|>"],
-            emit_partial_completion: !!options.onToken,
-          },
-        });
-
-        if (tokenListener) await tokenListener.remove();
-
-        return (res.content || res.text || "").trim();
-      } else {
-        return await this.generateWasm(prompt, { ...options, onToken: undefined });
-      }
+      return await this.generateWasm(prompt, { ...options, onToken: undefined });
     } finally {
       this._isLoading = false;
       this.notify();
