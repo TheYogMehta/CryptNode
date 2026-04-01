@@ -247,8 +247,13 @@ export class FileTransferService {
       return;
     }
 
-    const { filename, file_size } = rows[0];
-    const totalChunks = Math.ceil(file_size / CHUNK_SIZE);
+    const { filename } = rows[0];
+    const base64Data = await StorageService.readFile(filename);
+    if (!base64Data) {
+      console.error(`[FileTransfer] Could not read file ${filename}`);
+      return;
+    }
+    const totalChunks = Math.ceil(base64Data.length / CHUNK_SIZE);
 
     for (
       let chunkIndex = startChunkIndex;
@@ -256,18 +261,18 @@ export class FileTransferService {
       chunkIndex++
     ) {
       try {
-        const base64Chunk = await StorageService.readChunk(
-          filename,
-          chunkIndex,
-        );
-        if (!base64Chunk) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, base64Data.length);
+        const base64Chunk = base64Data.slice(start, end);
+
+        const isLast = chunkIndex === totalChunks - 1;
+        if (!base64Chunk && !isLast) {
           console.error(
-            `[FileTransfer] readChunk returned empty for ${filename} index ${chunkIndex}`,
+            `[FileTransfer] Sliced chunk empty for ${filename} index ${chunkIndex}`,
           );
           return;
         }
 
-        const isLast = chunkIndex === totalChunks - 1;
         const payload = await this.client.encryptForSession(
           sid,
           JSON.stringify({
@@ -331,7 +336,7 @@ export class FileTransferService {
       const progress = currentSize / file_size;
 
       await executeDB(
-        "UPDATE media SET download_progress = ?, size = ? WHERE message_id = ?",
+        "UPDATE media SET status = 'downloading', download_progress = ?, size = ? WHERE message_id = ?",
         [progress, currentSize, messageId],
       );
       console.log(
@@ -340,7 +345,7 @@ export class FileTransferService {
 
       if (isLast) {
         await executeDB(
-          "UPDATE media SET status = 'downloaded' WHERE message_id = ?",
+          "UPDATE media SET status = 'downloaded', download_progress = 1.0, size = file_size WHERE message_id = ?",
           [messageId],
         );
 
@@ -359,7 +364,13 @@ export class FileTransferService {
             const compressedData = await StorageService.readFile(
               compressedParams.fileName,
             );
-            const binaryString = atob(compressedData);
+            let binaryString;
+            try {
+              binaryString = atob(compressedData);
+            } catch (err) {
+              console.error("[FileTransfer] Base64 decoding failed (atob):", err);
+              throw new Error("CORRUPT_BASE64");
+            }
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
               bytes[i] = binaryString.charCodeAt(i);

@@ -43,6 +43,7 @@ import {
   HeaderStatus,
   HeaderActions,
   MessageList,
+  MessageListInner,
   InputContainer,
   InputWrapper,
   ChatInput,
@@ -109,7 +110,7 @@ export const ChatWindowDefault = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
-  const virtuosoRef = useRef<VirtuosoHandle>(null); // Replacement for scrollRef logic
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [input, setInput] = useState("");
   const [isAtBottom, setIsAtBottom] = useState(true);
 
@@ -230,6 +231,28 @@ export const ChatWindowDefault = ({
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments]);
+
+  const prevLengthRef = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > prevLengthRef.current && virtuosoRef.current) {
+      const lastMessage = messages[messages.length - 1];
+      // Force scroll ONLY if I sent the message OR if I was already at the bottom
+      if (lastMessage.sender === "me" || isAtBottom) {
+        const index = messages.length - 1;
+        const scrollToBottom = () => {
+          virtuosoRef.current?.scrollToIndex({
+            index,
+            align: "end",
+            behavior: "smooth",
+          });
+        };
+        scrollToBottom();
+        // One follow-up for layout shifts
+        setTimeout(scrollToBottom, 100);
+      }
+    }
+    prevLengthRef.current = messages.length;
+  }, [messages.length, isAtBottom]);
 
   useEffect(() => {
     return () => {
@@ -509,56 +532,7 @@ export const ChatWindowDefault = ({
     });
   }, [messages, normalizedSearch]);
 
-  const lastMessageCount = useRef(filteredMessages.length);
-  const lastMessageIdRef = useRef<string | undefined>(filteredMessages[filteredMessages.length - 1]?.id);
 
-  const isAtBottomRef = useRef(isAtBottom);
-  isAtBottomRef.current = isAtBottom;
-
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const scrollTimeoutRef2 = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (filteredMessages.length > lastMessageCount.current) {
-      const isMyMessage = filteredMessages[filteredMessages.length - 1]?.sender === "me";
-      
-      const lastMsgId = filteredMessages[filteredMessages.length - 1]?.id;
-      const wasPrepended = filteredMessages.length - lastMessageCount.current > 0 && 
-                           lastMessageIdRef.current === lastMsgId &&
-                           lastMsgId !== undefined;
-
-      if (!wasPrepended && (isAtBottomRef.current || isMyMessage)) {
-        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-
-        scrollTimeoutRef.current = setTimeout(() => {
-          if (isAtBottomRef.current || isMyMessage) {
-            virtuosoRef.current?.scrollToIndex({
-              index: filteredMessages.length - 1,
-              align: 'end',
-              behavior: isMyMessage ? 'smooth' : 'auto' 
-            });
-            scrollTimeoutRef2.current = setTimeout(() => {
-              if (isAtBottomRef.current || isMyMessage) {
-                virtuosoRef.current?.scrollToIndex({
-                  index: filteredMessages.length - 1,
-                  align: 'end',
-                  behavior: 'auto'
-                });
-              }
-            }, 300);
-          }
-        }, 50);
-      }
-    }
-    lastMessageCount.current = filteredMessages.length;
-    lastMessageIdRef.current = filteredMessages[filteredMessages.length - 1]?.id;
-    
-    return () => {
-      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      if (scrollTimeoutRef2.current) clearTimeout(scrollTimeoutRef2.current);
-    };
-  }, [filteredMessages.length]);
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
@@ -860,9 +834,8 @@ export const ChatWindowDefault = ({
           ref={virtuosoRef}
           style={{ height: "100%" }}
           data={filteredMessages}
-          totalCount={filteredMessages.length}
           initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
-          followOutput={false}
+          followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
           alignToBottom
           atBottomStateChange={(bottom) => setIsAtBottom(bottom)}
           atTopStateChange={(atTop: boolean) => {
@@ -876,7 +849,8 @@ export const ChatWindowDefault = ({
               <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
                  Loading older messages...
               </div>
-            ) : null
+            ) : null,
+            List: MessageListInner,
           }}
           itemContent={(index: number, msg: ChatMessage) => (
             <div style={{ marginBottom: 4 }}>

@@ -165,13 +165,6 @@ export const StorageService = {
         directory,
         encoding: Encoding.UTF8,
       });
-
-      const stats = await Filesystem.stat({ path, directory });
-
-      await executeDB(
-        `UPDATE media SET size = ?, status = 'downloading', download_progress = CAST(? AS REAL) / file_size WHERE filename = ?`,
-        [stats.size, stats.size, fileName],
-      );
     } catch (e: any) {
       if (
         e.message?.toLowerCase().includes("full") ||

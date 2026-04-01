@@ -569,33 +569,66 @@ export class MessageService extends EventEmitter {
             const peerLatestFromYou: number = Number(data.latestFromYou) || 0;
             const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
 
+            console.log(`[MessageService] Handling SYNC_HINT from ${sid}: peerLatestFromYou=${peerLatestFromYou}, peerLatestFromMe=${peerLatestFromMe}, isOwnMessage=${isOwnMessage}`);
+
             // To the remote peer, "from you" means messages WE sent (sender='me' locally)
             // and "from me" means messages THEY sent (sender='other' locally)
 
-            const missingYou = await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
-              [sid, peerLatestFromYou],
-            );
+            let missing: any[] = [];
 
-            // Only query 'other' messages if the peer explicitly gave a latestFromMe hint
-            // (backward compatibility check).
-            const missingMe = data.latestFromMe !== undefined ? await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
-              [sid, peerLatestFromMe],
-            ) : [];
+            if (isOwnMessage) {
+              // For own-device sync, we want a full mirror of the database (all sessions, all senders).
+              const queryTime = Math.max(peerLatestFromYou, peerLatestFromMe);
+              missing = await queryDB(
+                "SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC",
+                [queryTime],
+              );
+            } else {
+              // For regular friends, we only send messages from this specific session.
+              const missingYou = await queryDB(
+                "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
+                [sid, peerLatestFromYou],
+              );
 
-            // Send back both the messages they are missing from us, and from themselves.
-            const missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+              // Only query 'other' messages if the peer explicitly gave a latestFromMe hint.
+              const missingMe = (data.latestFromMe !== undefined) ? await queryDB(
+                "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
+                [sid, peerLatestFromMe],
+              ) : [];
 
-            if (missing.length === 0) break;
+              missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+            }
+
+            let manifestData: any = { messages: missing };
+
+            // If this is our own device asking for sync, include full metadata too.
+            // This ensures new devices / re-installs get everything.
+            if (isOwnMessage) {
+              const [blocks, requests, aliases, profile] = await Promise.all([
+                getAllBlockEntries(),
+                getAllPendingRequestsEntries(),
+                getAllAliasesEntries(),
+                getMyProfileAndVersions()
+              ]);
+              manifestData = {
+                ...manifestData,
+                blocks,
+                requests,
+                aliases,
+                profile: profile || undefined
+              };
+            }
+
+            if (missing.length === 0 && !isOwnMessage) break;
+
             const payloads = await this.client.encryptForSession(
               sid,
-              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: missing } } }),
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: manifestData } }),
               0,
             );
             if (Object.keys(payloads).length > 0) {
               this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-              console.log(`[MessageService] SYNC_HINT → sent ${missing.length} missing messages to ${sid}`);
+              console.log(`[MessageService] SYNC_HINT → sent MANIFEST (incl ${missing.length} messages) to ${sid}`);
             }
           } catch (e) {
             console.warn(`[MessageService] Failed to respond to SYNC_HINT for ${sid}`, e);
@@ -1021,7 +1054,7 @@ export class MessageService extends EventEmitter {
                   ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
                   : (msg.sender || "unknown");
                 await executeDB(
-                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 2, 2, ?)",
+                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?)",
                   [
                     msg.id,
                     msg.sid,
@@ -1029,6 +1062,7 @@ export class MessageService extends EventEmitter {
                     msg.text || "",
                     msg.type || "text",
                     msg.timestamp,
+                    msg.status || 1,
                     msg.reply_to || null,
                   ]
                 );
@@ -1756,9 +1790,10 @@ export class MessageService extends EventEmitter {
       const session = this.client.sessionService.sessions[sid] as any;
       if (!session || !session.online) return;
 
-      // Skip own-device sessions — handled by broadcastManifestToOwnDevices
+      // Determine if this is an own-device session (same user email hash)
+      let isOwnDevice = false;
       const myEmail = this.client.authService.userEmail;
-      if (myEmail) {
+      if (myEmail && session.peerEmailHash) {
         const myHash = await crypto.subtle
           .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
           .then((b) =>
@@ -1766,27 +1801,34 @@ export class MessageService extends EventEmitter {
               .map((x) => x.toString(16).padStart(2, "0"))
               .join(""),
           );
-        if (session.peerEmailHash && session.peerEmailHash.toLowerCase() === myHash.toLowerCase()) {
-          return;
-        }
+        isOwnDevice = (session.peerEmailHash.toLowerCase() === myHash.toLowerCase());
       }
 
-      // Find the latest timestamp of messages we received FROM this peer.
-      // Sending this to them tells them exactly where our history ends, so
-      // they can send ONLY the delta we are missing.
-      const rowsYou = await queryDB(
-        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
-        [sid],
-      );
-      const latestFromYou: number = Number(rowsYou?.[0]?.ts) || 0;
+      let latestFromYou = 0;
+      let latestFromMe = 0;
 
-      // Also find the latest timestamp of messages we sent TO this peer.
-      // This is necessary so the peer can send us our own missing messages (e.g. from a new device).
-      const rowsMe = await queryDB(
-        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
-        [sid],
-      );
-      const latestFromMe: number = Number(rowsMe?.[0]?.ts) || 0;
+      if (isOwnDevice) {
+        // For own-device sessions, find the overall latest timestamp across ALL messages.
+        const row = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages",
+        );
+        latestFromMe = Number(row?.[0]?.ts) || 0;
+        latestFromYou = latestFromMe;
+      } else {
+        // Find the latest timestamp of messages we received FROM this peer (sender != 'me').
+        const rowsYou = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
+          [sid],
+        );
+        latestFromYou = Number(rowsYou?.[0]?.ts) || 0;
+
+        // Find the latest timestamp of messages we sent TO this peer (sender == 'me').
+        const rowsMe = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
+          [sid],
+        );
+        latestFromMe = Number(rowsMe?.[0]?.ts) || 0;
+      }
 
       const payloads = await this.client.encryptForSession(
         sid,

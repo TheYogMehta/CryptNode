@@ -236,7 +236,7 @@ export const useMessageLogic = ({
       sender: "me",
       timestamp: Date.now(),
       type: msgType,
-      status: 0, // optimistic / queued
+      status: 1, // optimistic / sent
       replyTo: replyContext,
     };
 
