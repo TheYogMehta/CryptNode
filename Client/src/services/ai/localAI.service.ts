@@ -160,8 +160,8 @@ export class LocalAIService {
       const { value: activeId } = await Preferences.get({ key: 'local_ai_active_id' });
       if (activeId && this._models.find(m => m.id === activeId)) {
         this._activeModelId = activeId;
-      } else if (this._models.length > 0) {
-        this._activeModelId = this._models[0].id; // Fallback
+      } else {
+        this._activeModelId = null;
       }
 
       // Check which ones are downloaded
@@ -289,26 +289,26 @@ export class LocalAIService {
     const modelToDelete = this._models.find(m => m.id === id);
     if (!modelToDelete) return;
 
+    if (id === this._activeModelId) {
+      this._isLoaded = false;
+      this._activeModelId = null;
+      await this.saveStateToPreferences();
+    }
+
     try {
-      if (id === this._activeModelId) {
-         this._isLoaded = false;
-         this._activeModelId = null;
-         await this.saveStateToPreferences();
-      }
-      
       await Filesystem.deleteFile({
         directory: Directory.Data,
         path: modelToDelete.filename,
       });
-
-      this._installedCache.set(id, false);
-      this._installedSizes.set(id, 0);
-
-      this.failed = false;
-      this.notify();
     } catch (e) {
       console.warn("Model already deleted or could not delete", e);
     }
+
+    this._installedCache.set(id, false);
+    this._installedSizes.set(id, 0);
+
+    this.failed = false;
+    this.notify();
   }
 
   abortDownload() {

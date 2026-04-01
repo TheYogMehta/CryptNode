@@ -190,7 +190,7 @@ export const LocalAISettings = () => {
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         {allModels.map(model => {
           const installed = installedModels[model.id];
-          const isActive = activeModelId === model.id;
+          const isActive = activeModelId === model.id && installed;
           const isCustom = !RECOMMENDED_MODELS.find(r => r.id === model.id);
           const isEditing = editingParams?.id === model.id;
           
