@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { queryDB } from "../../../services/storage/sqliteService";
-import { qwenLocalService } from "../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../services/ai/localAI.service";
 import { SessionData } from "../types";
 
 export const useGlobalSummary = (sessions: SessionData[]) => {
@@ -16,10 +16,10 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
     setGlobalSummary(null);
     const startTime = Date.now();
 
-    if (!qwenLocalService.isLoaded) {
+    if (!localAIService.isLoaded) {
       setIsInitializingModel(true);
       try {
-        await qwenLocalService.init();
+        await localAIService.init();
       } catch (e) {
         console.error("Model init failed", e);
         setGlobalSummary("Failed to initialise AI model. Please try again.");
@@ -77,13 +77,14 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
         `${context}\n` +
         `Digest:\n`;
 
-      const summary = await qwenLocalService.generate(
+      const summary = await localAIService.generate(
         [
           {
             role: "system",
             content:
               "You write a one-line-per-person digest of chat messages. " +
               "Only use facts from the messages. Never invent anything.",
+
           },
           { role: "user", content: prompt },
         ],
