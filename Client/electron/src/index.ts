@@ -402,29 +402,71 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
       globalModel = null;
     }
 
+    // Try GPU first, then fall back to CPU if VRAM is insufficient
+    let usedCpuFallback = false;
+
     try {
       globalModel = await globalLlama.loadModel({ modelPath });
     } catch (modelErr: any) {
-      // If loading the model itself fails (e.g. Vulkan crashes out of device memory)
-      // Attempt CPU fallback implicitly if possible, or just fail cleanly.
-      throw new Error(`Model load failed: ${modelErr.message}`);
+      const msg = modelErr.message || "";
+      if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate")) {
+        console.warn("[Main] GPU model load failed (Out of VRAM), falling back to CPU...");
+        try {
+          globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+          usedCpuFallback = true;
+        } catch (cpuErr: any) {
+          throw new Error(`Model load failed on both GPU and CPU: ${cpuErr.message}`);
+        }
+      } else {
+        throw new Error(`Model load failed: ${msg}`);
+      }
     }
 
-    try {
-      // By default node-llama-cpp aggressively allocates huge VRAM for context
-      // Cap the context window to prevent vk::Device::allocateMemory crashes
-      globalContext = await globalModel.createContext({ contextSize: 2048 });
-    } catch (ctxErr: any) {
+    // Try progressively smaller context sizes
+    const contextSizes = [2048, 1024, 512];
+    let contextCreated = false;
+
+    for (const ctxSize of contextSizes) {
+      try {
+        globalContext = await globalModel.createContext({ contextSize: ctxSize });
+        contextCreated = true;
+        console.log(`[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""}`);
+        break;
+      } catch (ctxErr: any) {
+        const msg = ctxErr.message || "";
+        if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate") || msg.includes("compute")) {
+          console.warn(`[Main] Context creation failed at size ${ctxSize}, trying smaller...`);
+          // If we haven't tried CPU fallback yet for model, do it now
+          if (!usedCpuFallback) {
+            console.warn("[Main] Retrying model load with CPU fallback...");
+            if (globalModel) {
+              await globalModel.dispose();
+              globalModel = null;
+            }
+            try {
+              globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+              usedCpuFallback = true;
+            } catch (cpuErr: any) {
+              throw new Error(`CPU fallback model load failed: ${cpuErr.message}`);
+            }
+          }
+          continue;
+        }
+        throw ctxErr;
+      }
+    }
+
+    if (!contextCreated) {
       if (globalModel) {
         await globalModel.dispose();
         globalModel = null;
       }
-      throw new Error(`Context creation failed (Out of VRAM?): ${ctxErr.message}`);
+      throw new Error("Context creation failed: Could not allocate memory even at minimum context size (512)");
     }
 
     globalSession = new LlamaChatSession({ contextSequence: globalContext.getSequence() });
 
-    return { success: true };
+    return { success: true, cpuFallback: usedCpuFallback };
   } catch (err: any) {
     console.error("[Main] Llama Init Error:", err);
     return { success: false, error: err.message };

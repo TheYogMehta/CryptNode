@@ -695,7 +695,7 @@ export class LocalAIService {
       if (!this._isLoaded)
         throw new Error("Local AI model failed to initialize.");
 
-      return await this.generateWasm(prompt, { ...options, onToken: undefined });
+      return await this.generateWasm(prompt, options);
     } finally {
       this._isLoading = false;
       this.notify();

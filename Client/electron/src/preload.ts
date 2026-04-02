@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld("llama", {
   delete: (filename: string) => ipcRenderer.invoke("llama:delete", { filename }),
   download: (url: string, filename: string, id: string) => ipcRenderer.invoke("llama:download", { url, filename, id }),
   cancelDownload: (id: string) => ipcRenderer.invoke("llama:cancel-download", { id }),
+  clearChat: () => ipcRenderer.invoke("llama:clearChat"),
   onDownloadProgress: (callback: (data: { id: string; bytes: number; total: number }) => void) => {
     // We only attach this listener once if we can, or we can just send it out
     ipcRenderer.on("llama:download-progress", (_event, data) => callback(data));
