@@ -34,7 +34,7 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
     try {
       const relevantSessions = sessions
         .filter((s) => s.unread > 0)
-        .sort((a, b) => b.lastTs - a.lastTs)
+        .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0))
         .slice(0, 5);
 
       if (relevantSessions.length === 0) {

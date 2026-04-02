@@ -38,7 +38,8 @@ const SCHEMA = {
       last_sync_timestamp INTEGER DEFAULT 0,
       alias_timestamp INTEGER DEFAULT 0,
       last_manifest_sync INTEGER DEFAULT 0,
-      notes TEXT
+      notes TEXT,
+      deleted_at INTEGER DEFAULT 0
     `,
     indices: [],
   },
@@ -368,8 +369,9 @@ export const getMessagesSince = async (
       [sid, timestamp],
     );
   }
+  // Exclude messages from sessions that have been deleted (deleted_at > 0)
   return await queryDB(
-    "SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC",
+    "SELECT m.* FROM messages m LEFT JOIN sessions s ON m.sid = s.sid WHERE m.timestamp > ? AND (s.deleted_at IS NULL OR s.deleted_at = 0) ORDER BY m.timestamp ASC",
     [timestamp],
   );
 };
@@ -523,9 +525,10 @@ export const getAllAliasesEntries = async (): Promise<{
   peerAvatarVer: number;
   peerEmail: string;
   peerHash: string;
+  deletedAt: number;
 }[]> => {
   const rows = await queryDB(
-    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver, peer_email, peer_hash FROM sessions",
+    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver, peer_email, peer_hash, deleted_at FROM sessions",
   );
   return rows.map((r: any) => ({
     sid: r.sid,
@@ -538,7 +541,24 @@ export const getAllAliasesEntries = async (): Promise<{
     peerAvatarVer: r.peer_avatar_ver || 0,
     peerEmail: r.peer_email || "",
     peerHash: r.peer_hash || "",
+    deletedAt: r.deleted_at || 0,
   }));
+};
+
+/** Mark a session as deleted (tombstone). Messages are deleted separately. */
+export const markSessionDeleted = async (sid: string, timestamp: number = Date.now()) => {
+  await executeDB(
+    "UPDATE sessions SET deleted_at = ? WHERE sid = ?",
+    [timestamp, sid],
+  );
+};
+
+/** Returns all session IDs that have been locally deleted. */
+export const getDeletedSessionIds = async (): Promise<string[]> => {
+  const rows = await queryDB(
+    "SELECT sid FROM sessions WHERE deleted_at > 0",
+  );
+  return rows.map((r: any) => r.sid);
 };
 
 export const updateLastManifestSync = async (

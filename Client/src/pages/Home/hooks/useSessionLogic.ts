@@ -39,6 +39,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
              (SELECT timestamp FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastTs,
              (SELECT COUNT(*) FROM messages WHERE sid = s.sid AND is_read = 0 AND sender != 'me') as unread
       FROM sessions s
+      WHERE s.deleted_at IS NULL OR s.deleted_at = 0
       ORDER BY lastTs DESC
     `);
 
@@ -214,6 +215,15 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setIsJoining(false);
     };
 
+    const onChatDeleted = (data: { sid: string }) => {
+      if (activeChatRef.current === data.sid) {
+        setView("welcome");
+        setActiveChat(null);
+        setIsSidebarOpen(false);
+      }
+      loadSessions();
+    };
+
     client.on("session_updated", onSessionUpdate);
     client.on("waiting_for_accept", onWaitingForAccept);
     client.on("joined_success", onJoinedSuccess);
@@ -226,6 +236,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     client.on("request_sent", onRequestSent);
     client.on("request_failed", onRequestFailed);
     client.on("pending_requests_list", onPendingRequestsList);
+    client.on("chat_deleted", onChatDeleted);
 
     return () => {
       client.off("session_updated", onSessionUpdate);
@@ -240,6 +251,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       client.off("request_sent", onRequestSent);
       client.off("request_failed", onRequestFailed);
       client.off("pending_requests_list", onPendingRequestsList);
+      client.off("chat_deleted", onChatDeleted);
     };
   }, [loadSessions]);
 
@@ -281,6 +293,15 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     }
   };
 
+  const handleDeleteChat = async (sid: string) => {
+    try {
+      await ChatClient.deleteChat(sid);
+    } catch (e) {
+      console.error("Failed to delete chat", e);
+      toast.error("Failed to delete chat");
+    }
+  };
+
   return {
     state: {
       view,
@@ -308,6 +329,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setIsWaiting,
       handleConnect,
       handleSetAlias,
+      handleDeleteChat,
       loadSessions,
       login: (token: string) => ChatClient.login(token),
     },

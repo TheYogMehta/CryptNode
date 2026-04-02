@@ -35,7 +35,7 @@ const config: CapacitorConfig = {
     },
   },
   server: {
-    androidScheme: "http",
+    androidScheme: "https",
   },
 };
 

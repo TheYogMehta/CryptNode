@@ -274,6 +274,27 @@ export class LocalAIService {
     return this._models.find(m => m.id === this._activeModelId);
   }
 
+  async getDownloadFolderPath(): Promise<string> {
+    try {
+      if (window.llama) {
+        const ref = this._models[0];
+        if (ref) {
+          const res = await window.llama.checkData(ref.filename);
+          if (res.path) {
+            const parts = res.path.replace(/\\/g, '/').split('/');
+            parts.pop();
+            return parts.join('/') || res.path;
+          }
+        }
+        return 'App Data Folder';
+      }
+      const uri = await Filesystem.getUri({ directory: Directory.Data, path: '' });
+      return uri.uri.replace('file://', '');
+    } catch {
+      return 'App Data Folder';
+    }
+  }
+
   async isModelInstalled(modelId?: string): Promise<boolean> {
     const id = modelId || this._activeModelId;
     if (!id) return false;

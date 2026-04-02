@@ -128,6 +128,15 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       )
     ) {
       if (confirm("Really really sure? This cannot be undone.")) {
+        
+        // If this is the ONLY account, ask if they want to delete downloaded local models too
+        let deleteModels = false;
+        if (accounts.length <= 1 && Capacitor.getPlatform() !== 'web') {
+          if (confirm("You are deleting your last account. Do you also want to delete all downloaded AI models from this device?")) {
+            deleteModels = true;
+          }
+        }
+
         if (currentUserEmail) {
           setIsDeletingAccount(true);
           let deleteFailed = false;
@@ -175,6 +184,22 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
             await deleteDatabase(dbName);
             await AccountService.removeAccount(currentUserEmail);
+
+            // Delete Models if requested
+            if (deleteModels) {
+              try {
+                // Ensure models info is loaded
+                await localAIService.refreshInstalledStatus();
+                const installedModels = await localAIService.getEnhancedModels();
+                for (const model of installedModels) {
+                  if (model.isDownloaded) {
+                    await localAIService.deleteModel(model.id);
+                  }
+                }
+              } catch (modelErr) {
+                console.error("Failed to delete models", modelErr);
+              }
+            }
           } catch (e) {
             deleteFailed = true;
             console.error("Delete failed", e);

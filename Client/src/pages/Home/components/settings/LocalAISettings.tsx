@@ -14,6 +14,8 @@ export const LocalAISettings = () => {
   const [warningModel, setWarningModel] = useState<LocalAIModel | null>(null);
   const [editingParams, setEditingParams] = useState<{id: string, name: string, description: string} | null>(null);
   const [renderTick, setRenderTick] = useState(0);
+  const [downloadFolder, setDownloadFolder] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const fetchState = async () => {
@@ -30,6 +32,9 @@ export const LocalAISettings = () => {
       setInstalledModels(installed);
     };
     fetchState();
+
+    // Resolve the download folder path once
+    localAIService.getDownloadFolderPath().then(setDownloadFolder);
 
     const unsubscribe = localAIService.subscribe(() => {
       setIsDownloading(localAIService.isLoading);
@@ -139,11 +144,85 @@ export const LocalAISettings = () => {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
+  const handleCopyFolder = () => {
+    if (!downloadFolder) return;
+    navigator.clipboard.writeText(downloadFolder);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const allModels = [...RECOMMENDED_MODELS, ...localAIService.storedModels.filter((m: any) => !RECOMMENDED_MODELS.find((r: any) => r.id === m.id))];
+
+  const folderDisplay = downloadFolder || '...';
 
   return (
     <div>
       <h3 style={{ color: colors.text.primary, marginBottom: "16px" }}>Local AI Models</h3>
+
+      {/* Download Folder Row */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 14px",
+        marginBottom: "20px",
+        background: colors.background.secondary,
+        borderRadius: "8px",
+        border: `1px solid ${colors.border.subtle}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "16px" }}>📁</span>
+          <span style={{ fontSize: "13px", color: colors.text.secondary }}>Download Folder</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0, justifyContent: "flex-end" }}>
+          <span
+            title={folderDisplay}
+            style={{
+              fontSize: "12px",
+              color: colors.text.primary,
+              fontFamily: "monospace",
+              background: colors.surface.primary,
+              padding: "3px 8px",
+              borderRadius: "4px",
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              direction: "rtl",
+              textAlign: "left",
+            }}
+          >
+            {folderDisplay}
+          </span>
+          <button
+            onClick={handleCopyFolder}
+            title="Copy path"
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "4px",
+              color: copied ? colors.status.success : colors.text.secondary,
+              transition: "all 0.2s ease",
+            }}
+          >
+            {copied ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
       
       {isDownloading && downloadInfo && (
         <div style={{ marginBottom: "20px", padding: "16px", background: colors.background.secondary, borderRadius: "8px" }}>

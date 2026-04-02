@@ -9,6 +9,9 @@ import {
   Smile,
   ArrowLeft,
   Lightbulb,
+  Copy,
+  Trash2,
+  X,
 } from "lucide-react";
 import { MessageBubble } from "./MessageBubble";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
@@ -92,6 +95,50 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
 
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
+  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
+  const selectionMode = selectedMessages.size > 0;
+
+  const handleToggleSelect = (msg: ChatMessage) => {
+    if (!msg.id) return;
+    const msgId = msg.id;
+    setSelectedMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedMessages(new Set());
+
+  const handleCopySelected = async () => {
+    try {
+      const msgsToCopy = messages.filter(m => m.id && selectedMessages.has(m.id)).sort((a,b) => a.timestamp - b.timestamp);
+      const text = msgsToCopy.map(m => {
+        const sender = m.sender === "me" ? "Me" : (session?.alias_name || session?.peer_name || "User");
+        const time = new Date(m.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const content = m.text || (m.mediaFilename ? `[File: ${m.mediaFilename}]` : `[${m.type}]`);
+        return `[${time}] ${sender}: ${content}`;
+      }).join('\n');
+      
+      const { Clipboard } = await import("@capacitor/clipboard");
+      await Clipboard.write({ string: text });
+      clearSelection();
+    } catch(e) {
+      console.error("Copy multiple failed", e);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if(!activeChat) return;
+    if (window.confirm(`Delete ${selectedMessages.size} selected message(s)?`)) {
+      for(const id of selectedMessages) {
+        ChatClient.deleteMessage(activeChat, id);
+      }
+      clearSelection();
+    }
+  };
+
 
 
   const generateQuickReplies = async () => {
@@ -151,6 +198,26 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
 
   return (
     <Container>
+      {selectionMode ? (
+        <Header style={{ backgroundColor: "rgba(99, 102, 241, 0.15)", borderBottom: "1px solid rgba(99, 102, 241, 0.3)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1 }}>
+            <ActionButton onClick={clearSelection}>
+              <X size={20} />
+            </ActionButton>
+            <span style={{ fontWeight: 600, fontSize: "16px", color: "#f3f4f6" }}>
+              {selectedMessages.size} selected
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "12px", position: "relative" }}>
+            <ActionButton onClick={handleCopySelected} title="Copy selected">
+              <Copy size={20} />
+            </ActionButton>
+            <ActionButton onClick={handleDeleteSelected} title="Delete selected" style={{ color: "#ef4444" }}>
+              <Trash2 size={20} />
+            </ActionButton>
+          </div>
+        </Header>
+      ) : (
       <Header>
         <HeaderInfo>
           {onBack && (
@@ -201,6 +268,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
           </ActionButton>
         </div>
       </Header>
+      )}
 
       <MessagesArea>
         <Virtuoso
@@ -243,6 +311,9 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
                         "User"
                   }
                   senderAvatar={undefined}
+                  selectionMode={selectionMode}
+                  isSelected={!!msg.id && selectedMessages.has(msg.id)}
+                  onToggleSelect={handleToggleSelect}
                 />
               </div>
             );

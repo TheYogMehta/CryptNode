@@ -327,6 +327,31 @@ export const StorageService = {
         return "";
       }
 
+      if (base64Data.startsWith("H4sI")) {
+        console.log(`[Storage] Detected GZIP signature in Base64 for ${fileName}, automatically decompressing...`);
+        try {
+          const resFetch = await fetch(`data:application/octet-stream;base64,${base64Data}`);
+          const arrayBuffer = await resFetch.arrayBuffer();
+          const { CompressionService } = await import("../media/CompressionService");
+          const decompressedBuffer = await CompressionService.decompress(arrayBuffer, false) as ArrayBuffer;
+          
+          base64Data = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const res = reader.result as string;
+              resolve(res.includes(",") ? res.split(",")[1] : res);
+            };
+            reader.readAsDataURL(new Blob([decompressedBuffer]));
+          });
+          
+          await StorageService.saveRawFile(base64Data, fileName);
+          // Only attempt to clear the flag in DB if it exists, errors silently if DB hasn't been initialized
+          await executeDB("UPDATE media SET is_compressed = 0 WHERE filename = ?", [fileName]).catch(() => {});
+        } catch (e) {
+          console.error("[Storage] Auto-decompression failed:", e);
+        }
+      }
+
       return `data:${mime};base64,${base64Data}`;
     } catch (e) {
       console.error("Failed to get file src (base64):", e);

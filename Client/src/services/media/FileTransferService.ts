@@ -93,8 +93,8 @@ export class FileTransferService {
       URL.revokeObjectURL(thumbUri);
     }
     const isImage = fileInfo.type.startsWith("image/");
-    const isVideo = fileInfo.type.startsWith("video/");
-    const isAudio = fileInfo.type.startsWith("audio/");
+    const isVideo = fileInfo.type.startsWith("video/") || fileInfo.name.toLowerCase().endsWith(".mp4");
+    const isAudio = fileInfo.type.startsWith("audio/") && !isVideo;
 
     const msgType = isImage
       ? "image"
@@ -433,33 +433,29 @@ export class FileTransferService {
             const compressedData = await StorageService.readFile(
               compressedParams.fileName,
             );
-            let binaryString;
-            try {
-              binaryString = atob(compressedData);
-            } catch (err) {
-              console.error("[FileTransfer] Base64 decoding failed (atob):", err);
-              throw new Error("CORRUPT_BASE64");
-            }
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const blob = new Blob([bytes], { type: mediaRow[0].mime_type });
+            const resFetch = await fetch(`data:application/octet-stream;base64,${compressedData}`);
+            const arrayBuffer = await resFetch.arrayBuffer();
+            const blob = new Blob([arrayBuffer], { type: mediaRow[0].mime_type });
             const { CompressionService } = await import("./CompressionService");
             const decompressed = await CompressionService.decompressBlob(blob);
-            const reader = new FileReader();
-            reader.readAsDataURL(decompressed);
-            reader.onloadend = async () => {
-              const res = reader.result as string;
-              const base64 = res.includes(",") ? res.split(",")[1] : res;
-              await StorageService.saveRawFile(base64, mediaRow[0].filename);
-              await executeDB(
-                "UPDATE media SET is_compressed = 0 WHERE message_id = ?",
-                [messageId],
-              );
-              this.client.emit("file_downloaded", { messageId, filename });
-            };
+
+            await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.readAsDataURL(decompressed);
+              reader.onloadend = async () => {
+                const res = reader.result as string;
+                const base64 = res.includes(",") ? res.split(",")[1] : res;
+                await StorageService.saveRawFile(base64, mediaRow[0].filename);
+                await executeDB(
+                  "UPDATE media SET is_compressed = 0 WHERE message_id = ?",
+                  [messageId],
+                );
+                resolve(null);
+              };
+            });
+            this.client.emit("file_downloaded", { messageId, filename });
           } catch (e) {
+            console.error("[FileTransfer] Decompression failed:", e);
             this.client.emit("file_downloaded", { messageId, filename });
           }
         } else {

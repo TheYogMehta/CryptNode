@@ -202,6 +202,7 @@ export const useMessageLogic = ({
     client.on("file_downloaded", onFileDownloaded);
     client.on("message_status", onMessageStatus);
     client.on("message_updated", onMessageUpdated);
+    client.on("message_deleted", onMessageDeleted);
     client.on("messages_synced", onMessagesSynced);
     client.on("rate_limit_exceeded", handleRateLimit);
 
@@ -331,9 +332,11 @@ export const useMessageLogic = ({
       text: caption || fileToSend.name,
       type: fileToSend.type.startsWith("image")
         ? "image"
-        : fileToSend.type.startsWith("video")
+        : (fileToSend.type.startsWith("video") || fileToSend.name.toLowerCase().endsWith(".mp4"))
           ? "video"
-          : "file",
+          : fileToSend.type.startsWith("audio")
+            ? "audio"
+            : "file",
       timestamp: Date.now(),
       mediaTotalSize: fileToSend.size,
       tempUrl: URL.createObjectURL(fileToSend),

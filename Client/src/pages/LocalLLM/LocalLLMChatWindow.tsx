@@ -173,9 +173,11 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
 
       const generationTimeMs = Date.now() - startMs;
 
+      const finalContent = response.trim() || streamingContent.trim();
+
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === tempId ? { ...m, content: response, generationTimeMs } : m
+          m.id === tempId ? { ...m, content: finalContent, generationTimeMs } : m
         )
       );
 
@@ -339,7 +341,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
                 <p className="local-llm-empty-title">Start a Conversation</p>
                 <p className="local-llm-empty-subtitle">
                   Feel free to ask {activeModel.name} anything.
-                  <br />Note: Your messages are only saved until you close the app.
+                  <br />Note: Your messages are only saved until you close the chat.
                 </p>
               </div>
             ) : (

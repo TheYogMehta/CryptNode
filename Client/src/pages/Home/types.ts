@@ -21,7 +21,8 @@ export interface ChatMessage {
   | "sticker"
   | "live share port"
   | "system"
-  | "deleted";
+  | "deleted"
+  | "deleted_for_me";
 
   text?: string;
 
@@ -88,7 +89,7 @@ export interface SessionData {
   sid: string;
   lastMsg: string;
   lastMsgType: string;
-  lastTs: number;
+  lastTs?: number;
   unread: number;
   online: boolean;
   alias_name?: string;

@@ -754,8 +754,15 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.messageService.editMessage(sid, messageId, newText);
   }
 
-  public async deleteMessage(sid: string, messageId: string) {
-    return this.messageService.deleteMessage(sid, messageId);
+  public async deleteMessage(sid: string, messageId: string, forEveryone: boolean = false) {
+    return this.messageService.deleteMessage(sid, messageId, forEveryone);
+  }
+
+  public async deleteChat(sid: string) {
+    await this.messageService.deleteChatLocally(sid);
+    // Remove from in-memory sessions so the UI un-renders the ChatWindow automatically
+    delete this.sessionService.sessions[sid];
+    this.emit("session_updated");
   }
 
   public async broadcastProfileUpdate() {

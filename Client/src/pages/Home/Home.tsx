@@ -599,6 +599,7 @@ const Home = () => {
           onLogoClick={onLogoClick}
           onSettings={onOpenSettings}
           onRename={onRename}
+          onDelete={actions.handleDeleteChat}
           onOpenVault={onOpenVault}
           onGlobalSummary={generateGlobalSummary}
         />

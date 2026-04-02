@@ -408,17 +408,12 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
     try {
       globalModel = await globalLlama.loadModel({ modelPath });
     } catch (modelErr: any) {
-      const msg = modelErr.message || "";
-      if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate")) {
-        console.warn("[Main] GPU model load failed (Out of VRAM), falling back to CPU...");
-        try {
-          globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
-          usedCpuFallback = true;
-        } catch (cpuErr: any) {
-          throw new Error(`Model load failed on both GPU and CPU: ${cpuErr.message}`);
-        }
-      } else {
-        throw new Error(`Model load failed: ${msg}`);
+      console.warn("[Main] GPU model load failed, falling back to CPU. Original error:", modelErr?.message || modelErr);
+      try {
+        globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+        usedCpuFallback = true;
+      } catch (cpuErr: any) {
+        throw new Error(`Model load failed on both GPU and CPU: ${cpuErr?.message || cpuErr}`);
       }
     }
 
@@ -433,26 +428,22 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
         console.log(`[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""}`);
         break;
       } catch (ctxErr: any) {
-        const msg = ctxErr.message || "";
-        if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate") || msg.includes("compute")) {
-          console.warn(`[Main] Context creation failed at size ${ctxSize}, trying smaller...`);
-          // If we haven't tried CPU fallback yet for model, do it now
-          if (!usedCpuFallback) {
-            console.warn("[Main] Retrying model load with CPU fallback...");
-            if (globalModel) {
-              await globalModel.dispose();
-              globalModel = null;
-            }
-            try {
-              globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
-              usedCpuFallback = true;
-            } catch (cpuErr: any) {
-              throw new Error(`CPU fallback model load failed: ${cpuErr.message}`);
-            }
+        console.warn(`[Main] Context creation failed at size ${ctxSize}, trying smaller... Original error:`, ctxErr?.message || ctxErr);
+        // If we haven't tried CPU fallback yet for model, do it now
+        if (!usedCpuFallback) {
+          console.warn("[Main] Retrying model load with CPU fallback...");
+          if (globalModel) {
+            await globalModel.dispose();
+            globalModel = null;
           }
-          continue;
+          try {
+            globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+            usedCpuFallback = true;
+          } catch (cpuErr: any) {
+            throw new Error(`CPU fallback model load failed: ${cpuErr?.message || cpuErr}`);
+          }
         }
-        throw ctxErr;
+        continue;
       }
     }
 

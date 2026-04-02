@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, Save, FileIcon } from "lucide-react";
+import { Download, Save, FileIcon, Eye } from "lucide-react";
 import { FileAttachment, FileInfo, FileName, FileStatus } from "../Chat.styles";
 
 interface FileBubbleProps {
@@ -9,6 +9,7 @@ interface FileBubbleProps {
   progress: number;
   onDownload: () => void;
   onSave: () => void;
+  onOpen?: () => void;
 }
 
 export const FileBubble: React.FC<FileBubbleProps> = ({
@@ -18,9 +19,13 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
   progress,
   onDownload,
   onSave,
+  onOpen,
 }) => {
   return (
-    <FileAttachment>
+    <FileAttachment 
+      onClick={isDownloaded && onOpen ? onOpen : undefined} 
+      style={{ cursor: isDownloaded && onOpen ? "pointer" : "default" }}
+    >
       <div
         style={{
           padding: "10px",
@@ -35,21 +40,31 @@ export const FileBubble: React.FC<FileBubbleProps> = ({
         <FileStatus>{isDownloaded ? "Downloaded" : "Attachment"}</FileStatus>
       </FileInfo>
       {isDownloaded ? (
-        <button
-          onClick={onSave}
-          style={{
-            border: "none",
-            background: "none",
-            cursor: "pointer",
-            opacity: 0.8,
-          }}
-        >
-          <Save size={20} />
-        </button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave();
+            }}
+            title="Save to Device"
+            style={{
+              border: "none",
+              background: "none",
+              cursor: "pointer",
+              opacity: 0.8,
+              display: "flex",
+            }}
+          >
+            <Save size={20} />
+          </button>
+        </div>
       ) : (
         !isDownloading && (
           <button
-            onClick={onDownload}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload();
+            }}
             style={{
               border: "none",
               background: "none",

@@ -12,6 +12,7 @@ import {
   Menu,
   MenuItem,
   nativeImage,
+  shell,
   Tray,
   session,
 } from "electron";
@@ -174,8 +175,7 @@ export class ElectronCapacitorApp {
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
-        // Use preload to inject the electron varriant overrides for capacitor plugins.
-        // preload: join(app.getAppPath(), "node_modules", "@capacitor-community", "electron", "dist", "runtime", "electron-rt.js"),
+        plugins: true,
         preload: preloadPath,
       },
     });
@@ -238,7 +238,7 @@ export class ElectronCapacitorApp {
           app.getAppPath(),
           "assets",
           this.CapacitorFileConfig.electron?.splashScreenImageName ??
-            "splash.png",
+          "splash.png",
         ),
         windowWidth: 400,
         windowHeight: 400,
@@ -248,23 +248,51 @@ export class ElectronCapacitorApp {
       this.loadMainWindow(this);
     }
 
-    // Security
-    this.MainWindow.webContents.setWindowOpenHandler((details) => {
-      if (
-        !details.url.includes(this.customScheme) &&
-        !details.url.includes("localhost")
-      ) {
-        return { action: "deny" };
-      } else {
-        return { action: "allow" };
+    // ── Navigation Security ─────────────────────────────────────────────────
+    // Prevent ANY non-localhost URL from loading inside the main app window.
+    // All external links are redirected to the user's default system browser.
+
+    const isLocalUrl = (url: string): boolean => {
+      try {
+        const { hostname, protocol } = new URL(url);
+        return (
+          hostname === "localhost" ||
+          hostname === "127.0.0.1" ||
+          hostname === "::1" ||
+          protocol === `${this.customScheme}:` ||
+          protocol === "file:" ||
+          protocol === "blob:" ||
+          protocol === "data:"
+        );
+      } catch {
+        return false;
+      }
+    };
+
+    // Block & redirect top-level navigations (e.g. clicking an <a href> with no handler)
+    this.MainWindow.webContents.on("will-navigate", (event, newURL) => {
+      if (!isLocalUrl(newURL)) {
+        event.preventDefault();
+        shell.openExternal(newURL).catch(console.error);
       }
     });
-    this.MainWindow.webContents.on("will-navigate", (event, _newURL) => {
-      if (
-        !this.MainWindow.webContents.getURL().includes(this.customScheme) &&
-        !this.MainWindow.webContents.getURL().includes("localhost")
-      ) {
+
+    // Block & redirect window.open() / target="_blank" links
+    this.MainWindow.webContents.setWindowOpenHandler((details) => {
+      if (!isLocalUrl(details.url)) {
+        shell.openExternal(details.url).catch(console.error);
+      }
+      // Always deny a new Electron window — external links go to the system browser
+      return { action: "deny" };
+    });
+
+    // Block subframe navigations (iframes, <embed> etc.) to external URLs
+    this.MainWindow.webContents.on("will-frame-navigate", (event) => {
+      const nav = event as any;
+      const frameUrl: string = nav.url ?? "";
+      if (frameUrl && !isLocalUrl(frameUrl)) {
         event.preventDefault();
+        shell.openExternal(frameUrl).catch(console.error);
       }
     });
 
@@ -295,6 +323,17 @@ export class ElectronCapacitorApp {
 // Set a CSP up for our application based on the custom scheme
 export function setupContentSecurityPolicy(customScheme: string): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    // Normalize header keys to lowercase to ensure we overwrite correctly
+    const headers: Record<string, string[]> = {};
+    for (const key of Object.keys(details.responseHeaders)) {
+      headers[key.toLowerCase()] = details.responseHeaders[key];
+    }
+
+    // Remove headers that restrict framing
+    delete headers["x-frame-options"];
+    delete headers["frame-options"];
+    delete headers["content-security-policy-report-only"];
+
     const csp = `
       default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
       connect-src * ws: wss: data: blob:;
@@ -303,14 +342,15 @@ export function setupContentSecurityPolicy(customScheme: string): void {
       font-src *;
       script-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
       worker-src * data: blob: 'unsafe-inline' 'unsafe-eval';
-      frame-src *;
+      frame-src * blob: data:;
+      frame-ancestors *;
     `;
 
+    // Overwrite with our permissive CSP
+    headers["content-security-policy"] = [csp.replace(/\s+/g, " ").trim()];
+
     callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [csp.replace(/\s+/g, " ").trim()],
-      },
+      responseHeaders: headers,
     });
   });
 }

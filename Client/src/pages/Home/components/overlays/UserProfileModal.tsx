@@ -402,27 +402,44 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
         <SaveButtonContainer>
           {session.isConnected !== false ? (
-            <RemoveConnectionButton
-              onClick={() => {
-                if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
-                  setIsSaving(true);
-                  onClose();
-                  ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
-                }
-              }}
-              disabled={isSaving}
-            >
-              <UserMinus size={18} />
-              Remove Connection
-            </RemoveConnectionButton>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <RemoveConnectionButton
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
+                    setIsSaving(true);
+                    onClose();
+                    ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
+                    ChatClient.deleteChat(session.sid);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <UserMinus size={18} />
+                Remove Connection
+              </RemoveConnectionButton>
+
+              <RemoveConnectionButton
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages AND remove the chat from all synced devices.")) {
+                    setIsSaving(true);
+                    onClose();
+                    ChatClient.deleteChat(session.sid);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <Trash2 size={18} />
+                Delete Chat
+              </RemoveConnectionButton>
+            </div>
           ) : (
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <RemoveConnectionButton
                 onClick={() => {
-                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages.")) {
+                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages AND remove the chat from all synced devices.")) {
                     setIsSaving(true);
                     onClose();
-                    ChatClient.removeConnection(session.peerEmailHash || "", session.sid, true);
+                    ChatClient.deleteChat(session.sid);
                   }
                 }}
                 disabled={isSaving}

@@ -26,6 +26,7 @@ import {
   Search,
   Edit2,
   Trash2,
+  Copy,
   Lightbulb,
   Wand2,
   MoreVertical,
@@ -132,6 +133,50 @@ export const ChatWindowDefault = ({
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
+
+  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
+  const selectionMode = selectedMessages.size > 0;
+
+  const handleToggleSelect = (msg: ChatMessage) => {
+    if (!msg.id) return;
+    const msgId = msg.id;
+    setSelectedMessages(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedMessages(new Set());
+
+  const handleCopySelected = async () => {
+    try {
+      const msgsToCopy = messages.filter(m => m.id && selectedMessages.has(m.id)).sort((a,b) => a.timestamp - b.timestamp);
+      const text = msgsToCopy.map(m => {
+        const sender = m.sender === "me" ? "Me" : (session?.alias_name || session?.peer_name || "User");
+        const time = new Date(m.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const content = m.text || (m.mediaFilename ? `[File: ${m.mediaFilename}]` : `[${m.type}]`);
+        return `[${time}] ${sender}: ${content}`;
+      }).join('\n');
+      
+      const { Clipboard } = await import("@capacitor/clipboard");
+      await Clipboard.write({ string: text });
+      clearSelection();
+    } catch(e) {
+      console.error("Copy multiple failed", e);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if(!activeChat) return;
+    if (window.confirm(`Delete ${selectedMessages.size} selected message(s)?`)) {
+      for(const id of selectedMessages) {
+        ChatClient.deleteMessage(activeChat, id);
+      }
+      clearSelection();
+    }
+  };
   const [selectedMedia, setSelectedMedia] = useState<{
     url: string;
     type: "image" | "video";
@@ -269,7 +314,7 @@ export const ChatWindowDefault = ({
 
   const createPendingAttachment = (file: File): PendingAttachment => {
     const isImage = file.type.startsWith("image/");
-    const isVideo = file.type.startsWith("video/");
+    const isVideo = file.type.startsWith("video/") || file.name.toLowerCase().endsWith(".mp4");
     return {
       id: crypto.randomUUID(),
       file,
@@ -291,7 +336,11 @@ export const ChatWindowDefault = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0 && activeChat) {
-      const filesArr = Array.from(e.target.files);
+      const filesArr = Array.from(e.target.files).map(f => 
+        f.name.toLowerCase().endsWith(".mp4") && !f.type.startsWith("video/") 
+          ? new File([f], f.name, { type: "video/mp4", lastModified: f.lastModified }) 
+          : f
+      );
       const mediaFiles = filesArr.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
       const docFiles = filesArr.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
 
@@ -452,8 +501,15 @@ export const ChatWindowDefault = ({
       }
       if (files.length > 0) {
         e.preventDefault();
-        const mediaFiles = files.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
-        const docFiles = files.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
+        
+        const filesArr = files.map(f => 
+          f.name.toLowerCase().endsWith(".mp4") && !f.type.startsWith("video/") 
+            ? new File([f], f.name, { type: "video/mp4", lastModified: f.lastModified }) 
+            : f
+        );
+
+        const mediaFiles = filesArr.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
+        const docFiles = filesArr.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
 
         if (mediaFiles.length > 0) {
           setSelectedFiles((prev) => [...prev, ...mediaFiles]);
@@ -561,48 +617,68 @@ export const ChatWindowDefault = ({
 
   return (
     <ChatContainer>
-      <ChatHeader>
-        {onBack && (
-          <BackButton onClick={onBack}>
-            <ArrowLeft size={24} />
-          </BackButton>
-        )}
+      {selectionMode ? (
+        <ChatHeader style={{ backgroundColor: "rgba(99, 102, 241, 0.15)", borderBottom: "1px solid rgba(99, 102, 241, 0.3)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1 }}>
+            <IconButton variant="ghost" size="md" onClick={clearSelection}>
+              <X size={20} />
+            </IconButton>
+            <span style={{ fontWeight: 600, fontSize: "16px", color: "#f3f4f6" }}>
+              {selectedMessages.size} selected
+            </span>
+          </div>
+          <HeaderActions>
+            <IconButton variant="ghost" size="md" onClick={handleCopySelected} title="Copy selected">
+              <Copy size={20} />
+            </IconButton>
+            <IconButton variant="ghost" size="md" onClick={handleDeleteSelected} title="Delete selected" style={{ color: "#ef4444" }}>
+              <Trash2 size={20} />
+            </IconButton>
+          </HeaderActions>
+        </ChatHeader>
+      ) : (
+        <ChatHeader>
+          {onBack && (
+            <BackButton onClick={onBack}>
+              <ArrowLeft size={24} />
+            </BackButton>
+          )}
 
-        <div
-          onClick={() => setShowProfileModal(true)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setShowProfileModal(true);
-          }}
-          style={{ cursor: "pointer", display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}
-        >
-          <Avatar
-            src={resolvedAvatar}
-            name={headerName}
-            size="md"
-            status={session?.isOwnDevice ? undefined : (peerOnline ? "online" : "offline")}
-          />
+          <div
+            onClick={() => setShowProfileModal(true)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setShowProfileModal(true);
+            }}
+            style={{ cursor: "pointer", display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}
+          >
+            <Avatar
+              src={resolvedAvatar}
+              name={headerName}
+              size="md"
+              status={session?.isOwnDevice ? undefined : (peerOnline ? "online" : "offline")}
+            />
           <HeaderInfo>
             <HeaderName>{headerName}</HeaderName>
-            {session?.alias_name && session.alias_name !== (session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "")) && (
-              <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
-                {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
-              </div>
-            )}
-            {!session?.isOwnDevice && (
-              <HeaderStatus isOnline={peerOnline}>
-                {peerOnline ? "Online" : "Offline"}
-              </HeaderStatus>
-            )}
-          </HeaderInfo>
-        </div>
+              {session?.alias_name && session.alias_name !== (session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "")) && (
+                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
+                  {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
+                </div>
+              )}
+              {!session?.isOwnDevice && (
+                <HeaderStatus isOnline={peerOnline}>
+                  {peerOnline ? "Online" : "Offline"}
+                </HeaderStatus>
+              )}
+            </HeaderInfo>
+          </div>
 
-        <HeaderActions>
-          <IconButton
-            variant="ghost"
-            size="md"
-            onClick={() => onStartCall("Audio")}
-            title="Start Call"
+          <HeaderActions>
+            <IconButton
+              variant="ghost"
+              size="md"
+              onClick={() => onStartCall("Audio")}
+              title="Start Call"
           >
             <Phone size={20} />
           </IconButton>
@@ -704,6 +780,7 @@ export const ChatWindowDefault = ({
           )}
         </HeaderActions>
       </ChatHeader>
+      )}
 
       {showSummary && (
         <div
@@ -875,6 +952,9 @@ export const ChatWindowDefault = ({
                     "User"
                 }
                 senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
+                selectionMode={selectionMode}
+                isSelected={!!msg.id && selectedMessages.has(msg.id)}
+                onToggleSelect={handleToggleSelect}
               />
             </div>
           )}
@@ -1360,13 +1440,12 @@ export const ChatWindowDefault = ({
 
           <SendButton
             isRecording={isRecording}
-            isChangingState={input.trim().length > 0 || pendingAttachments.length > 0}
             onClick={input.trim().length > 0 || pendingAttachments.length > 0 ? handleSendMessage : handleRecord}
           >
             {input.trim().length > 0 || pendingAttachments.length > 0 ? (
-              <Send size={20} />
+              <Send size={20} key="send-icon" />
             ) : (
-              <Mic size={20} />
+              <Mic size={20} key="mic-icon" />
             )}
           </SendButton>
         </InputContainer>

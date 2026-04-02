@@ -218,7 +218,7 @@ export const SendButton = styled.button<{ isRecording?: boolean; isChangingState
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 
   svg {
-    animation: ${(props) => (props.isChangingState ? scaleOut : scaleIn)} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    animation: ${scaleIn} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
   }
 
   ${(props) =>

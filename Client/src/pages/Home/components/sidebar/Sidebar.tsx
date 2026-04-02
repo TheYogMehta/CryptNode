@@ -31,6 +31,7 @@ export const Sidebar = React.memo(
     onLogoClick,
     onSettings,
     onRename,
+    onDelete,
     onOpenVault,
     onGlobalSummary,
   }: {
@@ -44,6 +45,7 @@ export const Sidebar = React.memo(
     onLogoClick: () => void;
     onSettings: () => void;
     onRename: (sid: string, currentName: string) => void;
+    onDelete: (sid: string) => void;
     onOpenVault: () => void;
     onGlobalSummary: () => void;
   }) => {
@@ -92,7 +94,7 @@ export const Sidebar = React.memo(
                 peerEmail: "vault@local",
                 lastMsg: "Encrypted Storage",
                 lastMsgType: "text",
-                lastTs: Date.now(),
+                lastTs: undefined,
                 unread: 0,
                 online: false,
               }}
@@ -113,7 +115,7 @@ export const Sidebar = React.memo(
                   peerEmail: "llm@local",
                   lastMsg: "Offline Assistant",
                   lastMsgType: "text",
-                  lastTs: Date.now(),
+                  lastTs: undefined,
                   unread: 0,
                   online: false,
                 }}
@@ -135,6 +137,7 @@ export const Sidebar = React.memo(
                   isActive={activeChat === session.sid}
                   onSelect={onSelect}
                   onRename={onRename}
+                  onDelete={onDelete}
                 />
               ))
             )}

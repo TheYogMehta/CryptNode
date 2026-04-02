@@ -70,7 +70,7 @@ export class SessionService extends EventEmitter {
   public async loadSessions() {
     const previousSessions = this.sessions;
     const newSessions: Record<string, ChatSession> = {};
-    const rows = await queryDB("SELECT * FROM sessions");
+    const rows = await queryDB("SELECT * FROM sessions WHERE deleted_at IS NULL OR deleted_at = 0");
     for (const row of rows) {
       try {
         const normalizedPeerEmail = this.normalizeEmail(row.peer_email);

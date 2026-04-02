@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { queryDB, executeDB, getAllBlockEntries, getBlockedUsers, getAllPendingRequestsEntries, getMyProfileAndVersions, getAllAliasesEntries, getLastManifestSync, getMessagesSince, updateLastManifestSync, executeTransaction } from "../storage/sqliteService";
+import { queryDB, executeDB, getAllBlockEntries, getBlockedUsers, getAllPendingRequestsEntries, getMyProfileAndVersions, getAllAliasesEntries, getLastManifestSync, getMessagesSince, updateLastManifestSync, executeTransaction, markSessionDeleted, getDeletedSessionIds } from "../storage/sqliteService";
 import { StorageService } from "../storage/StorageService";
 import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
@@ -388,73 +388,73 @@ export class MessageService extends EventEmitter {
     }
   }
 
-  public async deleteMessage(sid: string, messageId: string) {
+  /**
+   * Deletes all messages for a session locally and marks it as deleted (tombstone).
+   * The MANIFEST broadcast will propagate the deletion to own devices.
+   * Works even while the peer is still online — does not send anything to the peer.
+   */
+  public async deleteChatLocally(sid: string) {
+    try {
+      // Delete all messages for this session (cascade will handle reactions & media)
+      await executeDB("DELETE FROM messages WHERE sid = ?", [sid]);
+
+      // Mark session as deleted tombstone (keep row so deleted_at syncs via manifest)
+      await markSessionDeleted(sid, Date.now());
+
+      // Remove from in-memory session store so caller can also clean up
+      this.client.emit("chat_deleted", { sid });
+
+      // Broadcast to own devices immediately so siblings learn about deletion
+      this.broadcastManifestToOwnDevices(true).catch(() => { });
+
+      console.log(`[MessageService] Chat ${sid} deleted locally and tombstone set.`);
+    } catch (e) {
+      console.error("[MessageService] Failed to delete chat locally:", e);
+      throw e;
+    }
+  }
+
+  public async deleteMessage(sid: string, messageId: string, forEveryone: boolean = false) {
     if (!this.client.sessionService.sessions[sid])
       throw new Error("Session not found");
 
-    // 1. Check message ownership and details
-    const rows = await queryDB("SELECT sender FROM messages WHERE id = ?", [
-      messageId,
-    ]);
-    const isMe = rows.length > 0 && rows[0].sender === "me";
+    const rows = await queryDB("SELECT sender, type FROM messages WHERE id = ?", [messageId]);
+    if (rows.length === 0) return;
 
-    // 2. If it's my message, broadcast delete to peer (unsend)
-    if (isMe) {
-      console.log(
-        `[MessageService] Deleting my message ${messageId}, sending retraction to peer`,
-      );
-      const payloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({
-          t: "MSG",
-          data: {
-            type: "DELETE",
-            id: messageId,
-            timestamp: Date.now(),
-          },
-        }),
-        1,
-      );
+    const isMe = rows[0].sender === "me";
 
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads },
-        c: true,
-        p: 1,
-      });
+    if (forEveryone && isMe) {
+      console.log(`[MessageService] Hard-deleting my message ${messageId}, sending retraction to peer`);
+      try {
+        const payloads = await this.client.encryptForSession(
+          sid,
+          JSON.stringify({
+            t: "MSG",
+            data: {
+              type: "DELETE",
+              id: messageId,
+              timestamp: Date.now(),
+            },
+          }),
+          1,
+        );
+        this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 1 });
+      } catch (e) {
+        console.warn("[MessageService] Failed to broadcast DELETE to peer:", e);
+      }
     } else {
-      console.log(
-        `[MessageService] Deleting peer message ${messageId} locally only`,
-      );
+      console.log(`[MessageService] Deleting message ${messageId} locally only`);
     }
 
-    // 3. Local Hard Delete (for both me and other)
     try {
       await executeDB("DELETE FROM messages WHERE id = ?", [messageId]);
-
-      // Also delete associated reactions/media
-      await executeDB("DELETE FROM reactions WHERE message_id = ?", [
-        messageId,
-      ]);
+      await executeDB("DELETE FROM reactions WHERE message_id = ?", [messageId]);
       await executeDB("DELETE FROM media WHERE message_id = ?", [messageId]);
 
-      this.client.emit("message_updated", {
-        sid,
-        id: messageId,
-        text: "🚫 This message was deleted",
-        type: "deleted",
-        // Additional flag to indicate hard delete if UI supports it,
-        // but for now we rely on the implementation plan to use a specific event or filter
-      });
-
-      // Emitting a specific 'message_deleted' event for UI to remove it entirely
-      this.client.emit("message_deleted", {
-        sid,
-        id: messageId,
-      });
+      this.client.emit("message_deleted", { sid, id: messageId });
+      this.broadcastManifestToOwnDevices(false).catch(() => {});
     } catch (e) {
-      console.error("[MessageService] Failed to delete message locally:", e);
+      console.error("[MessageService] Failed to hard-delete message locally:", e);
     }
   }
 
@@ -574,6 +574,13 @@ export class MessageService extends EventEmitter {
             const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
 
             console.log(`[MessageService] Handling SYNC_HINT from ${sid}: peerLatestFromYou=${peerLatestFromYou}, peerLatestFromMe=${peerLatestFromMe}, isOwnMessage=${isOwnMessage}`);
+
+            // Bail out if this session has been deleted locally — don't re-sync it
+            const deletedIds = await getDeletedSessionIds();
+            if (deletedIds.includes(sid)) {
+              console.log(`[MessageService] Skipping SYNC_HINT for deleted session ${sid}`);
+              break;
+            }
 
             // To the remote peer, "from you" means messages WE sent (sender='me' locally)
             // and "from me" means messages THEY sent (sender='other' locally)
@@ -748,7 +755,7 @@ export class MessageService extends EventEmitter {
                 );
                 break;
               }
-              if (Date.now() - msg.timestamp > 24 * 60 * 60 * 1000) {
+              if (Date.now() - msg.timestamp > 30 * 24 * 60 * 60 * 1000) {
                 console.warn(
                   "[MessageService] Ignoring EDIT for old message",
                   data.id,
@@ -794,7 +801,7 @@ export class MessageService extends EventEmitter {
                 );
                 break;
               }
-              if (Date.now() - msg.timestamp > 24 * 60 * 60 * 1000) {
+              if (Date.now() - msg.timestamp > 30 * 24 * 60 * 60 * 1000) {
                 console.warn(
                   "[MessageService] Ignoring DELETE for old message",
                   data.id,
@@ -837,7 +844,7 @@ export class MessageService extends EventEmitter {
             const manifest = data.manifest as {
               blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
               requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
-              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string }[];
+              aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string; deletedAt?: number }[];
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
             };
@@ -915,6 +922,25 @@ export class MessageService extends EventEmitter {
                 let changed = false;
                 for (const entry of manifest.aliases) {
                   if (!entry.sid) continue;
+
+                  // ── Propagate chat deletion tombstone ──
+                  // If the sending device deleted this chat, apply the same deletion locally.
+                  if (entry.deletedAt && entry.deletedAt > 0) {
+                    const localRow = await queryDB(
+                      "SELECT deleted_at FROM sessions WHERE sid = ? LIMIT 1",
+                      [entry.sid],
+                    );
+                    const localDeletedAt = localRow[0]?.deleted_at ?? 0;
+                    if (entry.deletedAt > localDeletedAt) {
+                      console.log(`[MessageService] MANIFEST: propagating chat deletion for ${entry.sid} from own device`);
+                      await markSessionDeleted(entry.sid, entry.deletedAt);
+                      // Wipe messages for this session so they don't re-appear
+                      await executeDB("DELETE FROM messages WHERE sid = ?", [entry.sid]);
+                      this.client.emit("chat_deleted", { sid: entry.sid });
+                      changed = true;
+                    }
+                    continue; // Don't apply metadata updates for deleted sessions
+                  }
 
                   // Ensure the session row exists — INSERT OR IGNORE creates a stub;
                   // subsequent UPDATE fills in the details.
@@ -1046,6 +1072,9 @@ export class MessageService extends EventEmitter {
 
             // ── messages section ──
             if (Array.isArray(manifest.messages) && manifest.messages.length > 0) {
+              // Collect deleted session IDs so we don't re-insert messages for them
+              const deletedSids = new Set(await getDeletedSessionIds());
+
               // Determine if this manifest came from an own device or a different peer.
               // Own-device manifests use sender values as-is ("me" stays "me").
               // Peer manifests must remap sender="me" → "peer" because the sending device
@@ -1071,6 +1100,8 @@ export class MessageService extends EventEmitter {
 
               for (const msg of manifest.messages) {
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
+                if (deletedSids.has(msg.sid)) continue;
+                
                 const senderValue = (!isOwnDevice)
                   ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
                   : (msg.sender || "unknown");

@@ -21,6 +21,8 @@ import {
   Download,
   Sparkles,
   Plus as PlusIcon,
+  CheckCircle2,
+  Circle,
 } from "lucide-react";
 import { EmojiPicker } from "../../../../components/EmojiPicker";
 import { Avatar } from "../../../../components/ui/Avatar";
@@ -32,6 +34,7 @@ import { AudioBubble } from "./bubbles/AudioBubble";
 import { ImageBubble } from "./bubbles/ImageBubble";
 import { VideoBubble } from "./bubbles/VideoBubble";
 import { FileBubble } from "./bubbles/FileBubble";
+import { FileViewerModal } from "./FileViewerModal";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 
@@ -41,6 +44,7 @@ import {
   isTrustedUrl,
   DEFAULT_TRUSTED_DOMAINS,
 } from "../../../../utils/trustedDomains";
+import { openExternalUrl } from "../../../../utils/openExternalUrl";
 import {
   BubbleWrapper,
   Bubble,
@@ -185,6 +189,9 @@ export const MessageBubble = React.memo(
     messageLayout = "bubble",
     senderName,
     senderAvatar,
+    selectionMode,
+    isSelected,
+    onToggleSelect,
   }: {
     msg: ChatMessage;
     onReply?: (msg: ChatMessage | null) => void;
@@ -197,6 +204,9 @@ export const MessageBubble = React.memo(
     messageLayout?: "bubble" | "modern";
     senderName?: string;
     senderAvatar?: string;
+    selectionMode?: boolean;
+    isSelected?: boolean;
+    onToggleSelect?: (msg: ChatMessage) => void;
   }) => {
     const isMe = msg.sender === "me";
     const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -241,6 +251,15 @@ export const MessageBubble = React.memo(
     const [msgSummary, setMsgSummary] = useState("");
     const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
     const [isInitializingForMsg, setIsInitializingForMsg] = useState(false);
+    const [viewerOpen, setViewerOpen] = useState(false);
+
+    const handleOpenViewer = () => {
+      setViewerOpen(true);
+    };
+
+    const handleCloseViewer = () => {
+      setViewerOpen(false);
+    };
 
     const handleMediaClickWrapper = (url: string, type: "image" | "video", description?: string) => {
       onMediaClick?.(url, type, description, {
@@ -306,6 +325,10 @@ export const MessageBubble = React.memo(
 
     const handleContextMenu = (e: React.MouseEvent) => {
       e.preventDefault();
+      if (selectionMode) {
+        onToggleSelect?.(msg);
+        return;
+      }
       setContextMenu(
         contextMenu === null
           ? {
@@ -342,7 +365,7 @@ export const MessageBubble = React.memo(
         } else if (!base64Image) {
           payload.string = ""; // Fallback
         }
-        
+
         if (base64Image) {
           payload.image = base64Image;
         }
@@ -441,31 +464,6 @@ export const MessageBubble = React.memo(
         setShowPicker(false);
         // Force a local update for immediate feedback
         loadReactions();
-      }
-    };
-
-    const openExternalUrl = async (url: string) => {
-      if (!/^https?:\/\//i.test(url)) return;
-
-      try {
-        if (window.electron?.openExternal) {
-          const ok = await window.electron.openExternal(url);
-          if (ok) return;
-        }
-
-        if (Capacitor.getPlatform() === "android") {
-          const browserOpen = (window as any)?.Capacitor?.Plugins?.Browser
-            ?.open;
-          if (typeof browserOpen === "function") {
-            await browserOpen({ url });
-            return;
-          }
-        }
-
-        window.open(url, "_blank", "noopener,noreferrer");
-      } catch (e) {
-        console.error("Failed to open external URL:", e);
-        window.open(url, "_blank", "noopener,noreferrer");
       }
     };
 
@@ -783,6 +781,7 @@ export const MessageBubble = React.memo(
               progress={msg.mediaProgress || 0}
               onDownload={handleDownload}
               onSave={handleSave}
+              onOpen={handleOpenViewer}
             />
             {shouldShowCaption && (
               <div style={{ marginTop: '8px', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
@@ -799,8 +798,10 @@ export const MessageBubble = React.memo(
     const isEditable =
       isMe &&
       Date.now() - msg.timestamp < 15 * 60 * 1000 &&
-      msg.type !== "deleted"; // 15 mins
+      msg.type !== "deleted" &&
+      msg.type !== "deleted_for_me"; // 15 mins
     const isDeletable = msg.type !== "deleted";
+    const isDeletedForMe = msg.type === "deleted_for_me";
 
     const onTouchStart = (e: React.TouchEvent) => {
       const touch = e.touches[0];
@@ -977,7 +978,7 @@ export const MessageBubble = React.memo(
           </ReplyContext>
         )}
 
-        {msg.type === "system" ? (
+        {msg.type === "system" || msg.type === "deleted_for_me" ? (
           <div
             style={{
               fontSize: "0.85rem",
@@ -1206,7 +1207,18 @@ export const MessageBubble = React.memo(
         onTouchEnd={onTouchEnd}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onClick={() => {
+          if (selectionMode) onToggleSelect?.(msg);
+        }}
+        style={{
+          ...(isSelected ? { backgroundColor: "rgba(99, 102, 241, 0.15)", borderRadius: "8px", outline: "1px solid #6366f1", padding: "4px" } : {})
+        }}
       >
+        {selectionMode && (
+          <div style={{ padding: "0 10px", display: "flex", alignItems: "center", cursor: "pointer" }}>
+            {isSelected ? <CheckCircle2 size={24} color="#6366f1" /> : <Circle size={24} color="rgba(255,255,255,0.3)" />}
+          </div>
+        )}
         {!isModernLayout && (
           <div
             style={{
@@ -1411,6 +1423,17 @@ export const MessageBubble = React.memo(
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
+                onToggleSelect?.(msg);
+                setContextMenu(null);
+              }}
+              style={{ gap: "10px" }}
+            >
+              <CheckCircle2 size={18} /> Select Message
+            </MenuItem>
+
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
                 if (onReply) {
                   onReply(msg);
                   setContextMenu(null);
@@ -1459,11 +1482,29 @@ export const MessageBubble = React.memo(
               <MenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleDelete();
+                  if (msg.sid && msg.id) {
+                    ChatClient.deleteMessage(msg.sid, msg.id, false);
+                  }
+                  setContextMenu(null);
                 }}
-                style={{ gap: "10px", color: "#f87171" }}
+                style={{ gap: "10px", color: isDeletedForMe ? "gray" : "#f87171" }}
               >
-                <Trash2 size={18} /> Delete
+                <Trash2 size={18} /> {isDeletedForMe ? "Deleted for me" : "Delete for me"}
+              </MenuItem>
+            )}
+
+            {isDeletable && isMe && (Date.now() - msg.timestamp <= 30 * 24 * 60 * 60 * 1000) && (
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (msg.sid && msg.id) {
+                    ChatClient.deleteMessage(msg.sid, msg.id, true);
+                  }
+                  setContextMenu(null);
+                }}
+                style={{ gap: "10px", color: "#ef4444" }}
+              >
+                <Trash2 size={18} /> Delete for everyone
               </MenuItem>
             )}
           </Menu>
@@ -1571,6 +1612,14 @@ export const MessageBubble = React.memo(
             }}
           />
         )}
+
+        <FileViewerModal
+          isOpen={viewerOpen}
+          onClose={handleCloseViewer}
+          fileUrl={imageSrc}
+          fileName={msg.mediaOriginalName || msg.mediaFilename || msg.text || "File"}
+          mimeType={msg.mediaMime || "application/octet-stream"}
+        />
       </BubbleWrapper>
     );
   },
