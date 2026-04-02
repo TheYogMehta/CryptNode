@@ -702,33 +702,34 @@ export class LocalAIService {
     }
   }
 
+  // Like generate(), but clears session history before and after so utility
+  // calls (summarize, quickReplies, etc.) don't pollute the chat session memory.
+  private async generateStateless(
+    messages: { role: string; content: string }[],
+    options: QwenGenerationOptions = {},
+  ): Promise<string> {
+    await this.clearSession();
+    try {
+      return await this.generate(messages, options);
+    } finally {
+      await this.clearSession();
+    }
+  }
+
   async quickReplies(
     draft: string,
     limit: number,
   ): Promise<string[]> {
     const context = clipContext(draft);
-    const systemPrompt = "You are a communication assistant. Your goal is to keep the conversation flowing.";
-
     const userContent = [
-      `Context:\n${context || "No prior context."}`,
-      `\nTask: Generate ${limit} distinct short replies found in typical messaging apps.`,
-      "Rules:",
-      "1. Option 1: Positive/Agreement (e.g., 'Sounds good', 'Okay')",
-      "2. Option 2: Negative/Polite Refusal (e.g., 'Maybe later', 'No thanks')",
-      "3. Option 3: Question/Follow-up (e.g., 'What time?', 'Why?')",
-      "4. Max 5 words per option.",
-      "5. Output ONLY the replies, one per line.",
+      `Context: ${context || "No prior context."}`,
+      `Generate ${limit} distinct short replies (max 5 words each).`,
+      "Output ONLY the replies, one per line, no numbering or labels.",
     ].join("\n");
 
-    const raw = await this.generate(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-      {
-        maxNewTokens: 54,
-        temperature: 0.5,
-      },
+    const raw = await this.generateStateless(
+      [{ role: "user", content: userContent }],
+      { maxNewTokens: 54, temperature: 0.5 },
     );
 
     return parseBulletList(raw, limit);
@@ -736,7 +737,6 @@ export class LocalAIService {
 
   async summarize(messages: ChatMessage[], limit: number): Promise<string> {
     const meaningful = messages.filter((m) => (m.text || "").trim().length >= 4);
-
     if (meaningful.length === 0) return "Not enough content to summarize.";
 
     const context = meaningful
@@ -744,19 +744,13 @@ export class LocalAIService {
       .map((m) => `${m.sender === "me" ? "Me" : "Peer"}: ${m.text!.trim()}`)
       .join("\n");
 
-    const systemPrompt = "You extract key facts from chat logs. Output bullet points only. Never add anything not explicitly stated in the chat.";
-
     const userContent =
-      `Example:\nChat:\nMe: can we move the meeting to 3pm?\nPeer: sure, also bring the Q3 report\nMe: will do\n` +
-      `Bullets:\n- Meeting moved to 3 PM\n- Peer requested Q3 report\n\n` +
-      `Now do the same for this chat:\nChat:\n${context}\n` +
-      `Bullets (max ${Math.max(3, limit)}, only facts from above):\n-`;
+      `Summarize the key facts from this chat as bullet points. Only include facts explicitly stated.\n` +
+      `Chat:\n${context}\n` +
+      `Bullets (max ${Math.max(3, limit)}):`;
 
-    const raw = await this.generate(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
+    const raw = await this.generateStateless(
+      [{ role: "user", content: userContent }],
       { maxNewTokens: 180, temperature: 0.1 },
     );
 
@@ -767,18 +761,10 @@ export class LocalAIService {
   async summarizeSingleMessage(text: string): Promise<string> {
     if (!text || text.trim().length < 20) return "Message is too short to summarize.";
 
-    const systemPrompt = "You rephrase a single message into a clear, concise summary. Use plain English. Output one or two sentences only. Never add anything not in the message.";
+    const userContent = `Summarize this message in one or two sentences. Only use what is stated.\nMessage: "${text.trim()}"\nSummary:`;
 
-    const userContent =
-      `Example:\nMessage: "Hey sorry I missed your call earlier, I was in a meeting until like 3:30 and then had to run to pick up the kids. Can we catch up tomorrow morning maybe around 9 or 10?"\n` +
-      `Summary: Missed the call due to a meeting and errands. Suggests catching up tomorrow around 9–10 AM.\n\n` +
-      `Now summarize this message:\nMessage: "${text.trim()}"\nSummary:`;
-
-    const raw = await this.generate(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
+    const raw = await this.generateStateless(
+      [{ role: "user", content: userContent }],
       { maxNewTokens: 80, temperature: 0.1 },
     );
 
@@ -787,14 +773,10 @@ export class LocalAIService {
 
   async smartCompose(draft: string): Promise<string> {
     if (!draft.trim()) return "";
-    const systemPrompt = "You are a professional editor. Rewrite the input to be clear and polite, but keep it brief.";
-    const userContent = `Rules:\n1. Fix grammar/typos.\n2. Make it sound confident.\n3. Do not add facts.\n4. Output ONLY the rewritten text.\n\nInput: "${draft}"\nRewritten:`;
+    const userContent = `Rewrite this message to be clear, polite, and brief. Fix grammar and typos. Output ONLY the rewritten text.\nInput: "${draft}"\nRewritten:`;
 
-    const raw = await this.generate(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
+    const raw = await this.generateStateless(
+      [{ role: "user", content: userContent }],
       { maxNewTokens: 64, temperature: 0.3 },
     );
     let cleaned = raw.trim();
