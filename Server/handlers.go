@@ -748,6 +748,20 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			for _, tc := range targetClients {
 				newSess.clients[tc.id] = tc // requester (User 1)
 			}
+			
+			// Also add all my sibling clients (User 2's other devices) to the session
+			var siblingClients []*Client
+			sibRows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND socket_id != ?", senderHash, client.id)
+			for sibRows.Next() {
+				var sibSocketID string
+				sibRows.Scan(&sibSocketID)
+				if sibClient, ok := s.clients[sibSocketID]; ok {
+					siblingClients = append(siblingClients, sibClient)
+					newSess.clients[sibClient.id] = sibClient
+				}
+			}
+			sibRows.Close()
+
 			newSess.mu.Unlock()
 			s.mu.Unlock()
 
@@ -770,11 +784,22 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// Notify acceptor (User 2) that requester is online → triggers sync
+			// Notify acceptor (User 2) and their siblings that requester is online → triggers sync
 			if len(targetActivePubKeys) > 0 {
 				pOForSender, _ := json.Marshal(map[string]any{"peerPubKeys": targetActivePubKeys})
 				s.send(client, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForSender)})
+				for _, sc := range siblingClients {
+					s.send(sc, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForSender)})
+				}
 			}
+
+			// Broadcast SYNC_ACCEPT to own devices so they remove pending request and derive session
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_ACCEPT", map[string]any{
+				"targetHash": targetHash,
+				"sid": sid,
+				"peerPubKeys": targetActivePubKeys,
+				"ownPubKeys": senderActivePubKeys,
+			})
 
 		case "FRIEND_DENY":
 			if client.email == "" {
@@ -822,7 +847,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Broadcast SYNC_DENY to own devices
-			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_DENY", map[string]string{"targetHash": targetHash})
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_DENY", map[string]any{"targetHash": targetHash})
 
 		case "BLOCK_USER":
 			if client.email == "" {
@@ -868,7 +893,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Broadcast SYNC_BLOCK to own devices
-			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]string{"targetHash": targetHash})
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]any{"targetHash": targetHash})
 
 			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"` + d.TargetEmail + `"}`)})
 
@@ -921,7 +946,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			// Broadcast SYNC_UNFRIEND to own devices
 			if sid != "" {
-				s.broadcastToOwnDevices(client.id, senderHash, "SYNC_UNFRIEND", map[string]string{"targetHash": d.TargetHash, "sid": sid})
+				s.broadcastToOwnDevices(client.id, senderHash, "SYNC_UNFRIEND", map[string]any{"targetHash": d.TargetHash, "sid": sid})
 			}
 
 			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"` + d.TargetHash + `"}`)})

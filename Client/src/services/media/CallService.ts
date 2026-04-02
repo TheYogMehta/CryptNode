@@ -12,6 +12,7 @@ export class CallService {
   public callStartTime: number = 0;
   public currentLocalStream: MediaStream | null = null;
   public currentCallSid: string | null = null;
+  public incomingCallSid: string | null = null;
   public currentCallRemotePubKey: string | null = null;
   public micStream: MediaStream | null = null;
   public cameraStream: MediaStream | null = null;
@@ -752,6 +753,12 @@ export class CallService {
       0,
     );
     this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 0 });
+
+    if (this.client.broadcastSyncCallAccept) {
+      this.client.broadcastSyncCallAccept(sid).catch((e) =>
+        console.warn("[CallService] Failed to broadcast sync call accept", e),
+      );
+    }
   }
 
   public async endCall(sid?: string) {
@@ -772,6 +779,12 @@ export class CallService {
         c: true,
         p: 0,
       });
+
+      if (this.client.broadcastSyncCallEnd) {
+        this.client.broadcastSyncCallEnd(targetSid).catch((e) =>
+          console.warn("[CallService] Failed to broadcast sync call end", e),
+        );
+      }
     } catch (e) {
       console.warn("[CallService] Failed to send CALL_END message", e);
     }
@@ -789,6 +802,7 @@ export class CallService {
     this.stopRingtone();
     this.isCalling = false;
     this.currentCallSid = null;
+    this.incomingCallSid = null;
     this.isCallConnected = false;
     this.hasEmittedCallConnected = false;
     this.currentCallRemotePubKey = null;

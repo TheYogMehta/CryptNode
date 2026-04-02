@@ -1108,7 +1108,7 @@ export class MessageService extends EventEmitter {
             console.log("[MessageService] Ignoring CALL_START sent by our own sibling device.");
             break;
           }
-          if (this.client.callService.isCalling) {
+          if (this.client.callService.isCalling || this.client.callService.incomingCallSid) {
             console.log(
               "[MessageService] Already on call, rejecting new call from",
               sid,
@@ -1122,6 +1122,7 @@ export class MessageService extends EventEmitter {
             return;
           }
           console.log("[MessageService] Received CALL_START");
+          this.client.callService.incomingCallSid = sid;
 
           this.client.callService.playRingtone();
 
@@ -1184,6 +1185,26 @@ export class MessageService extends EventEmitter {
             connected: wasCallConnected,
           });
           break;
+        case "SYNC_CALL_ACCEPT":
+        case "SYNC_CALL_END": {
+          if (isOwnMessage && isOwnDeviceSession) {
+            console.log(`[MessageService] A sibling device broadcasted ${data.type}. Stopping call state regionally.`);
+            
+            const isLocalActiveCall = (this.client.callService.isCalling && this.client.callService.currentCallSid === data.callSid);
+            const isLocalIncomingCall = (!this.client.callService.isCalling && this.client.callService.incomingCallSid === data.callSid);
+
+            if (isLocalActiveCall || isLocalIncomingCall) {
+              const connected = this.client.callService.isCallConnected;
+              const duration = this.client.callService.callStartTime
+                ? Date.now() - this.client.callService.callStartTime
+                : 0;
+              this.client.callService.cleanupCall();
+              // Emit so UI clears the ringing screen
+              this.client.emit("call_ended", { sid: data.callSid, duration, connected });
+            }
+          }
+          break;
+        }
         case "METADATA":
           try {
             const meta = data;
@@ -1714,6 +1735,46 @@ export class MessageService extends EventEmitter {
         }
       }, 500);
     });
+  }
+
+  public async broadcastSyncCallAction(action: "SYNC_CALL_ACCEPT" | "SYNC_CALL_END", callSid: string): Promise<void> {
+    try {
+      const myEmail = this.client.authService.userEmail;
+      if (!myEmail) return;
+
+      const myHash = await crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+        .then((b) =>
+          Array.from(new Uint8Array(b))
+            .map((x) => x.toString(16).padStart(2, "0"))
+            .join(""),
+        );
+
+      const sessions = this.client.sessionService.sessions;
+      for (const [sid, session] of Object.entries(sessions)) {
+        if (
+          (session as any).peerEmailHash &&
+          (session as any).peerEmailHash.toLowerCase() === myHash.toLowerCase() &&
+          (session as any).online
+        ) {
+          try {
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({ t: "MSG", data: { type: action, callSid } }),
+              0,
+            );
+            if (Object.keys(payloads).length > 0) {
+              this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+              console.log(`[MessageService] Sent ${action} for call with ${callSid} to own device session ${sid}`);
+            }
+          } catch (e) {
+            console.warn(`[MessageService] Failed to send ${action} for ${sid}`, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[MessageService] broadcastSyncCallAction (${action}) failed`, e);
+    }
   }
 
   private async _executeBroadcastManifestToOwnDevices() {

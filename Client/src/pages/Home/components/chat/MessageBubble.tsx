@@ -316,11 +316,39 @@ export const MessageBubble = React.memo(
 
     const handleCopy = async () => {
       const text = msg.text || "";
+      let base64Image: string | undefined = undefined;
+
       try {
-        await Clipboard.write({ string: text });
+        if (msg.type === "image" && imageSrc) {
+          try {
+            const res = await fetch(imageSrc);
+            const blob = await res.blob();
+            base64Image = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch (e) {
+            console.error("Failed to fetch image for clipboard", e);
+          }
+        }
+
+        const payload: any = {};
+        if (text) {
+          payload.string = text;
+        } else if (!base64Image) {
+          payload.string = ""; // Fallback
+        }
+        
+        if (base64Image) {
+          payload.image = base64Image;
+        }
+
+        await Clipboard.write(payload);
       } catch (err) {
         console.error("Clipboard copy failed", err);
-        alert("Failed to copy text");
+        alert("Failed to copy to clipboard");
       }
       setContextMenu(null);
     };

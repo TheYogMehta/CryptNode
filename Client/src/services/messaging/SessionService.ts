@@ -251,15 +251,17 @@ export class SessionService extends EventEmitter {
           // Keys are strictly identical, just update metadata and abort re-derivation.
           const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
           const resolvedPeerAvatarVer = peerAvatarVer ? Number(peerAvatarVer) : 0;
-          
+
           Object.assign(this.sessions[sid], {
             peerEmail: normalizedPeerEmail || this.sessions[sid].peerEmail,
             peerEmailHash: resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
             peerName: peerName || this.sessions[sid].peerName,
             peer_name_ver: Math.max(resolvedPeerNameVer, this.sessions[sid].peer_name_ver || 0),
             peer_avatar_ver: Math.max(resolvedPeerAvatarVer, this.sessions[sid].peer_avatar_ver || 0),
-            online
+            online,
+            isConnected: true
           });
+          this.connectedSids.add(sid);
           return;
         }
       }
@@ -271,7 +273,7 @@ export class SessionService extends EventEmitter {
           isConnected: true,
         };
       }
-      
+
       // Synchronously assign metadata upfront so that synchronous event orchestrators
       // checking `peerEmailHash` don't find it missing while crypto deriving is pending.
       // Also assign public keys so that concurrent calls don't think keys need rotating.
@@ -281,40 +283,40 @@ export class SessionService extends EventEmitter {
       this.sessions[sid].peerPubKeys = remotePubB64s;
       this.sessions[sid].ownPubKeys = ownPubKeys || [];
 
-    const cryptoKeysMap: Record<string, CryptoKey> = {};
-    const jwksMap: Record<string, any> = {};
+      const cryptoKeysMap: Record<string, CryptoKey> = {};
+      const jwksMap: Record<string, any> = {};
 
-    const allKeysForDerivation = new Set([
-      ...remotePubB64s,
-      ...(ownPubKeys || []),
-    ]);
+      const allKeysForDerivation = new Set([
+        ...remotePubB64s,
+        ...(ownPubKeys || []),
+      ]);
 
-    for (const pubB64 of allKeysForDerivation) {
-      if (!pubB64) continue;
-      const sharedKey = await this.deriveSharedKey(pubB64);
-      cryptoKeysMap[pubB64] = sharedKey;
-      jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", sharedKey);
-    }
-
-    let peerAvatarFile: string | undefined = undefined;
-    if (peerAvatar) {
-      let avatarBase64 = peerAvatar;
-      if (peerAvatar.startsWith("data:")) {
-        avatarBase64 = peerAvatar.split(",")[1] || "";
+      for (const pubB64 of allKeysForDerivation) {
+        if (!pubB64) continue;
+        const sharedKey = await this.deriveSharedKey(pubB64);
+        cryptoKeysMap[pubB64] = sharedKey;
+        jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", sharedKey);
       }
-      if (avatarBase64.length > 256) {
-        try {
-          peerAvatarFile = await StorageService.saveProfileImage(
-            avatarBase64,
-            sid,
-          );
-        } catch (_e) {
-          peerAvatarFile = undefined;
+
+      let peerAvatarFile: string | undefined = undefined;
+      if (peerAvatar) {
+        let avatarBase64 = peerAvatar;
+        if (peerAvatar.startsWith("data:")) {
+          avatarBase64 = peerAvatar.split(",")[1] || "";
         }
-      } else {
-        peerAvatarFile = peerAvatar;
+        if (avatarBase64.length > 256) {
+          try {
+            peerAvatarFile = await StorageService.saveProfileImage(
+              avatarBase64,
+              sid,
+            );
+          } catch (_e) {
+            peerAvatarFile = undefined;
+          }
+        } else {
+          peerAvatarFile = peerAvatar;
+        }
       }
-    }
 
       const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
       const resolvedPeerAvatarVer = peerAvatarFile
@@ -333,6 +335,7 @@ export class SessionService extends EventEmitter {
         peerPubKeys: remotePubB64s,
         ownPubKeys: ownPubKeys || [],
       });
+      this.connectedSids.add(sid);
 
       await WorkerManager.getInstance().initSession(sid, jwksMap);
       await executeDB(
@@ -757,12 +760,11 @@ export class SessionService extends EventEmitter {
       });
     }
 
-    // Clear local session data
-    delete this.sessions[sid];
+    if (this.sessions[sid]) {
+      this.sessions[sid].isConnected = false;
+      this.sessions[sid].online = false;
+    }
     this.connectedSids.delete(sid);
-
-    await executeDB("DELETE FROM sessions WHERE sid = ?", [sid]);
-    await executeDB("DELETE FROM messages WHERE sid = ?", [sid]);
 
     this.emit("session_updated");
   }
@@ -818,7 +820,7 @@ export class SessionService extends EventEmitter {
         const emailStr = this.normalizeEmail(this.authService.userEmail);
         try {
           ownSid = await sha256(emailStr + ":" + emailStr);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (ownSid && sid === ownSid && isOnline && newPeerPubKeys && newPeerPubKeys.length > 0) {
@@ -918,7 +920,7 @@ export class SessionService extends EventEmitter {
             const emailStr = this.normalizeEmail(this.authService.userEmail);
             try {
               ownSid = await sha256(emailStr + ":" + emailStr);
-            } catch (e) {}
+            } catch (e) { }
           }
 
           if (ownSid && item.sid === ownSid && !item.online) {

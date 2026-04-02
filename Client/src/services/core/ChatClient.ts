@@ -385,10 +385,40 @@ export class ChatClient extends EventEmitter implements IChatClient {
         await this.sessionService.handleFriendDeny(data);
         this.emit("session_updated");
         break;
+      case "SYNC_ACCEPT":
+        let pendingUser: any = null;
+        if (data.targetHash) {
+          const rows = await queryDB("SELECT email, name, avatar FROM pending_requests WHERE senderHash = ?", [data.targetHash]);
+          if (rows && rows.length > 0) {
+            pendingUser = rows[0];
+          }
+          await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+            data.targetHash,
+          ]);
+        }
+        if (data.sid && data.targetHash) {
+          this.sessionService.connectedSids.add(data.sid); // Ensure it's marked connected locally
+          await this.sessionService.finalizeSession(
+            data.sid,
+            data.peerPubKeys || [],
+            pendingUser?.email,
+            data.targetHash,
+            pendingUser?.name,
+            pendingUser?.avatar,
+            0,
+            0,
+            data.ownPubKeys || [],
+            true, // online
+          );
+        }
+        this.emit("session_updated");
+        this.emit("pending_requests_changed");
+        break;
       case "SYNC_DENY":
         if (data.targetHash) {
           await this.sessionService.denyFriendByHash(data.targetHash, true);
           this.emit("session_updated");
+          this.emit("pending_requests_changed");
         }
         break;
       case "SYNC_UNFRIEND":
@@ -418,6 +448,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
             data.targetHash,
           ]);
           this.emit("block_list_changed");
+          this.emit("pending_requests_changed");
         }
         break;
       case "USER_BLOCKED_EVENT":
@@ -726,6 +757,14 @@ export class ChatClient extends EventEmitter implements IChatClient {
   public async broadcastProfileUpdate() {
     this.messageService.broadcastManifestToOwnDevices().catch(() => { });
     return this.messageService.broadcastProfileUpdate();
+  }
+
+  public async broadcastSyncCallAccept(callSid: string): Promise<void> {
+    return this.messageService.broadcastSyncCallAction("SYNC_CALL_ACCEPT", callSid);
+  }
+
+  public async broadcastSyncCallEnd(callSid: string): Promise<void> {
+    return this.messageService.broadcastSyncCallAction("SYNC_CALL_END", callSid);
   }
 
   public async sendReaction(

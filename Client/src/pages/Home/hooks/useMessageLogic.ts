@@ -15,6 +15,7 @@ export const useMessageLogic = ({
   loadSessions,
 }: UseMessageLogicProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [firstItemIndex, setFirstItemIndex] = useState(0);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -64,14 +65,22 @@ export const useMessageLogic = ({
     }));
 
     if (!beforeTimestamp && !maintainCount) {
+      // First load: Query total messages for this session
+      try {
+        const countRows = await queryDB("SELECT COUNT(*) as count FROM messages WHERE sid = ?", [sid]);
+        const totalRows = countRows[0]?.count || 0;
+        setFirstItemIndex(Math.max(0, totalRows - formatted.length));
+      } catch (e) {
+        setFirstItemIndex(0);
+        console.error("Failed to get total count", e);
+      }
       setMessages(formatted.reverse());
     } else if (maintainCount) {
       setMessages((prev) => {
-        // preserve optimistic messages if they exist by mapping existing tempIds or just replacing what's in DB
-        // since we are replacing the view, we just replace it.
         return formatted.reverse();
       });
     } else {
+      setFirstItemIndex(prev => Math.max(0, prev - formatted.length));
       setMessages((prev) => {
         if (formatted.length === 0) return prev;
         return [...formatted.reverse(), ...prev];
@@ -352,6 +361,7 @@ export const useMessageLogic = ({
   return {
     state: {
       messages,
+      firstItemIndex,
       replyingTo,
       isRateLimited,
       isLoadingHistory,

@@ -79,6 +79,7 @@ interface ChatWindowProps {
   onLoadMore?: () => void;
   isRateLimited?: boolean;
   isLoadingHistory?: boolean;
+  firstItemIndex?: number;
 }
 
 interface PendingAttachment {
@@ -104,6 +105,7 @@ export const ChatWindowDefault = ({
   onLoadMore,
   isRateLimited,
   isLoadingHistory,
+  firstItemIndex = 0,
 }: ChatWindowProps) => {
   const { messageLayout } = useTheme();
   const canScreenShare = ChatClient.canScreenShare;
@@ -834,6 +836,7 @@ export const ChatWindowDefault = ({
           ref={virtuosoRef}
           style={{ height: "100%" }}
           data={filteredMessages}
+          firstItemIndex={firstItemIndex}
           initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
           followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
           alignToBottom
