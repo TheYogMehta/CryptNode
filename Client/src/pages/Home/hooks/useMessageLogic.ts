@@ -62,7 +62,7 @@ export const useMessageLogic = ({
       ...r,
       replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
     }));
-    
+
     if (!beforeTimestamp && !maintainCount) {
       setMessages(formatted.reverse());
     } else if (maintainCount) {
@@ -98,7 +98,7 @@ export const useMessageLogic = ({
       const toAdd = [...messageBuffer];
       messageBuffer = [];
       setMessages((prev) => [...prev, ...toAdd]);
-      
+
       if (activeChatRef.current) {
         const ids = toAdd.map(m => m.id);
         const chunkSize = 500;
@@ -133,11 +133,16 @@ export const useMessageLogic = ({
       );
     };
 
-    const onFileDownloaded = ({ messageId }: any) => {
+    const onFileDownloaded = ({ messageId, filename }: any) => {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
-            ? { ...m, mediaStatus: "downloaded", mediaProgress: 1 }
+            ? {
+              ...m,
+              mediaStatus: "downloaded",
+              mediaProgress: 1,
+              mediaFilename: filename || m.mediaFilename,
+            }
             : m,
         ),
       );
@@ -214,16 +219,16 @@ export const useMessageLogic = ({
     const replyContext =
       currentReplyTo && currentReplyTo.id
         ? {
-            id: currentReplyTo.id,
-            text: currentReplyTo.text,
-            sender:
-              currentReplyTo.sender === "me"
-                ? "Me"
-                : currentReplyTo.sender || "Other",
-            type: currentReplyTo.type,
-            mediaFilename: currentReplyTo.mediaFilename,
-            thumbnail: currentReplyTo.thumbnail,
-          }
+          id: currentReplyTo.id,
+          text: currentReplyTo.text,
+          sender:
+            currentReplyTo.sender === "me"
+              ? "Me"
+              : currentReplyTo.sender || "Other",
+          type: currentReplyTo.type,
+          mediaFilename: currentReplyTo.mediaFilename,
+          thumbnail: currentReplyTo.thumbnail,
+        }
         : undefined;
 
     const msgType = "text";
@@ -318,8 +323,8 @@ export const useMessageLogic = ({
       type: fileToSend.type.startsWith("image")
         ? "image"
         : fileToSend.type.startsWith("video")
-        ? "video"
-        : "file",
+          ? "video"
+          : "file",
       timestamp: Date.now(),
       mediaTotalSize: fileToSend.size,
       tempUrl: URL.createObjectURL(fileToSend),

@@ -50,6 +50,9 @@ export class AuthService extends EventEmitter {
         const email = this.extractEmailFromToken(token);
         if (!email) throw new Error("Could not extract email from token");
         this.userEmail = email.toLowerCase().trim();
+
+        await setActiveUser(this.userEmail);
+
         const pubKey = await this.setupDeviceKeys(this.userEmail);
 
         if (socket.isConnected()) {

@@ -1,9 +1,11 @@
 import { StorageService, CHUNK_SIZE } from "../storage/StorageService";
 import { queryDB, executeDB } from "../storage/sqliteService";
 import { MAX_ENCRYPTED_PAYLOAD_CHARS } from "../core/protocolLimits";
+import { sha256 } from "../../utils/crypto";
 
 export interface IFileTransferClient {
   sessions: Record<string, any>;
+  userEmail: string | null;
   send(frame: any): void;
   encryptForSession(
     sid: string,
@@ -97,10 +99,10 @@ export class FileTransferService {
     const msgType = isImage
       ? "image"
       : isVideo
-      ? "video"
-      : isAudio
-      ? "audio"
-      : "file";
+        ? "video"
+        : isAudio
+          ? "audio"
+          : "file";
     const messageId = await this.client.insertMessageRecord(
       sid,
       fileInfo.caption || "",
@@ -152,13 +154,45 @@ export class FileTransferService {
     messageId: string,
     chunkIndex: number = 0,
   ) {
-    if (!this.client.sessions[sid]?.online) {
+    const myEmail = this.client.userEmail;
+    let ownSid: string | null = null;
+    if (myEmail) {
+      const normalizedEmail = myEmail.trim().toLowerCase();
+      ownSid = await sha256(normalizedEmail + ":" + normalizedEmail);
+    }
+
+    const msgRows = await queryDB(
+      "SELECT sender, sid FROM messages WHERE id = ?",
+      [messageId],
+    );
+    const msgSender = msgRows[0]?.sender || "other";
+    const msgSid = msgRows[0]?.sid || sid;
+
+    let targetSid: string | null = null;
+
+    if (msgSender === "me") {
+      // Sent by one of our own devices. Prioritize asking our own devices.
+      if (ownSid && this.client.sessions[ownSid]?.online) {
+        targetSid = ownSid;
+      } else if (msgSid && this.client.sessions[msgSid]?.online) {
+        targetSid = msgSid;
+      }
+    } else {
+      // Sent by the remote peer. Prioritize asking them as they definitely have it.
+      if (msgSid && this.client.sessions[msgSid]?.online) {
+        targetSid = msgSid;
+      } else if (ownSid && this.client.sessions[ownSid]?.online) {
+        targetSid = ownSid;
+      }
+    }
+
+    if (!targetSid) {
       console.warn(
-        `[FileTransfer] Cannot download ${messageId}, user ${sid} is OFFLINE`,
+        `[FileTransfer] Cannot download ${messageId}, no online sources found. (ownSid=${ownSid}, msgSid=${msgSid}, sender=${msgSender})`,
       );
       this.client.emit("notification", {
         type: "error",
-        message: "User is offline. Download queued.",
+        message: "No online devices can serve this file.",
       });
       return;
     }
@@ -166,7 +200,7 @@ export class FileTransferService {
     let startChunk = chunkIndex;
     try {
       const rows = await queryDB(
-        "SELECT filename, size, status, file_size FROM media WHERE message_id = ?",
+        "SELECT filename, original_name, file_size, mime_type, thumbnail, status FROM media WHERE message_id = ?",
         [messageId],
       );
       if (rows.length > 0) {
@@ -208,10 +242,11 @@ export class FileTransferService {
     }
 
     console.log(
-      `[FileTransfer] Sending download request for ${messageId} chunk ${startChunk} to ${sid}`,
+      `[FileTransfer] Sending download request for ${messageId} chunk ${startChunk} to target: ${targetSid}`,
     );
+
     const payload = await this.client.encryptForSession(
-      sid,
+      targetSid,
       JSON.stringify({
         t: "MSG",
         data: { type: "FILE_REQ_CHUNK", messageId, chunkIndex: startChunk },
@@ -220,7 +255,7 @@ export class FileTransferService {
     );
     this.client.send({
       t: "MSG",
-      sid,
+      sid: targetSid,
       data: { payloads: payload },
       c: true,
       p: 1,
@@ -237,7 +272,7 @@ export class FileTransferService {
     );
 
     const rows = await queryDB(
-      "SELECT filename, file_size FROM media WHERE message_id = ?",
+      "SELECT filename, file_size, original_name, mime_type, thumbnail, is_compressed FROM media WHERE message_id = ?",
       [messageId],
     );
     if (!rows.length) {
@@ -247,7 +282,42 @@ export class FileTransferService {
       return;
     }
 
-    const { filename } = rows[0];
+    const { filename, file_size, original_name, mime_type, thumbnail, is_compressed } = rows[0];
+
+    if (startChunkIndex === 0) {
+      // Send FILE_INFO first so a synced device missing the media record can initialize it dynamically
+      try {
+        const infoPayload = await this.client.encryptForSession(
+          sid,
+          JSON.stringify({
+            t: "MSG",
+            data: {
+              type: "FILE_INFO",
+              messageId,
+              name: original_name,
+              size: file_size,
+              mimeType: mime_type,
+              thumbnail,
+              compressed: is_compressed === 1,
+              caption: "", // Sync purely for initialization purpose
+            },
+          }),
+          1,
+        );
+        this.client.send({
+          t: "MSG",
+          sid,
+          data: { payloads: infoPayload },
+          c: false,
+          p: 1,
+        });
+        // Give the receiving end a moment to initialize the SQLite media entry before chunks arrive
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } catch (e) {
+        console.error("[FileTransfer] Failed to send dynamic FILE_INFO:", e);
+      }
+    }
+
     const base64Data = await StorageService.readFile(filename);
     if (!base64Data) {
       console.error(`[FileTransfer] Could not read file ${filename}`);
@@ -303,8 +373,7 @@ export class FileTransferService {
         }
 
         console.log(
-          `[FileTransfer] Streamed chunk ${
-            chunkIndex + 1
+          `[FileTransfer] Streamed chunk ${chunkIndex + 1
           }/${totalChunks} for ${messageId}`,
         );
       } catch (e) {
@@ -388,14 +457,13 @@ export class FileTransferService {
                 "UPDATE media SET is_compressed = 0 WHERE message_id = ?",
                 [messageId],
               );
-              this.client.emit("file_downloaded", { messageId });
+              this.client.emit("file_downloaded", { messageId, filename });
             };
           } catch (e) {
-            console.error("Decompression failed", e);
-            this.client.emit("file_downloaded", { messageId });
+            this.client.emit("file_downloaded", { messageId, filename });
           }
         } else {
-          this.client.emit("file_downloaded", { messageId });
+          this.client.emit("file_downloaded", { messageId, filename });
         }
       } else {
         this.client.emit("download_progress", { messageId, progress });
@@ -423,10 +491,13 @@ export class FileTransferService {
     const msgType = isImage
       ? "image"
       : isVideo
-      ? "video"
-      : isAudio
-      ? "audio"
-      : "file";
+        ? "video"
+        : isAudio
+          ? "audio"
+          : "file";
+
+    const existingRows = await queryDB("SELECT 1 FROM messages WHERE id = ?", [data.messageId]);
+    const isNewMessage = existingRows.length === 0;
 
     const localId = await this.client.insertMessageRecord(
       sid,
@@ -438,23 +509,31 @@ export class FileTransferService {
     console.log(
       `[FileTransfer] Received FILE_INFO: name=${data.name}, caption=${data.caption}, mime=${data.mimeType}, size=${data.size}, sender=${sender}`,
     );
-    await StorageService.initMediaEntry(
-      localId,
-      data.name,
-      data.size,
-      data.mimeType,
-      data.thumbnail,
-      null,
-      data.compressed,
-    );
-    this.client.emit("message", {
-      sid,
-      text: data.caption || "",
-      sender: sender,
-      type: msgType,
-      thumbnail: data.thumbnail,
-      id: localId,
-      mediaStatus: "pending",
-    });
+
+    // Safety check so we don't crash if the media row already exists somehow
+    const existingMedia = await queryDB("SELECT 1 FROM media WHERE message_id = ?", [data.messageId]);
+    if (existingMedia.length === 0) {
+      await StorageService.initMediaEntry(
+        localId,
+        data.name,
+        data.size,
+        data.mimeType,
+        data.thumbnail,
+        null,
+        data.compressed,
+      );
+    }
+
+    if (isNewMessage) {
+      this.client.emit("message", {
+        sid,
+        text: data.caption || "",
+        sender: sender,
+        type: msgType,
+        thumbnail: data.thumbnail,
+        id: localId,
+        mediaStatus: "pending",
+      });
+    }
   }
 }

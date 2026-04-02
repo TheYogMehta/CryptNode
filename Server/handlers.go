@@ -936,38 +936,61 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.db.Exec("DELETE FROM public_keys WHERE email_hash = ?", eh)
 			s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
 
-			rows, err := s.db.Query("SELECT sid FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
+			rows, err := s.db.Query("SELECT sid, CASE WHEN user1_hash = ? THEN user2_hash ELSE user1_hash END AS target_hash FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh, eh)
 			if err == nil {
-				var sids []string
+				type Friend struct {
+					SID        string
+					TargetHash string
+				}
+				var friends []Friend
 				for rows.Next() {
-					var sid string
-					if err := rows.Scan(&sid); err == nil {
-						sids = append(sids, sid)
+					var f Friend
+					if err := rows.Scan(&f.SID, &f.TargetHash); err == nil {
+						friends = append(friends, f)
 					}
 				}
 				rows.Close()
 
-				s.mu.Lock()
-				for _, sid := range sids {
-					sess, ok := s.sessions[sid]
-					if ok {
+				for _, f := range friends {
+					// Notify target devices they were unfriended by the deleted account
+					targetRows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", f.TargetHash)
+					hasSockets := false
+					if err == nil {
+						for targetRows.Next() {
+							hasSockets = true
+							var socketID string
+							targetRows.Scan(&socketID)
+							s.mu.Lock()
+							if targetClient, ok := s.clients[socketID]; ok {
+								respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+								s.send(targetClient, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+							}
+							s.mu.Unlock()
+						}
+						targetRows.Close()
+					}
+
+					// Queue offline notification
+					if !hasSockets {
+						respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+						frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+						s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", f.TargetHash, string(frameEvent), time.Now())
+					}
+					
+					// Force close active session loops for safety
+					s.mu.Lock()
+					if sess, ok := s.sessions[f.SID]; ok {
 						sess.mu.Lock()
-						offlineData, _ := json.Marshal(map[string]any{
-							"peerPubKeys": []string{},
-						})
 						for _, c := range sess.clients {
 							if c.id != client.id {
-								s.send(c, Frame{
-									T:    "PEER_OFFLINE",
-									SID:  sid,
-									Data: json.RawMessage(offlineData),
-								})
+								respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+								s.send(c, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
 							}
 						}
 						sess.mu.Unlock()
 					}
+					s.mu.Unlock()
 				}
-				s.mu.Unlock()
 
 				s.db.Exec("DELETE FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
 			}

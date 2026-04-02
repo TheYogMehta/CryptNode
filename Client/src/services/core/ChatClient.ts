@@ -76,15 +76,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
         "[ChatClient] session_created event received from Service:",
         sid,
       );
-      this.broadcastProfileUpdate().catch((e) =>
-        console.warn(
-          "[ChatClient] Failed to broadcast profile after session creation",
-          e,
-        ),
-      );
-      this.messageService.broadcastManifestToOwnDevices().catch(() => { });
-      this.messageService.sendManifestToPeer(sid).catch((e) =>
-        console.warn("[ChatClient] Failed to push manifest to peer", e),
+      this.broadcastProfileUpdate().catch(() => { });
+      this.messageService.coordinateSync(sid).catch((e) =>
+        console.warn("[ChatClient] Failed to coordinate sync on session creation", e),
       );
       this.emit("session_created", sid);
     });
@@ -403,6 +397,20 @@ export class ChatClient extends EventEmitter implements IChatClient {
           this.emit("session_updated");
         }
         break;
+      case "UNFRIENDED":
+        if (data.senderHash) {
+          const sidsToRemove: string[] = [];
+          for (const [sid, session] of Object.entries(this.sessionService.sessions)) {
+            if (session.peerEmailHash === data.senderHash) {
+              sidsToRemove.push(sid);
+            }
+          }
+          await Promise.all(sidsToRemove.map(sid => this.sessionService.removeConnection(data.senderHash, sid, true)));
+          if (sidsToRemove.length > 0) {
+            this.emit("session_updated");
+          }
+        }
+        break;
       case "SYNC_BLOCK":
         if (data.targetHash) {
           await addBlockedUser(data.targetHash);
@@ -573,23 +581,17 @@ export class ChatClient extends EventEmitter implements IChatClient {
         if (Array.isArray(data)) {
           for (const sess of data) {
             if (sess.online && sess.sid) {
-              this.messageService.broadcastSyncState(sess.sid);
-              this.messageService.sendManifestToPeer(sess.sid).catch(() => { });
+              this.messageService.coordinateSync(sess.sid).catch(() => { });
             }
           }
         }
-        // Sync manifest to own devices that are now reachable
-        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
         break;
       case "PEER_ONLINE":
         await this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
-        this.messageService.sendManifestToPeer(sid).catch(() => { });
-        this.messageService.broadcastSyncState(sid);
         this.broadcastProfileUpdate();
-        // Sync manifest in case this is an own-device session coming online
-        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
+        this.messageService.coordinateSync(sid).catch(() => { });
         break;
       case "PEER_OFFLINE":
         // Fallback to empty array if keys aren't provided when going completely offline
