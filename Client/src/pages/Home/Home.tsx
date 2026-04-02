@@ -26,6 +26,7 @@ import {
 } from "./components/sidebar/Sidebar.styles";
 
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
+import { LocalLLMChatWindow } from "../../pages/LocalLLM/LocalLLMChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { Capacitor } from "@capacitor/core";
 import {
@@ -38,7 +39,6 @@ import {
 } from "./Home.styles";
 import { Menu } from "lucide-react";
 import { useGlobalSummary } from "./hooks/useGlobalSummary";
-import { qwenLocalService } from "../../services/ai/qwenLocal.service";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -75,6 +75,7 @@ const Home = () => {
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<any>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(true);
   const [storedAccounts, setStoredAccounts] = useState<any[]>([]);
   const [renameTarget, setRenameTarget] = useState<{
@@ -94,6 +95,8 @@ const Home = () => {
   const hasElectronGoogleLogin =
     typeof window !== "undefined" &&
     typeof window.SafeStorage?.googleLogin === "function";
+
+  const isAndroidPlatform = Capacitor.getPlatform() === "android";
 
   const [socialLoginInitialized, setSocialLoginInitialized] = useState(false);
 
@@ -465,7 +468,7 @@ const Home = () => {
 
   return (
     <ErrorBoundary>
-      {showSummaryModal && (
+      {showSummaryModal && !isAndroidPlatform && (
         <div
           style={{
             position: "fixed",
@@ -624,6 +627,20 @@ const Home = () => {
                 }
               }}
             />
+          ) : state.view === "chat" && state.activeChat === "local-llm" ? (
+            <LocalLLMChatWindow
+              onBack={() => {
+                actions.setActiveChat(null);
+                actions.setView("welcome");
+                if (isMobile) {
+                  actions.setIsSidebarOpen(true);
+                }
+              }}
+              onOpenSettings={() => {
+                setSettingsTab("Local AI");
+                setShowSettings(true);
+              }}
+            />
           ) : state.view === "chat" && state.activeChat ? (
             <ChatWindow
               messages={state.messages}
@@ -679,7 +696,11 @@ const Home = () => {
 
         {showSettings && (
           <SettingsOverlay
-            onClose={() => setShowSettings(false)}
+            defaultTab={settingsTab}
+            onClose={() => {
+              setShowSettings(false);
+              setSettingsTab(null);
+            }}
             currentUserEmail={state.userEmail}
             isMobile={isMobile}
             onAddAccount={async () => {

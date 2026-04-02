@@ -33,7 +33,7 @@ import {
   ReplyContainer,
   CloseReplyButton,
 } from "./ChatWindowModern.styles";
-import { qwenLocalService } from "../../../../services/ai/qwenLocal.service";
+import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { UserProfileModal } from "../overlays/UserProfileModal";
 import { MediaModal } from "./MediaModal";
@@ -72,7 +72,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   firstItemIndex = 0,
 }) => {
   const { messageLayout } = useTheme();
-  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
+  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus(false);
   const [inputText, setInputText] = useState("");
   const [showAiSuggestions, setShowAiSuggestions] = useState(true);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -98,7 +98,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
     if (isGeneratingReplies) return;
     setIsGeneratingReplies(true);
     try {
-      const items = await qwenLocalService.quickReplies(messages, inputText, 3);
+      const items = await localAIService.quickReplies(inputText, 3);
       setQuickReplies(items);
     } catch (e) {
       console.error(e);

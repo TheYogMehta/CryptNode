@@ -15,12 +15,14 @@ import {
 import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import keytar from "keytar";
-
 import {
   ElectronCapacitorApp,
   setupContentSecurityPolicy,
   setupReloadWatcher,
 } from "./setup";
+import * as https from "https";
+import * as http from "http";
+
 
 app.commandLine.appendSwitch("disable-http-cache");
 if (process.platform === "linux") {
@@ -370,4 +372,253 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
     console.error("[Main] Failed to delete database files:", e);
     return { success: false, error: String(e) };
   }
+});
+
+// ============================================================================
+// Local LLM (node-llama-cpp)
+// ============================================================================
+let globalLlama: any = null;
+let globalModel: any = null;
+let globalContext: any = null;
+let globalSession: any = null;
+
+const asyncImportDynamic = new Function('modulePath', 'return import(modulePath)');
+
+ipcMain.handle("llama:init", async (event, { modelPath }) => {
+  try {
+    const { getLlama, LlamaChatSession } = await asyncImportDynamic("node-llama-cpp");
+
+    if (!globalLlama) {
+      globalLlama = await getLlama();
+    }
+
+    // Cleanup old session if needed
+    if (globalContext) {
+      await globalContext.dispose();
+      globalContext = null;
+    }
+    if (globalModel) {
+      await globalModel.dispose();
+      globalModel = null;
+    }
+
+    // Try GPU first, then fall back to CPU if VRAM is insufficient
+    let usedCpuFallback = false;
+
+    try {
+      globalModel = await globalLlama.loadModel({ modelPath });
+    } catch (modelErr: any) {
+      const msg = modelErr.message || "";
+      if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate")) {
+        console.warn("[Main] GPU model load failed (Out of VRAM), falling back to CPU...");
+        try {
+          globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+          usedCpuFallback = true;
+        } catch (cpuErr: any) {
+          throw new Error(`Model load failed on both GPU and CPU: ${cpuErr.message}`);
+        }
+      } else {
+        throw new Error(`Model load failed: ${msg}`);
+      }
+    }
+
+    // Try progressively smaller context sizes
+    const contextSizes = [2048, 1024, 512];
+    let contextCreated = false;
+
+    for (const ctxSize of contextSizes) {
+      try {
+        globalContext = await globalModel.createContext({ contextSize: ctxSize });
+        contextCreated = true;
+        console.log(`[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""}`);
+        break;
+      } catch (ctxErr: any) {
+        const msg = ctxErr.message || "";
+        if (msg.includes("OutOfDeviceMemory") || msg.includes("Vulkan") || msg.includes("allocate") || msg.includes("compute")) {
+          console.warn(`[Main] Context creation failed at size ${ctxSize}, trying smaller...`);
+          // If we haven't tried CPU fallback yet for model, do it now
+          if (!usedCpuFallback) {
+            console.warn("[Main] Retrying model load with CPU fallback...");
+            if (globalModel) {
+              await globalModel.dispose();
+              globalModel = null;
+            }
+            try {
+              globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+              usedCpuFallback = true;
+            } catch (cpuErr: any) {
+              throw new Error(`CPU fallback model load failed: ${cpuErr.message}`);
+            }
+          }
+          continue;
+        }
+        throw ctxErr;
+      }
+    }
+
+    if (!contextCreated) {
+      if (globalModel) {
+        await globalModel.dispose();
+        globalModel = null;
+      }
+      throw new Error("Context creation failed: Could not allocate memory even at minimum context size (512)");
+    }
+
+    globalSession = new LlamaChatSession({ contextSequence: globalContext.getSequence() });
+
+    return { success: true, cpuFallback: usedCpuFallback };
+  } catch (err: any) {
+    console.error("[Main] Llama Init Error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("llama:clearChat", async () => {
+  if (globalSession) {
+    if (typeof globalSession.setChatHistory === 'function') {
+      globalSession.setChatHistory([]);
+    } else if (globalSession.chatHistory) {
+      globalSession.chatHistory = [];
+    }
+  }
+  return { success: true };
+});
+
+ipcMain.handle("llama:generate", async (event, { prompt, options, id }) => {
+  if (!globalSession) {
+    return { success: false, error: "Llama session not initialized" };
+  }
+
+  try {
+    const response = await globalSession.prompt(prompt, {
+      maxTokens: options.max_new_tokens || 128,
+      temperature: options.temperature || 0.2,
+      topP: options.top_p || 0.9,
+      onTextChunk(chunk: string) {
+        event.sender.send("llama:token", { id, token: chunk });
+      }
+    });
+
+    return { success: true, output: response };
+  } catch (err: any) {
+    console.error("[Main] Llama Generate Error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+function getModelsDir() {
+  const modelsDir = path.join(app.getPath("userData"), "LocalAI_Models");
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+  }
+  return modelsDir;
+}
+
+ipcMain.handle("llama:checkData", async (event, { filename }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  try {
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      return { exists: true, size: stats.size, path: filePath };
+    }
+  } catch (err) { }
+  return { exists: false, size: 0, path: filePath };
+});
+
+ipcMain.handle("llama:delete", async (event, { filename }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  const partPath = filePath + ".part";
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    if (fs.existsSync(partPath)) {
+      fs.unlinkSync(partPath);
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+import fetch from "node-fetch";
+
+const activeDownloads: Record<string, any> = {};
+
+ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  const partPath = filePath + ".part";
+
+  try {
+    // node-fetch natively follows up to 20 redirects automatically
+    const res = await fetch(url);
+    if (!res.ok) {
+      return { success: false, error: `Failed with status ${res.status}` };
+    }
+
+    const totalBytes = parseInt(res.headers.get("content-length") || "0", 10);
+    const file = fs.createWriteStream(partPath);
+    activeDownloads[id] = { file };
+
+    let downloadedBytes = 0;
+
+    return new Promise((resolve) => {
+      res.body.on("data", (chunk: any) => {
+        downloadedBytes += chunk.length;
+        event.sender.send("llama:download-progress", {
+          id,
+          bytes: downloadedBytes,
+          total: totalBytes
+        });
+      });
+
+      res.body.pipe(file);
+
+      file.on("finish", () => {
+        activeDownloads[id] = null;
+        try {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          fs.renameSync(partPath, filePath);
+          resolve({ success: true, path: filePath });
+        } catch (e: any) {
+          resolve({ success: false, error: "Failed to finalize downloaded file: " + e.message });
+        }
+      });
+
+      file.on("error", (err: any) => {
+        activeDownloads[id] = null;
+        fs.unlink(partPath, () => { });
+        resolve({ success: false, error: err.message });
+      });
+
+      res.body.on("error", (err: any) => {
+        file.close();
+        fs.unlink(partPath, () => { });
+        activeDownloads[id] = null;
+        resolve({ success: false, error: err.message });
+      });
+
+      activeDownloads[id].request = res.body;
+    });
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+
+ipcMain.handle("llama:cancel-download", async (event, { id }) => {
+  if (activeDownloads[id]) {
+    if (activeDownloads[id].request) {
+      activeDownloads[id].request.destroy();
+    }
+    if (activeDownloads[id].file) {
+      activeDownloads[id].file.close();
+    }
+    activeDownloads[id] = null;
+    return { success: true };
+  }
+  return { success: false };
 });
