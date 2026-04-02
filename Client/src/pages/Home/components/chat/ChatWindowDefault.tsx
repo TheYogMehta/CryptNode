@@ -569,7 +569,7 @@ export const ChatWindowDefault = ({
     setIsGeneratingReplies(true);
     try {
       if (!localAIService.isLoaded) await localAIService.init();
-      const items = await localAIService.quickReplies(messages, input, 3);
+      const items = await localAIService.quickReplies(input, 3);
       setQuickReplies(items);
     } catch (e) {
       console.error("Failed to generate replies", e);

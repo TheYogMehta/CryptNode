@@ -15,12 +15,14 @@ import {
 import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import keytar from "keytar";
-
 import {
   ElectronCapacitorApp,
   setupContentSecurityPolicy,
   setupReloadWatcher,
 } from "./setup";
+import * as https from "https";
+import * as http from "http";
+
 
 app.commandLine.appendSwitch("disable-http-cache");
 if (process.platform === "linux") {
@@ -389,7 +391,7 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
     if (!globalLlama) {
       globalLlama = await getLlama();
     }
-    
+
     // Cleanup old session if needed
     if (globalContext) {
       await globalContext.dispose();
@@ -399,7 +401,7 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
       await globalModel.dispose();
       globalModel = null;
     }
-    
+
     try {
       globalModel = await globalLlama.loadModel({ modelPath });
     } catch (modelErr: any) {
@@ -419,9 +421,9 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
       }
       throw new Error(`Context creation failed (Out of VRAM?): ${ctxErr.message}`);
     }
-    
+
     globalSession = new LlamaChatSession({ contextSequence: globalContext.getSequence() });
-    
+
     return { success: true };
   } catch (err: any) {
     console.error("[Main] Llama Init Error:", err);
@@ -429,11 +431,22 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
   }
 });
 
+ipcMain.handle("llama:clearChat", async () => {
+  if (globalSession) {
+    if (typeof globalSession.setChatHistory === 'function') {
+      globalSession.setChatHistory([]);
+    } else if (globalSession.chatHistory) {
+      globalSession.chatHistory = [];
+    }
+  }
+  return { success: true };
+});
+
 ipcMain.handle("llama:generate", async (event, { prompt, options, id }) => {
   if (!globalSession) {
     return { success: false, error: "Llama session not initialized" };
   }
-  
+
   try {
     const response = await globalSession.prompt(prompt, {
       maxTokens: options.max_new_tokens || 128,
@@ -451,9 +464,6 @@ ipcMain.handle("llama:generate", async (event, { prompt, options, id }) => {
   }
 });
 
-import * as https from "https";
-import * as http from "http";
-
 function getModelsDir() {
   const modelsDir = path.join(app.getPath("userData"), "LocalAI_Models");
   if (!fs.existsSync(modelsDir)) {
@@ -470,17 +480,20 @@ ipcMain.handle("llama:checkData", async (event, { filename }) => {
       const stats = fs.statSync(filePath);
       return { exists: true, size: stats.size, path: filePath };
     }
-  } catch (err) {}
+  } catch (err) { }
   return { exists: false, size: 0, path: filePath };
 });
 
 ipcMain.handle("llama:delete", async (event, { filename }) => {
   const modelsDir = getModelsDir();
   const filePath = path.join(modelsDir, filename);
+  const partPath = filePath + ".part";
   try {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      return { success: true };
+    }
+    if (fs.existsSync(partPath)) {
+      fs.unlinkSync(partPath);
     }
     return { success: true };
   } catch (err: any) {
@@ -495,51 +508,58 @@ const activeDownloads: Record<string, any> = {};
 ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
   const modelsDir = getModelsDir();
   const filePath = path.join(modelsDir, filename);
-  
+  const partPath = filePath + ".part";
+
   try {
     // node-fetch natively follows up to 20 redirects automatically
     const res = await fetch(url);
     if (!res.ok) {
-       return { success: false, error: `Failed with status ${res.status}` };
+      return { success: false, error: `Failed with status ${res.status}` };
     }
 
     const totalBytes = parseInt(res.headers.get("content-length") || "0", 10);
-    const file = fs.createWriteStream(filePath);
+    const file = fs.createWriteStream(partPath);
     activeDownloads[id] = { file };
-    
+
     let downloadedBytes = 0;
-    
+
     return new Promise((resolve) => {
-       res.body.on("data", (chunk: any) => {
-          downloadedBytes += chunk.length;
-          event.sender.send("llama:download-progress", {
-             id,
-             bytes: downloadedBytes,
-             total: totalBytes
-          });
-       });
+      res.body.on("data", (chunk: any) => {
+        downloadedBytes += chunk.length;
+        event.sender.send("llama:download-progress", {
+          id,
+          bytes: downloadedBytes,
+          total: totalBytes
+        });
+      });
 
-       res.body.pipe(file);
+      res.body.pipe(file);
 
-       file.on("finish", () => {
-          activeDownloads[id] = null;
+      file.on("finish", () => {
+        activeDownloads[id] = null;
+        try {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          fs.renameSync(partPath, filePath);
           resolve({ success: true, path: filePath });
-       });
+        } catch (e: any) {
+          resolve({ success: false, error: "Failed to finalize downloaded file: " + e.message });
+        }
+      });
 
-       file.on("error", (err: any) => {
-          activeDownloads[id] = null;
-          fs.unlink(filePath, () => {});
-          resolve({ success: false, error: err.message });
-       });
+      file.on("error", (err: any) => {
+        activeDownloads[id] = null;
+        fs.unlink(partPath, () => { });
+        resolve({ success: false, error: err.message });
+      });
 
-       res.body.on("error", (err: any) => {
-          file.close();
-          fs.unlink(filePath, () => {});
-          activeDownloads[id] = null;
-          resolve({ success: false, error: err.message });
-       });
-       
-       activeDownloads[id].request = res.body; 
+      res.body.on("error", (err: any) => {
+        file.close();
+        fs.unlink(partPath, () => { });
+        activeDownloads[id] = null;
+        resolve({ success: false, error: err.message });
+      });
+
+      activeDownloads[id].request = res.body;
     });
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -549,14 +569,14 @@ ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
 
 ipcMain.handle("llama:cancel-download", async (event, { id }) => {
   if (activeDownloads[id]) {
-     if (activeDownloads[id].request) {
-        activeDownloads[id].request.destroy();
-     }
-     if (activeDownloads[id].file) {
-        activeDownloads[id].file.close();
-     }
-     activeDownloads[id] = null;
-     return { success: true };
+    if (activeDownloads[id].request) {
+      activeDownloads[id].request.destroy();
+    }
+    if (activeDownloads[id].file) {
+      activeDownloads[id].file.close();
+    }
+    activeDownloads[id] = null;
+    return { success: true };
   }
   return { success: false };
 });

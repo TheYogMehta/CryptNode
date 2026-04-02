@@ -96,7 +96,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
     if (isGeneratingReplies) return;
     setIsGeneratingReplies(true);
     try {
-      const items = await localAIService.quickReplies(messages, inputText, 3);
+      const items = await localAIService.quickReplies(inputText, 3);
       setQuickReplies(items);
     } catch (e) {
       console.error(e);
