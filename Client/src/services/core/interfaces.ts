@@ -17,4 +17,6 @@ export interface IChatClient {
     replyTo?: any,
   ): Promise<string>;
   getPublicKeyString(): Promise<string>;
+  broadcastSyncCallAccept?(callSid: string): Promise<void>;
+  broadcastSyncCallEnd?(callSid: string): Promise<void>;
 }

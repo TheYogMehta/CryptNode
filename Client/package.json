@@ -61,9 +61,9 @@
     "otplib": "^12.0.1",
     "pako": "^2.1.0",
     "qrcode": "^1.5.4",
-    "react": "19.0.0",
+    "react": "^19.2.0",
     "react-circular-progressbar": "^2.2.0",
-    "react-dom": "19.0.0",
+    "react-dom": "^19.2.0",
     "react-filerobot-image-editor": "^5.0.0-beta.153",
     "react-hook-form": "^7.71.2",
     "react-hot-toast": "^2.6.0",
@@ -103,7 +103,12 @@
   },
   "description": "An Ionic project",
   "engines": {
-    "node": "22",
+    "node": ">=22",
     "npm": ">=11.7.0"
+  },
+  "overrides": {
+    "react-konva-utils": {
+      "konva": "$konva"
+    }
   }
 }

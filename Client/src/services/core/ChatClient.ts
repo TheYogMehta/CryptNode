@@ -76,15 +76,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
         "[ChatClient] session_created event received from Service:",
         sid,
       );
-      this.broadcastProfileUpdate().catch((e) =>
-        console.warn(
-          "[ChatClient] Failed to broadcast profile after session creation",
-          e,
-        ),
-      );
-      this.messageService.broadcastManifestToOwnDevices().catch(() => { });
-      this.messageService.sendManifestToPeer(sid).catch((e) =>
-        console.warn("[ChatClient] Failed to push manifest to peer", e),
+      this.broadcastProfileUpdate().catch(() => { });
+      this.messageService.coordinateSync(sid).catch((e) =>
+        console.warn("[ChatClient] Failed to coordinate sync on session creation", e),
       );
       this.emit("session_created", sid);
     });
@@ -391,16 +385,60 @@ export class ChatClient extends EventEmitter implements IChatClient {
         await this.sessionService.handleFriendDeny(data);
         this.emit("session_updated");
         break;
+      case "SYNC_ACCEPT":
+        let pendingUser: any = null;
+        if (data.targetHash) {
+          const rows = await queryDB("SELECT email, name, avatar FROM pending_requests WHERE senderHash = ?", [data.targetHash]);
+          if (rows && rows.length > 0) {
+            pendingUser = rows[0];
+          }
+          await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+            data.targetHash,
+          ]);
+        }
+        if (data.sid && data.targetHash) {
+          this.sessionService.connectedSids.add(data.sid); // Ensure it's marked connected locally
+          await this.sessionService.finalizeSession(
+            data.sid,
+            data.peerPubKeys || [],
+            pendingUser?.email,
+            data.targetHash,
+            pendingUser?.name,
+            pendingUser?.avatar,
+            0,
+            0,
+            data.ownPubKeys || [],
+            true, // online
+          );
+        }
+        this.emit("session_updated");
+        this.emit("pending_requests_changed");
+        break;
       case "SYNC_DENY":
         if (data.targetHash) {
           await this.sessionService.denyFriendByHash(data.targetHash, true);
           this.emit("session_updated");
+          this.emit("pending_requests_changed");
         }
         break;
       case "SYNC_UNFRIEND":
         if (data.targetHash && data.sid) {
           this.sessionService.removeConnection(data.targetHash, data.sid, true);
           this.emit("session_updated");
+        }
+        break;
+      case "UNFRIENDED":
+        if (data.senderHash) {
+          const sidsToRemove: string[] = [];
+          for (const [sid, session] of Object.entries(this.sessionService.sessions)) {
+            if (session.peerEmailHash === data.senderHash) {
+              sidsToRemove.push(sid);
+            }
+          }
+          await Promise.all(sidsToRemove.map(sid => this.sessionService.removeConnection(data.senderHash, sid, true)));
+          if (sidsToRemove.length > 0) {
+            this.emit("session_updated");
+          }
         }
         break;
       case "SYNC_BLOCK":
@@ -410,6 +448,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
             data.targetHash,
           ]);
           this.emit("block_list_changed");
+          this.emit("pending_requests_changed");
         }
         break;
       case "USER_BLOCKED_EVENT":
@@ -573,23 +612,17 @@ export class ChatClient extends EventEmitter implements IChatClient {
         if (Array.isArray(data)) {
           for (const sess of data) {
             if (sess.online && sess.sid) {
-              this.messageService.broadcastSyncState(sess.sid);
-              this.messageService.sendManifestToPeer(sess.sid).catch(() => { });
+              this.messageService.coordinateSync(sess.sid).catch(() => { });
             }
           }
         }
-        // Sync manifest to own devices that are now reachable
-        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
         break;
       case "PEER_ONLINE":
         await this.sessionService.setPeerOnline(sid, true, data?.peerPubKeys);
         this.emit("session_updated");
         this.syncPendingMessages();
-        this.messageService.sendManifestToPeer(sid).catch(() => { });
-        this.messageService.broadcastSyncState(sid);
         this.broadcastProfileUpdate();
-        // Sync manifest in case this is an own-device session coming online
-        this.messageService.broadcastManifestToOwnDevices().catch(() => { });
+        this.messageService.coordinateSync(sid).catch(() => { });
         break;
       case "PEER_OFFLINE":
         // Fallback to empty array if keys aren't provided when going completely offline
@@ -724,6 +757,14 @@ export class ChatClient extends EventEmitter implements IChatClient {
   public async broadcastProfileUpdate() {
     this.messageService.broadcastManifestToOwnDevices().catch(() => { });
     return this.messageService.broadcastProfileUpdate();
+  }
+
+  public async broadcastSyncCallAccept(callSid: string): Promise<void> {
+    return this.messageService.broadcastSyncCallAction("SYNC_CALL_ACCEPT", callSid);
+  }
+
+  public async broadcastSyncCallEnd(callSid: string): Promise<void> {
+    return this.messageService.broadcastSyncCallAction("SYNC_CALL_END", callSid);
   }
 
   public async sendReaction(

@@ -425,6 +425,21 @@ export const executeDB = async (sql: string, values: any[] = []) => {
   });
 };
 
+/**
+ * Executes a set of SQL statements in a single transaction.
+ * Optimized for bulk operations like MANIFEST sync.
+ */
+export const executeTransaction = async (
+  statements: { statement: string; values?: any[] }[]
+) => {
+  if (statements.length === 0) return;
+  await dbInit();
+  await CapacitorSQLite.executeSet({
+    database: currentDbName,
+    set: statements,
+  });
+};
+
 export const getMediaFilenames = async (): Promise<string[]> => {
   const rows = await queryDB("SELECT filename FROM media", []);
   return rows

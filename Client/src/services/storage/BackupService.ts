@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { queryDB, executeDB, switchDatabase, tableOrder } from "./sqliteService";
 import { AccountService } from "../auth/AccountService";
-import { getKeyFromSecureStorage } from "./SafeStorage";
+import { getKeyFromSecureStorage, setKeyFromSecureStorage } from "./SafeStorage";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { VAULT_DIR, PROFILE_DIR } from "./StorageUtils";
 import { hashIdentifier } from "./SafeStorage";
@@ -230,7 +230,6 @@ export class BackupService {
     const masterKeyFile = zip.file("master_key.txt");
     if (masterKeyFile) {
       const masterKeyStr = await masterKeyFile.async("text");
-      const { setKeyFromSecureStorage } = await import("./SafeStorage");
       await setKeyFromSecureStorage(
         await AccountService.getStorageKey(extractedEmail, "MASTER_KEY"),
         masterKeyStr,
@@ -290,7 +289,6 @@ export class BackupService {
 
     if (identityPrivFile) {
       const idKeyStr = await identityPrivFile.async("text");
-      const { setKeyFromSecureStorage } = await import("./SafeStorage");
       await setKeyFromSecureStorage(
         await AccountService.getStorageKey(extractedEmail, "identity_priv"),
         idKeyStr,
@@ -298,7 +296,6 @@ export class BackupService {
     }
     if (identityPubFile) {
       const pubKeyStr = await identityPubFile.async("text");
-      const { setKeyFromSecureStorage } = await import("./SafeStorage");
       await setKeyFromSecureStorage(
         await AccountService.getStorageKey(extractedEmail, "identity_pub"),
         pubKeyStr,

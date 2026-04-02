@@ -658,6 +658,7 @@ const Home = () => {
               onLoadMore={actions.loadMoreHistory}
               isRateLimited={state.isRateLimited}
               isLoadingHistory={state.isLoadingHistory}
+              firstItemIndex={state.firstItemIndex}
             />
           ) : state.view === "add" ? (
             <ConnectionSetup
@@ -713,6 +714,9 @@ const Home = () => {
             }}
             onSwitchAccount={async (email) => {
               try {
+                actions.setView("welcome");
+                actions.setActiveChat(null);
+                actions.setIsSidebarOpen(false);
                 // Phase 1: Unlock local DB only. Do NOT connect to WebSocket yet.
                 await ChatClient.switchAccountLocal(email);
                 setShowSettings(false);

@@ -165,6 +165,9 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     const onAuthError = () => {
       setIsJoining(false);
       setUserEmail(null);
+      setView("welcome");
+      setActiveChat(null);
+      setIsSidebarOpen(false);
     };
 
     const onDeviceNuclearSuccess = () => {

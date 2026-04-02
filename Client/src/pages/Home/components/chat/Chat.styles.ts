@@ -116,12 +116,15 @@ export const HeaderActions = styled.div`
 
 export const MessageList = styled.div`
   flex: 1;
-  overflow-y: auto;
+  min-height: 0; // Ensures it can shrink if needed
+  position: relative;
+`;
+
+export const MessageListInner = styled.div`
   padding: ${spacing[4]};
   display: flex;
   flex-direction: column;
-  gap: ${spacing[1]}; // Tighter gap for message groups
-  overscroll-behavior-y: contain;
+  gap: ${spacing[1]};
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};

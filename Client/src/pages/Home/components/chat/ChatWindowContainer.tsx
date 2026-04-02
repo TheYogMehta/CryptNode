@@ -17,6 +17,7 @@ interface ChatWindowProps {
   isRateLimited: boolean;
   isPending?: boolean;
   isLoadingHistory?: boolean;
+  firstItemIndex?: number;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = (props) => {

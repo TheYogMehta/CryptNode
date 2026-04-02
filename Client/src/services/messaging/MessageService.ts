@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { queryDB, executeDB, getAllBlockEntries, getBlockedUsers, getAllPendingRequestsEntries, getMyProfileAndVersions, getAllAliasesEntries, getLastManifestSync, getMessagesSince, updateLastManifestSync } from "../storage/sqliteService";
+import { queryDB, executeDB, getAllBlockEntries, getBlockedUsers, getAllPendingRequestsEntries, getMyProfileAndVersions, getAllAliasesEntries, getLastManifestSync, getMessagesSince, updateLastManifestSync, executeTransaction } from "../storage/sqliteService";
 import { StorageService } from "../storage/StorageService";
 import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
@@ -58,6 +58,8 @@ export class MessageService extends EventEmitter {
   // Cooldown map to prevent GET_PROFILE request storms: sid -> timestamp of last request
   private profileRequestCooldown = new Map<string, number>();
   private static readonly PROFILE_REQUEST_COOLDOWN_MS = 10_000;
+  private syncLockSid: string | null = null;
+  private broadcastManifestCooldownTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(client: IMessageClient) {
     super();
@@ -535,7 +537,7 @@ export class MessageService extends EventEmitter {
         if (myHash.toLowerCase() === senderHash.toLowerCase()) {
           isOwnMessage = true;
         }
-        
+
         const ownSidCalc = await crypto.subtle
           .digest("SHA-256", new TextEncoder().encode(normEmail + ":" + normEmail))
           .then((b) =>
@@ -569,33 +571,66 @@ export class MessageService extends EventEmitter {
             const peerLatestFromYou: number = Number(data.latestFromYou) || 0;
             const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
 
+            console.log(`[MessageService] Handling SYNC_HINT from ${sid}: peerLatestFromYou=${peerLatestFromYou}, peerLatestFromMe=${peerLatestFromMe}, isOwnMessage=${isOwnMessage}`);
+
             // To the remote peer, "from you" means messages WE sent (sender='me' locally)
             // and "from me" means messages THEY sent (sender='other' locally)
 
-            const missingYou = await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
-              [sid, peerLatestFromYou],
-            );
+            let missing: any[] = [];
 
-            // Only query 'other' messages if the peer explicitly gave a latestFromMe hint
-            // (backward compatibility check).
-            const missingMe = data.latestFromMe !== undefined ? await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
-              [sid, peerLatestFromMe],
-            ) : [];
+            if (isOwnMessage) {
+              // For own-device sync, we want a full mirror of the database (all sessions, all senders).
+              const queryTime = Math.max(peerLatestFromYou, peerLatestFromMe);
+              missing = await queryDB(
+                "SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC",
+                [queryTime],
+              );
+            } else {
+              // For regular friends, we only send messages from this specific session.
+              const missingYou = await queryDB(
+                "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
+                [sid, peerLatestFromYou],
+              );
 
-            // Send back both the messages they are missing from us, and from themselves.
-            const missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+              // Only query 'other' messages if the peer explicitly gave a latestFromMe hint.
+              const missingMe = (data.latestFromMe !== undefined) ? await queryDB(
+                "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
+                [sid, peerLatestFromMe],
+              ) : [];
 
-            if (missing.length === 0) break;
+              missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+            }
+
+            let manifestData: any = { messages: missing };
+
+            // If this is our own device asking for sync, include full metadata too.
+            // This ensures new devices / re-installs get everything.
+            if (isOwnMessage) {
+              const [blocks, requests, aliases, profile] = await Promise.all([
+                getAllBlockEntries(),
+                getAllPendingRequestsEntries(),
+                getAllAliasesEntries(),
+                getMyProfileAndVersions()
+              ]);
+              manifestData = {
+                ...manifestData,
+                blocks,
+                requests,
+                aliases,
+                profile: profile || undefined
+              };
+            }
+
+            if (missing.length === 0 && !isOwnMessage) break;
+
             const payloads = await this.client.encryptForSession(
               sid,
-              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: missing } } }),
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: manifestData } }),
               0,
             );
             if (Object.keys(payloads).length > 0) {
               this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-              console.log(`[MessageService] SYNC_HINT → sent ${missing.length} missing messages to ${sid}`);
+              console.log(`[MessageService] SYNC_HINT → sent MANIFEST (incl ${missing.length} messages) to ${sid}`);
             }
           } catch (e) {
             console.warn(`[MessageService] Failed to respond to SYNC_HINT for ${sid}`, e);
@@ -781,7 +816,6 @@ export class MessageService extends EventEmitter {
               blocks?: { email: string; action: "block" | "unblock"; timestamp: number }[];
               requests?: { email: string; name?: string; avatar?: string; publicKey?: string; senderHash?: string; action: "pending" | "accepted" | "denied"; timestamp: number }[];
               aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string }[];
-              // NOTE: isOwnMessage is checked below before applying sensitive sections
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
             };
@@ -1011,29 +1045,34 @@ export class MessageService extends EventEmitter {
               }
 
               const updatedSids = new Set<string>();
+              const statements: { statement: string; values: any[] }[] = [];
 
               for (const msg of manifest.messages) {
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
-                // For peer manifests: messages the peer sent (sender="me" on their device)
-                // must be stored as sender="other" on our device so they display correctly.
-                // Conversely, messages WE sent (sender="other" on their device) must be stored as "me".
                 const senderValue = (!isOwnDevice)
                   ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
                   : (msg.sender || "unknown");
-                await executeDB(
-                  "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, 2, 2, ?)",
-                  [
+
+                statements.push({
+                  statement: "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?)",
+                  values: [
                     msg.id,
                     msg.sid,
                     senderValue,
                     msg.text || "",
                     msg.type || "text",
                     msg.timestamp,
+                    msg.status || 1,
                     msg.reply_to || null,
                   ]
-                );
+                });
                 updatedSids.add(msg.sid);
               }
+
+              if (statements.length > 0) {
+                await executeTransaction(statements);
+              }
+
               for (const syncSid of updatedSids) {
                 this.client.emit("messages_synced", { sid: syncSid });
               }
@@ -1069,7 +1108,7 @@ export class MessageService extends EventEmitter {
             console.log("[MessageService] Ignoring CALL_START sent by our own sibling device.");
             break;
           }
-          if (this.client.callService.isCalling) {
+          if (this.client.callService.isCalling || this.client.callService.incomingCallSid) {
             console.log(
               "[MessageService] Already on call, rejecting new call from",
               sid,
@@ -1083,6 +1122,7 @@ export class MessageService extends EventEmitter {
             return;
           }
           console.log("[MessageService] Received CALL_START");
+          this.client.callService.incomingCallSid = sid;
 
           this.client.callService.playRingtone();
 
@@ -1145,6 +1185,26 @@ export class MessageService extends EventEmitter {
             connected: wasCallConnected,
           });
           break;
+        case "SYNC_CALL_ACCEPT":
+        case "SYNC_CALL_END": {
+          if (isOwnMessage && isOwnDeviceSession) {
+            console.log(`[MessageService] A sibling device broadcasted ${data.type}. Stopping call state regionally.`);
+            
+            const isLocalActiveCall = (this.client.callService.isCalling && this.client.callService.currentCallSid === data.callSid);
+            const isLocalIncomingCall = (!this.client.callService.isCalling && this.client.callService.incomingCallSid === data.callSid);
+
+            if (isLocalActiveCall || isLocalIncomingCall) {
+              const connected = this.client.callService.isCallConnected;
+              const duration = this.client.callService.callStartTime
+                ? Date.now() - this.client.callService.callStartTime
+                : 0;
+              this.client.callService.cleanupCall();
+              // Emit so UI clears the ringing screen
+              this.client.emit("call_ended", { sid: data.callSid, duration, connected });
+            }
+          }
+          break;
+        }
         case "METADATA":
           try {
             const meta = data;
@@ -1661,7 +1721,6 @@ export class MessageService extends EventEmitter {
    * Both sides send on connect; receiver merges each section independently by timestamp.
    * The server only sees encrypted bytes — zero plaintext leakage.
    */
-  private broadcastManifestCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   public async broadcastManifestToOwnDevices(): Promise<void> {
     if (this.broadcastManifestCooldownTimer) {
       clearTimeout(this.broadcastManifestCooldownTimer);
@@ -1676,6 +1735,46 @@ export class MessageService extends EventEmitter {
         }
       }, 500);
     });
+  }
+
+  public async broadcastSyncCallAction(action: "SYNC_CALL_ACCEPT" | "SYNC_CALL_END", callSid: string): Promise<void> {
+    try {
+      const myEmail = this.client.authService.userEmail;
+      if (!myEmail) return;
+
+      const myHash = await crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+        .then((b) =>
+          Array.from(new Uint8Array(b))
+            .map((x) => x.toString(16).padStart(2, "0"))
+            .join(""),
+        );
+
+      const sessions = this.client.sessionService.sessions;
+      for (const [sid, session] of Object.entries(sessions)) {
+        if (
+          (session as any).peerEmailHash &&
+          (session as any).peerEmailHash.toLowerCase() === myHash.toLowerCase() &&
+          (session as any).online
+        ) {
+          try {
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({ t: "MSG", data: { type: action, callSid } }),
+              0,
+            );
+            if (Object.keys(payloads).length > 0) {
+              this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+              console.log(`[MessageService] Sent ${action} for call with ${callSid} to own device session ${sid}`);
+            }
+          } catch (e) {
+            console.warn(`[MessageService] Failed to send ${action} for ${sid}`, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[MessageService] broadcastSyncCallAction (${action}) failed`, e);
+    }
   }
 
   private async _executeBroadcastManifestToOwnDevices() {
@@ -1756,9 +1855,10 @@ export class MessageService extends EventEmitter {
       const session = this.client.sessionService.sessions[sid] as any;
       if (!session || !session.online) return;
 
-      // Skip own-device sessions — handled by broadcastManifestToOwnDevices
+      // Determine if this is an own-device session (same user email hash)
+      let isOwnDevice = false;
       const myEmail = this.client.authService.userEmail;
-      if (myEmail) {
+      if (myEmail && session.peerEmailHash) {
         const myHash = await crypto.subtle
           .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
           .then((b) =>
@@ -1766,27 +1866,34 @@ export class MessageService extends EventEmitter {
               .map((x) => x.toString(16).padStart(2, "0"))
               .join(""),
           );
-        if (session.peerEmailHash && session.peerEmailHash.toLowerCase() === myHash.toLowerCase()) {
-          return;
-        }
+        isOwnDevice = (session.peerEmailHash.toLowerCase() === myHash.toLowerCase());
       }
 
-      // Find the latest timestamp of messages we received FROM this peer.
-      // Sending this to them tells them exactly where our history ends, so
-      // they can send ONLY the delta we are missing.
-      const rowsYou = await queryDB(
-        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
-        [sid],
-      );
-      const latestFromYou: number = Number(rowsYou?.[0]?.ts) || 0;
+      let latestFromYou = 0;
+      let latestFromMe = 0;
 
-      // Also find the latest timestamp of messages we sent TO this peer.
-      // This is necessary so the peer can send us our own missing messages (e.g. from a new device).
-      const rowsMe = await queryDB(
-        "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
-        [sid],
-      );
-      const latestFromMe: number = Number(rowsMe?.[0]?.ts) || 0;
+      if (isOwnDevice) {
+        // For own-device sessions, find the overall latest timestamp across ALL messages.
+        const row = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages",
+        );
+        latestFromMe = Number(row?.[0]?.ts) || 0;
+        latestFromYou = latestFromMe;
+      } else {
+        // Find the latest timestamp of messages we received FROM this peer (sender != 'me').
+        const rowsYou = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
+          [sid],
+        );
+        latestFromYou = Number(rowsYou?.[0]?.ts) || 0;
+
+        // Find the latest timestamp of messages we sent TO this peer (sender == 'me').
+        const rowsMe = await queryDB(
+          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
+          [sid],
+        );
+        latestFromMe = Number(rowsMe?.[0]?.ts) || 0;
+      }
 
       const payloads = await this.client.encryptForSession(
         sid,
@@ -1827,5 +1934,59 @@ export class MessageService extends EventEmitter {
     );
     this.broadcastManifestToOwnDevices().catch(() => { });
     return id;
+  }
+
+  /** Coordinated sync logic to avoid "sync storms" between own devices. */
+  public async coordinateSync(sid: string) {
+    const session = this.client.sessionService.sessions[sid] as any;
+    if (!session || !session.online) return;
+
+    // Check if this is an own-device session (same user email hash)
+    let isOwnDevice = false;
+    const myEmail = this.client.authService.userEmail;
+    if (myEmail && session.peerEmailHash) {
+      const myHash = await crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(myEmail.trim().toLowerCase()))
+        .then((b) =>
+          Array.from(new Uint8Array(b))
+            .map((x) => x.toString(16).padStart(2, "0"))
+            .join(""),
+        );
+      isOwnDevice = (session.peerEmailHash.toLowerCase() === myHash.toLowerCase());
+    }
+
+    if (!isOwnDevice) {
+      // For normal friends, just do a regular sync handshake
+      this.sendManifestToPeer(sid).catch(() => { });
+      this.broadcastSyncState(sid).catch(() => { });
+      return;
+    }
+
+    // --- Own-device Coordination Logic ---
+    // Rule: only the device with the lexicographically SMALLER public key initiates the sync push.
+    // This breaks the infinite "both devices push everything to each other at once" loop.
+    const myPubKey = await this.client.authService.exportPub();
+    const peerPubKeys = session.peerPubKeys || [];
+
+    // We only care about the specific socket we are talking to, but for simplicity
+    // we check all active peer keys.
+    let isPrimarySyncDevice = true;
+    for (const pk of peerPubKeys) {
+      if (pk < myPubKey) {
+        isPrimarySyncDevice = false;
+        break;
+      }
+    }
+
+    if (isPrimarySyncDevice) {
+      console.log(`[MessageService] Coordination: We are PRIMARY sync device for ${sid}. Initiating sync...`);
+      this.sendManifestToPeer(sid).catch(() => { });
+      this.broadcastManifestToOwnDevices().catch(() => { });
+    } else {
+      console.log(`[MessageService] Coordination: Peer is PRIMARY sync device for ${sid}. Waiting for their MANIFEST.`);
+      // We still send a SYNC_HINT so they know what we are missing,
+      // but we don't blindly push our full state to them yet.
+      this.sendManifestToPeer(sid).catch(() => { });
+    }
   }
 }

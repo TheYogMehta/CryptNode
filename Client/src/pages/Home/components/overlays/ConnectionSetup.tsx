@@ -38,12 +38,14 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
     };
 
     ChatClient.on("inbound_request", handleNew);
+    ChatClient.on("pending_requests_changed", handleNew);
 
     loadRequests();
 
     return () => {
       mounted = false;
       ChatClient.off("inbound_request", handleNew);
+      ChatClient.off("pending_requests_changed", handleNew);
     };
   }, []);
 

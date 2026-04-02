@@ -53,6 +53,7 @@ interface ChatWindowProps {
   setReplyingTo: (msg: ChatMessage | null) => void;
   onLoadMore: () => void;
   isRateLimited: boolean;
+  firstItemIndex?: number;
 }
 
 export const ChatWindowModern: React.FC<ChatWindowProps> = ({
@@ -68,6 +69,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   setReplyingTo,
   onLoadMore,
   isRateLimited,
+  firstItemIndex = 0,
 }) => {
   const { messageLayout } = useTheme();
   const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus(false);
@@ -205,8 +207,8 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
           ref={virtuosoRef}
           style={{ height: "100%" }}
           data={messages}
-          totalCount={messages.length}
-          initialTopMostItemIndex={messages.length - 1}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
           followOutput="auto"
           alignToBottom
           atTopStateChange={(atTop: boolean) => {

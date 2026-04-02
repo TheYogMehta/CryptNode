@@ -131,7 +131,7 @@ func (s *Server) broadcastDeviceList(emailHash string) {
 	sockRows.Close()
 }
 
-func (s *Server) broadcastToOwnDevices(excludeClientID string, emailHash string, syncType string, syncData map[string]string) {
+func (s *Server) broadcastToOwnDevices(excludeClientID string, emailHash string, syncType string, syncData map[string]any) {
 	rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", emailHash)
 	if err != nil {
 		s.logger.Printf("Failed to get sockets for sync broadcast: %v", err)

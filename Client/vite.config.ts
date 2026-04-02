@@ -36,7 +36,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
+          vendor: ["react", "react-dom", "react-router-dom", "react-virtuoso"],
           ui: [
             "@mui/material",
             "@emotion/react",
@@ -44,7 +44,6 @@ export default defineConfig({
             "lucide-react",
           ],
           utils: ["lodash.debounce", "crypto-js"],
-          virtuoso: ["react-virtuoso"],
           emoji: ["emoji-picker-react"],
         },
       },
