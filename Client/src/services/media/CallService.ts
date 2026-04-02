@@ -154,7 +154,7 @@ export class CallService {
       this.ringtoneInterval = null;
     }
     if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
+      this.audioContext.close().catch(() => { });
       this.audioContext = null;
     }
   }
@@ -382,14 +382,20 @@ export class CallService {
     };
 
     this.peerConnection.oniceconnectionstatechange = () => {
-      console.log("ICE:", this.peerConnection?.iceConnectionState);
-      if (this.peerConnection?.iceConnectionState === "connected") {
+      const state = this.peerConnection?.iceConnectionState;
+      console.log("ICE:", state);
+      if (state === "connected" || state === "completed") {
         this.emitCallConnected(sid);
+      } else if (state === "disconnected" || state === "failed" || state === "closed") {
+        console.log(`[CallService] ICE connection state ${state}, ending call`);
+        this.endCall(sid);
       }
     };
 
     this.peerConnection.ontrack = (event) => {
       console.log("[CallService] Received remote track", event.track.kind);
+
+      this.emitCallConnected(sid);
 
       if (!this.remoteStream) {
         this.remoteStream = event.streams[0] || new MediaStream([event.track]);
@@ -402,12 +408,16 @@ export class CallService {
     };
 
     this.peerConnection.onconnectionstatechange = () => {
+      const state = this.peerConnection?.connectionState;
       console.log(
         "[CallService] PC connection state:",
-        this.peerConnection?.connectionState,
+        state,
       );
-      if (this.peerConnection?.connectionState === "connected") {
+      if (state === "connected") {
         this.emitCallConnected(sid);
+      } else if (state === "disconnected" || state === "failed" || state === "closed") {
+        console.log(`[CallService] PC connection state ${state}, ending call`);
+        this.endCall(sid);
       }
     };
   }
@@ -490,11 +500,11 @@ export class CallService {
     if (this.remoteAudioEl) {
       this.remoteAudioEl.muted = false;
       this.remoteAudioEl.volume = 1.0;
-      this.remoteAudioEl.play().catch(() => {});
+      this.remoteAudioEl.play().catch(() => { });
     }
 
     if (this.audioContext?.state === "suspended") {
-      this.audioContext.resume().catch(() => {});
+      this.audioContext.resume().catch(() => { });
     }
   }
 
@@ -900,7 +910,8 @@ export class CallService {
 
     if (
       this.peerConnection?.connectionState === "connected" ||
-      this.peerConnection?.iceConnectionState === "connected"
+      this.peerConnection?.iceConnectionState === "connected" ||
+      this.peerConnection?.iceConnectionState === "completed"
     ) {
       this.emitCallConnected(sid);
     }
@@ -928,7 +939,8 @@ export class CallService {
 
       if (
         this.peerConnection?.connectionState === "connected" ||
-        this.peerConnection?.iceConnectionState === "connected"
+        this.peerConnection?.iceConnectionState === "connected" ||
+        this.peerConnection?.iceConnectionState === "completed"
       ) {
         this.emitCallConnected(sid);
       }

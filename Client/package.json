@@ -12,8 +12,9 @@
     "lint": "eslint",
     "sync": "node sync.cjs",
     "electron:start": "cd electron && npm run electron:start",
-    "electron:dev": "VITE_DEV_SOCKET=1 cd electron && npm run electron:start",
-    "android:start": "npx cap open android"
+    "electron:pack": "cd electron && npm run electron:pack",
+    "android:start": "npx cap open android",
+    "android:pack": "cd android && ./gradlew clean assembleRelease -x lint --parallel --build-cache"
   },
   "dependencies": {
     "@cantoo/capacitor-llama": "^0.1.2",

@@ -136,7 +136,7 @@ export class MessageService extends EventEmitter {
       replyTo: data.replyTo,
       timestamp: data.timestamp,
     });
-    this.broadcastManifestToOwnDevices().catch(() => { });
+    this.broadcastManifestToOwnDevices(false).catch(() => { });
   }
 
   public async sendMessage(
@@ -166,7 +166,7 @@ export class MessageService extends EventEmitter {
 
       if (!this.client.sessionService.sessions[sid].online) {
         console.log(`[MessageService] Peer ${sid} is offline. Message queued locally.`);
-        this.broadcastManifestToOwnDevices().catch(() => { });
+        this.broadcastManifestToOwnDevices(false).catch(() => { });
         return;
       }
 
@@ -222,7 +222,7 @@ export class MessageService extends EventEmitter {
     } catch (e) {
       console.error("[MessageService] Failed to save sent message:", e);
     }
-    this.broadcastManifestToOwnDevices().catch(() => { });
+    this.broadcastManifestToOwnDevices(false).catch(() => { });
   }
 
   public async requestSync(
@@ -553,9 +553,11 @@ export class MessageService extends EventEmitter {
 
       switch (data.type) {
         case "MIC_STATUS":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           this.client.emit("peer_mic_status", { sid, muted: data.muted });
           break;
         case "CALL_MODE":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log(`[MessageService] Remote switched to mode: ${data.mode}`);
           this.client.emit("call_mode_changed", { sid, mode: data.mode });
           break;
@@ -603,25 +605,45 @@ export class MessageService extends EventEmitter {
 
             let manifestData: any = { messages: missing };
 
-            // If this is our own device asking for sync, include full metadata too.
-            // This ensures new devices / re-installs get everything.
+            // If this is our own device asking for sync, include full metadata too,
+            // BUT only if we are the PRIMARY sync device. This prevents both devices
+            // from redundantly full-syncing metadata to each other simultaneously.
+            let isPrimarySyncDevice = false;
+
             if (isOwnMessage) {
-              const [blocks, requests, aliases, profile] = await Promise.all([
-                getAllBlockEntries(),
-                getAllPendingRequestsEntries(),
-                getAllAliasesEntries(),
-                getMyProfileAndVersions()
-              ]);
-              manifestData = {
-                ...manifestData,
-                blocks,
-                requests,
-                aliases,
-                profile: profile || undefined
-              };
+              const myPubKey = await this.client.authService.exportPub();
+              const session = this.client.sessionService.sessions[sid] as any;
+              const peerPubKeys = session?.peerPubKeys || [];
+
+              isPrimarySyncDevice = true;
+              for (const pk of peerPubKeys) {
+                if (pk < myPubKey) {
+                  isPrimarySyncDevice = false;
+                  break;
+                }
+              }
+
+              if (isPrimarySyncDevice) {
+                const [blocks, requests, aliases, profile] = await Promise.all([
+                  getAllBlockEntries(),
+                  getAllPendingRequestsEntries(),
+                  getAllAliasesEntries(),
+                  getMyProfileAndVersions()
+                ]);
+                manifestData = {
+                  ...manifestData,
+                  blocks,
+                  requests,
+                  aliases,
+                  profile: profile || undefined
+                };
+              }
             }
 
-            if (missing.length === 0 && !isOwnMessage) break;
+            // If we have no missing messages:
+            // - Break if it's NOT an own device (we only sync messages with regular peers)
+            // - Break if it IS an own device BUT we are NOT the primary device (we aren't sending metadata)
+            if (missing.length === 0 && (!isOwnMessage || !isPrimarySyncDevice)) break;
 
             const payloads = await this.client.encryptForSession(
               sid,
@@ -1133,18 +1155,21 @@ export class MessageService extends EventEmitter {
           });
           break;
         case "RTC_OFFER":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log("[MessageService] Received RTC_OFFER");
           if (data?.offer) {
             await this.client.callService.handleRTCOffer(sid, data.offer);
           }
           break;
         case "RTC_ANSWER":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log("[MessageService] Received RTC_ANSWER");
           if (data?.answer) {
             await this.client.callService.handleRTCAnswer(sid, data.answer);
           }
           break;
         case "ICE_CANDIDATE":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log("[MessageService] Received ICE_CANDIDATE");
           if (data?.candidate) {
             await this.client.callService.handleICECandidate(
@@ -1154,6 +1179,7 @@ export class MessageService extends EventEmitter {
           }
           break;
         case "CALL_BUSY":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log("[MessageService] Remote user is busy");
           this.client.emit("notification", {
             type: "info",
@@ -1167,12 +1193,14 @@ export class MessageService extends EventEmitter {
           });
           break;
         case "CALL_ACCEPT":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log(
             "[MessageService] Received CALL_ACCEPT - call is being answered",
           );
           this.client.emit("call_accepted", { sid });
           break;
         case "CALL_END":
+          if (isOwnMessage && !isOwnDeviceSession) break;
           console.log("[MessageService] Received CALL_END");
           const wasCallConnected = this.client.callService.isCallConnected;
           this.client.callService.cleanupCall();
@@ -1199,8 +1227,8 @@ export class MessageService extends EventEmitter {
                 ? Date.now() - this.client.callService.callStartTime
                 : 0;
               this.client.callService.cleanupCall();
-              // Emit so UI clears the ringing screen
-              this.client.emit("call_ended", { sid: data.callSid, duration, connected });
+              // Emit so UI clears the ringing screen but does not log duplicates to DB
+              this.client.emit("call_ended", { sid: data.callSid, duration, connected, hideLog: true });
             }
           }
           break;
@@ -1721,14 +1749,14 @@ export class MessageService extends EventEmitter {
    * Both sides send on connect; receiver merges each section independently by timestamp.
    * The server only sees encrypted bytes — zero plaintext leakage.
    */
-  public async broadcastManifestToOwnDevices(): Promise<void> {
+  public async broadcastManifestToOwnDevices(includeMetadata: boolean = true): Promise<void> {
     if (this.broadcastManifestCooldownTimer) {
       clearTimeout(this.broadcastManifestCooldownTimer);
     }
     return new Promise<void>((resolve) => {
       this.broadcastManifestCooldownTimer = setTimeout(async () => {
         try {
-          await this._executeBroadcastManifestToOwnDevices();
+          await this._executeBroadcastManifestToOwnDevices(includeMetadata);
         } finally {
           this.broadcastManifestCooldownTimer = null;
           resolve();
@@ -1777,7 +1805,7 @@ export class MessageService extends EventEmitter {
     }
   }
 
-  private async _executeBroadcastManifestToOwnDevices() {
+  private async _executeBroadcastManifestToOwnDevices(includeMetadata: boolean = true) {
     try {
       const myEmail = this.client.authService.userEmail;
       if (!myEmail) return;
@@ -1790,18 +1818,22 @@ export class MessageService extends EventEmitter {
             .join(""),
         );
 
-      // Build the extensible manifest
-      const blocks = await getAllBlockEntries();
-      const requests = await getAllPendingRequestsEntries();
-      const aliases = await getAllAliasesEntries();
-      const profile = await getMyProfileAndVersions();
+      let manifest: any = {};
 
-      const manifest = {
-        blocks, // { email, action: 'block'|'unblock', timestamp }
-        requests, // { email, name, ..., action: 'pending'|'accepted'|'denied', timestamp }
-        aliases, // { sid, aliasName, aliasAvatar, timestamp }
-        profile: profile || undefined, // { name, avatar, nameVersion, avatarVersion }
-      };
+      if (includeMetadata) {
+        // Build the extensible manifest
+        const blocks = await getAllBlockEntries();
+        const requests = await getAllPendingRequestsEntries();
+        const aliases = await getAllAliasesEntries();
+        const profile = await getMyProfileAndVersions();
+
+        manifest = {
+          blocks, // { email, action: 'block'|'unblock', timestamp }
+          requests, // { email, name, ..., action: 'pending'|'accepted'|'denied', timestamp }
+          aliases, // { sid, aliasName, aliasAvatar, timestamp }
+          profile: profile || undefined, // { name, avatar, nameVersion, avatarVersion }
+        };
+      }
 
       const sessions = this.client.sessionService.sessions;
       for (const [sid, session] of Object.entries(sessions)) {
@@ -1932,7 +1964,7 @@ export class MessageService extends EventEmitter {
         replyTo ? JSON.stringify(replyTo) : null,
       ],
     );
-    this.broadcastManifestToOwnDevices().catch(() => { });
+    this.broadcastManifestToOwnDevices(false).catch(() => { });
     return id;
   }
 
@@ -1981,7 +2013,6 @@ export class MessageService extends EventEmitter {
     if (isPrimarySyncDevice) {
       console.log(`[MessageService] Coordination: We are PRIMARY sync device for ${sid}. Initiating sync...`);
       this.sendManifestToPeer(sid).catch(() => { });
-      this.broadcastManifestToOwnDevices().catch(() => { });
     } else {
       console.log(`[MessageService] Coordination: Peer is PRIMARY sync device for ${sid}. Waiting for their MANIFEST.`);
       // We still send a SYNC_HINT so they know what we are missing,

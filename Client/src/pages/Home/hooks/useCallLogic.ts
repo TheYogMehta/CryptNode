@@ -113,6 +113,8 @@ export const useCallLogic = ({
         text = "Missed Call";
       }
 
+      if (typeof data === "object" && data.hideLog) return;
+
       const id = crypto.randomUUID();
       const timestamp = Date.now();
 

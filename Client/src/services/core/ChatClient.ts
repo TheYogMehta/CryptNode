@@ -625,8 +625,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.messageService.coordinateSync(sid).catch(() => { });
         break;
       case "PEER_OFFLINE":
-        // Fallback to empty array if keys aren't provided when going completely offline
-        this.sessionService.setPeerOnline(sid, false, data?.peerPubKeys || []);
+        // If peerPubKeys are provided, the peer is still online on other devices
+        this.sessionService.setPeerOnline(
+          sid,
+          data?.peerPubKeys && data.peerPubKeys.length > 0 ? true : false,
+          data?.peerPubKeys || []
+        );
         this.emit("session_updated");
         break;
       case "DELIVERED":
