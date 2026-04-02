@@ -371,3 +371,192 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
     return { success: false, error: String(e) };
   }
 });
+
+// ============================================================================
+// Local LLM (node-llama-cpp)
+// ============================================================================
+let globalLlama: any = null;
+let globalModel: any = null;
+let globalContext: any = null;
+let globalSession: any = null;
+
+const asyncImportDynamic = new Function('modulePath', 'return import(modulePath)');
+
+ipcMain.handle("llama:init", async (event, { modelPath }) => {
+  try {
+    const { getLlama, LlamaChatSession } = await asyncImportDynamic("node-llama-cpp");
+
+    if (!globalLlama) {
+      globalLlama = await getLlama();
+    }
+    
+    // Cleanup old session if needed
+    if (globalContext) {
+      await globalContext.dispose();
+      globalContext = null;
+    }
+    if (globalModel) {
+      await globalModel.dispose();
+      globalModel = null;
+    }
+    
+    try {
+      globalModel = await globalLlama.loadModel({ modelPath });
+    } catch (modelErr: any) {
+      // If loading the model itself fails (e.g. Vulkan crashes out of device memory)
+      // Attempt CPU fallback implicitly if possible, or just fail cleanly.
+      throw new Error(`Model load failed: ${modelErr.message}`);
+    }
+
+    try {
+      // By default node-llama-cpp aggressively allocates huge VRAM for context
+      // Cap the context window to prevent vk::Device::allocateMemory crashes
+      globalContext = await globalModel.createContext({ contextSize: 2048 });
+    } catch (ctxErr: any) {
+      if (globalModel) {
+        await globalModel.dispose();
+        globalModel = null;
+      }
+      throw new Error(`Context creation failed (Out of VRAM?): ${ctxErr.message}`);
+    }
+    
+    globalSession = new LlamaChatSession({ contextSequence: globalContext.getSequence() });
+    
+    return { success: true };
+  } catch (err: any) {
+    console.error("[Main] Llama Init Error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("llama:generate", async (event, { prompt, options, id }) => {
+  if (!globalSession) {
+    return { success: false, error: "Llama session not initialized" };
+  }
+  
+  try {
+    const response = await globalSession.prompt(prompt, {
+      maxTokens: options.max_new_tokens || 128,
+      temperature: options.temperature || 0.2,
+      topP: options.top_p || 0.9,
+      onTextChunk(chunk: string) {
+        event.sender.send("llama:token", { id, token: chunk });
+      }
+    });
+
+    return { success: true, output: response };
+  } catch (err: any) {
+    console.error("[Main] Llama Generate Error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+import * as https from "https";
+import * as http from "http";
+
+function getModelsDir() {
+  const modelsDir = path.join(app.getPath("userData"), "LocalAI_Models");
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+  }
+  return modelsDir;
+}
+
+ipcMain.handle("llama:checkData", async (event, { filename }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  try {
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      return { exists: true, size: stats.size, path: filePath };
+    }
+  } catch (err) {}
+  return { exists: false, size: 0, path: filePath };
+});
+
+ipcMain.handle("llama:delete", async (event, { filename }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return { success: true };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+import fetch from "node-fetch";
+
+const activeDownloads: Record<string, any> = {};
+
+ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
+  const modelsDir = getModelsDir();
+  const filePath = path.join(modelsDir, filename);
+  
+  try {
+    // node-fetch natively follows up to 20 redirects automatically
+    const res = await fetch(url);
+    if (!res.ok) {
+       return { success: false, error: `Failed with status ${res.status}` };
+    }
+
+    const totalBytes = parseInt(res.headers.get("content-length") || "0", 10);
+    const file = fs.createWriteStream(filePath);
+    activeDownloads[id] = { file };
+    
+    let downloadedBytes = 0;
+    
+    return new Promise((resolve) => {
+       res.body.on("data", (chunk: any) => {
+          downloadedBytes += chunk.length;
+          event.sender.send("llama:download-progress", {
+             id,
+             bytes: downloadedBytes,
+             total: totalBytes
+          });
+       });
+
+       res.body.pipe(file);
+
+       file.on("finish", () => {
+          activeDownloads[id] = null;
+          resolve({ success: true, path: filePath });
+       });
+
+       file.on("error", (err: any) => {
+          activeDownloads[id] = null;
+          fs.unlink(filePath, () => {});
+          resolve({ success: false, error: err.message });
+       });
+
+       res.body.on("error", (err: any) => {
+          file.close();
+          fs.unlink(filePath, () => {});
+          activeDownloads[id] = null;
+          resolve({ success: false, error: err.message });
+       });
+       
+       activeDownloads[id].request = res.body; 
+    });
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+
+ipcMain.handle("llama:cancel-download", async (event, { id }) => {
+  if (activeDownloads[id]) {
+     if (activeDownloads[id].request) {
+        activeDownloads[id].request.destroy();
+     }
+     if (activeDownloads[id].file) {
+        activeDownloads[id].file.close();
+     }
+     activeDownloads[id] = null;
+     return { success: true };
+  }
+  return { success: false };
+});

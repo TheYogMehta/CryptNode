@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
 import { colors } from "../../../../theme/design-system";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { RECOMMENDED_MODELS, LocalAIModel } from "../../../../services/ai/models";
@@ -42,7 +43,12 @@ export const LocalAISettings = () => {
   }, []);
 
   const handleDownload = async (model: LocalAIModel) => {
-    if (model.sizeBytes > 2 * 1024 * 1024 * 1024) {
+    if (Capacitor.getPlatform() === 'web' && (model.sizeBytes > 1.5 * 1024 * 1024 * 1024 || model.sizeBytes === 0)) {
+      alert("Your browser cannot allocate enough memory to handle large model downloads. Please build and run the native Android/Desktop app to download and use models over ~1.5GB.");
+      return;
+    }
+
+    if (model.sizeBytes > 2 * 1024 * 1024 * 1024 || model.sizeBytes === 0) {
       setWarningModel(model);
       return;
     }
@@ -167,7 +173,8 @@ export const LocalAISettings = () => {
             <h4 style={{ color: "#ef4444", margin: "0 0 8px 0" }}>⚠️ Large Model Warning</h4>
             <p style={{ color: colors.text.primary, fontSize: "14px", margin: "0 0 16px 0", lineHeight: "1.5" }}>
                You are about to download <strong>{warningModel.name}</strong>, which is <strong>{formatBytes(warningModel.sizeBytes)}</strong>. 
-               Large models may cause your device to run out of memory, crash the app, or drain your battery quickly. 
+               {warningModel.sizeBytes === 0 ? " Since its size is unknown, it could be very large and " : " Large models "}
+               may cause your device to run out of memory, crash the app, or drain your battery quickly. 
                Are you sure you want to proceed?
             </p>
             <div style={{ display: "flex", gap: "10px" }}>

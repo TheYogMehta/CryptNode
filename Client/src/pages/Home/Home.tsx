@@ -39,7 +39,6 @@ import {
 } from "./Home.styles";
 import { Menu } from "lucide-react";
 import { useGlobalSummary } from "./hooks/useGlobalSummary";
-import { qwenLocalService } from "../../services/ai/qwenLocal.service";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

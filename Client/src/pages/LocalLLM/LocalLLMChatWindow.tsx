@@ -7,6 +7,8 @@ import {
   paperPlaneOutline,
   downloadOutline,
   closeCircleOutline,
+  copyOutline,
+  checkmarkOutline,
 } from "ionicons/icons";
 import { localAIService } from "../../services/ai/localAI.service";
 import { colors } from "../../../src/theme/design-system";
@@ -22,6 +24,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  generationTimeMs?: number;
 }
 
 export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
@@ -36,9 +39,16 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState(localAIService.downloadInfo);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeModel = localAIService.getActiveModelInfo();
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // Sync service state
   useEffect(() => {
@@ -157,9 +167,11 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
         },
       });
       
+      const generationTimeMs = Date.now() - startMs;
+      
       setMessages((prev) => 
           prev.map((m) => 
-             m.id === tempId ? { ...m, content: response } : m
+             m.id === tempId ? { ...m, content: response, generationTimeMs } : m
           )
       );
       
@@ -336,10 +348,29 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
                <div className="local-llm-messages">
                  {messages.map((m) => (
                     <div key={m.id} className={`llm-msg-wrapper ${m.role}`}>
-                       <div className={`llm-msg-bubble ${m.role}`}>
-                         {m.content}
-                         {m.role === "assistant" && m.content === "" && (
-                             <span className="llm-cursor"></span>
+                       <div className={`llm-msg-container ${m.role}`}>
+                         <div className={`llm-msg-bubble ${m.role}`}>
+                           {m.content}
+                           {m.role === "assistant" && m.content === "" && (
+                               <span className="llm-cursor"></span>
+                           )}
+                         </div>
+                         {m.role === "assistant" && m.content !== "" && (
+                            <div className="llm-msg-footer">
+                               {m.generationTimeMs && (
+                                 <span className="llm-generation-time">
+                                   ⏱ {(m.generationTimeMs / 1000).toFixed(2)}s
+                                 </span>
+                               )}
+                               <button
+                                 onClick={() => handleCopy(m.content, m.id)}
+                                 className="llm-copy-btn"
+                                 title="Copy response"
+                               >
+                                 <IonIcon icon={copiedId === m.id ? checkmarkOutline : copyOutline} className="icon-14" />
+                                 <span>{copiedId === m.id ? "Copied" : "Copy"}</span>
+                               </button>
+                            </div>
                          )}
                        </div>
                     </div>

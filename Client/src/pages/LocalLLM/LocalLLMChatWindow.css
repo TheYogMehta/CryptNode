@@ -195,8 +195,22 @@
   justify-content: flex-end;
 }
 
-.llm-msg-bubble {
+.llm-msg-container {
+  display: flex;
+  flex-direction: column;
   max-width: 85%;
+}
+
+.llm-msg-container.user {
+  align-items: flex-end;
+}
+
+.llm-msg-container.assistant {
+  align-items: flex-start;
+}
+
+.llm-msg-bubble {
+  max-width: 100%;
   padding: 12px 16px;
   border-radius: 18px;
   line-height: 1.5;
@@ -280,9 +294,45 @@
   cursor: not-allowed;
 }
 
+.icon-14 { font-size: 14px; }
 .icon-18 { font-size: 18px; }
 .icon-20 { font-size: 20px; }
 .icon-22 { font-size: 22px; }
 .icon-32 { font-size: 32px; }
 .icon-white { color: #fff; }
 .icon-muted { color: var(--sc-text-secondary); }
+
+.llm-msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
+.llm-generation-time {
+  font-size: 0.75rem;
+  color: var(--sc-text-secondary);
+  opacity: 0.8;
+}
+
+.llm-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--sc-text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  opacity: 0.8;
+}
+
+.llm-copy-btn:hover {
+  background: var(--sc-surface-primary);
+  color: var(--sc-text-primary);
+  opacity: 1;
+}

@@ -7,6 +7,16 @@ import { LocalAIModel, RECOMMENDED_MODELS } from "./models";
 declare global {
   interface Window {
     Capacitor?: any;
+    llama?: {
+      init: (modelPath: string) => Promise<{ success: boolean; error?: string }>;
+      generate: (prompt: string, options: any, id: string) => Promise<{ success: boolean; output?: string; error?: string }>;
+      onToken: (callback: (data: { id: string; token: string }) => void) => void;
+      checkData: (filename: string) => Promise<{ exists: boolean, size: number, path: string }>;
+      delete: (filename: string) => Promise<{ success: boolean, error?: string }>;
+      download: (url: string, filename: string, id: string) => Promise<{ success: boolean, path?: string, error?: string }>;
+      cancelDownload: (id: string) => Promise<{ success: boolean }>;
+      onDownloadProgress: (callback: (data: { id: string; bytes: number; total: number }) => void) => void;
+    };
   }
 }
 
@@ -53,8 +63,6 @@ function parseBulletList(text: string, limit: number): string[] {
   return Array.from(new Set(lines)).slice(0, limit);
 }
 
-// Worker instance for Web
-let worker: Worker | null = null;
 const pendingRequests: Record<
   string,
   {
@@ -64,43 +72,23 @@ const pendingRequests: Record<
   }
 > = {};
 
-function getWorker(): Worker {
-  if (!worker) {
-    console.log("[LocalAIService] Initializing worker...");
-    worker = new Worker(
-      new URL("../../workers/qwen.worker.ts", import.meta.url),
-      {
-        type: "module",
-      },
-    );
+let isLlamaInitialized = false;
 
-    worker.onmessage = (e) => {
-      const msg = e.data;
-      if (msg.type === "init_result") {
-        console.log("[LocalAIService] Worker initialized");
-      } else if (msg.type === "generate_result") {
-        const req = pendingRequests[msg.id];
-        if (req) {
-          req.resolve(msg.output);
-          delete pendingRequests[msg.id];
-        }
-      } else if (msg.type === "token") {
-        const req = pendingRequests[msg.id];
-        if (req && req.onToken) {
-          req.onToken(msg.token);
-        }
-      } else if (msg.type === "error") {
-        const req = pendingRequests[msg.id];
-        if (req) {
-          req.reject(new Error(msg.error));
-          delete pendingRequests[msg.id];
-        }
-      }
-    };
-
-    worker.postMessage({ type: "init" });
-  }
-  return worker;
+function initLlamaListener() {
+  if (isLlamaInitialized || !window.llama) return;
+  window.llama.onToken((data) => {
+    const req = pendingRequests[data.id];
+    if (req && req.onToken) {
+      req.onToken(data.token);
+    }
+  });
+  window.llama.onDownloadProgress((data) => {
+    const req = pendingRequests[data.id];
+    if (req && req.onToken) {
+       // Re-using onToken just as a general event bus payload for now, or handled explicitly below
+    }
+  });
+  isLlamaInitialized = true;
 }
 
 export interface StoredModel extends LocalAIModel {
@@ -189,15 +177,35 @@ export class LocalAIService {
     if (this._refreshingPromise) return this._refreshingPromise;
 
     this._refreshingPromise = (async () => {
-      for (const model of this._models) {
-        try {
-          const stat = await Filesystem.stat({
-            directory: Directory.Data,
-            path: model.filename,
-          });
-          this._installedCache.set(model.id, stat.size > 0);
-          this._installedSizes.set(model.id, stat.size || 0);
-        } catch {
+      try {
+        if (window.llama) {
+           for (const model of this._models) {
+              const res = await window.llama.checkData(model.filename);
+              this._installedCache.set(model.id, res.exists);
+              this._installedSizes.set(model.id, res.size);
+           }
+        } else {
+            const dirData = await Filesystem.readdir({ directory: Directory.Data, path: "" });
+            const existingFiles = new Set(dirData.files.map((f: any) => typeof f === "string" ? f : f.name));
+            
+            for (const model of this._models) {
+              if (existingFiles.has(model.filename)) {
+                this._installedCache.set(model.id, true);
+                try {
+                  const stat = await Filesystem.stat({ directory: Directory.Data, path: model.filename });
+                  this._installedSizes.set(model.id, stat.size || 0);
+                } catch (e) {
+                  this._installedSizes.set(model.id, model.sizeBytes || 0);
+                }
+              } else {
+                this._installedCache.set(model.id, false);
+                this._installedSizes.set(model.id, 0);
+              }
+            }
+        }
+      } catch (e) {
+        // Fallback
+        for (const model of this._models) {
           this._installedCache.set(model.id, false);
           this._installedSizes.set(model.id, 0);
         }
@@ -296,10 +304,14 @@ export class LocalAIService {
     }
 
     try {
-      await Filesystem.deleteFile({
-        directory: Directory.Data,
-        path: modelToDelete.filename,
-      });
+      if (window.llama) {
+         await window.llama.delete(modelToDelete.filename);
+      } else {
+          await Filesystem.deleteFile({
+            directory: Directory.Data,
+            path: modelToDelete.filename,
+          });
+      }
     } catch (e) {
       console.warn("Model already deleted or could not delete", e);
     }
@@ -351,17 +363,120 @@ export class LocalAIService {
   }
 
   private async ensureNativeModel(model: LocalAIModel): Promise<string> {
+    if (window.llama) {
+        initLlamaListener();
+        const check = await window.llama.checkData(model.filename);
+        if (check.exists) {
+            return check.path;
+        }
+
+        console.log("[LocalAIService] Downloading GGUF model natively...", model.name);
+        this._downloadProgress = 1;
+        this._downloadInfo = { activeModelId: model.id, bytes: 0, total: model.sizeBytes };
+        this.notify();
+
+        return new Promise<string>(async (resolve, reject) => {
+            const dlId = Math.random().toString(36).substring(7);
+            let isDone = false;
+            const llamaInstance = window.llama!;
+            
+            const handleProgress = (event: any) => {
+                const data = event.detail;
+                if (data.id !== dlId) return;
+                
+                if (this._cancelFlag) {
+                   if (!isDone) {
+                       isDone = true;
+                       window.removeEventListener("llama:download-progress-dispatch", handleProgress);
+                       llamaInstance.cancelDownload(dlId);
+                       reject(new Error("Download aborted"));
+                   }
+                   return;
+                }
+
+                if (data.total > 0) {
+                    this._downloadInfo = {
+                        activeModelId: model.id,
+                        bytes: data.bytes,
+                        total: data.total
+                    };
+                    const pct = Math.round((data.bytes / data.total) * 100);
+                    if (pct !== this._downloadProgress && pct <= 100) {
+                       this._downloadProgress = pct;
+                       this.notify();
+                    } else {
+                       this.notify();
+                    }
+                }
+            };
+            
+            window.addEventListener("llama:download-progress-dispatch", handleProgress);
+
+            if (!llamaInstance.onDownloadProgress) {
+                console.warn("Missing onDownloadProgress");
+            } else {
+                // Ensure the base listener dispatches a custom event for local scoping
+                if (!isLlamaInitialized) {
+                   initLlamaListener();
+                }
+                const fn = (window as any)._llamaDlListenerSetup;
+                if (!fn) {
+                   (window as any)._llamaDlListenerSetup = true;
+                   llamaInstance.onDownloadProgress((data) => {
+                       window.dispatchEvent(new CustomEvent("llama:download-progress-dispatch", { detail: data }));
+                   });
+                }
+            }
+
+            try {
+                const dlRes = await llamaInstance.download(model.hfUrl, model.filename, dlId);
+                window.removeEventListener("llama:download-progress-dispatch", handleProgress);
+                isDone = true;
+                
+                if (this._cancelFlag) {
+                    this._cancelFlag = false;
+                    await llamaInstance.delete(model.filename);
+                    this._installedCache.set(model.id, false);
+                    reject(new Error("Download aborted"));
+                    return;
+                }
+
+                if (!dlRes.success) {
+                    reject(new Error(dlRes.error || "Failed to download model"));
+                    return;
+                }
+                
+                this._downloadProgress = 100;
+                this._installedCache.set(model.id, true);
+                this._installedSizes.set(model.id, model.sizeBytes);
+                resolve(dlRes.path || "");
+            } catch (err) {
+                window.removeEventListener("llama:download-progress-dispatch", handleProgress);
+                isDone = true;
+                reject(err);
+            }
+        });
+    }
+
     const dir = Directory.Data;
     const path = model.filename;
 
     try {
-      const stat = await Filesystem.stat({ directory: dir, path });
-      if (stat.size > 0) {
+      const dirData = await Filesystem.readdir({ directory: dir, path: "" });
+      const exists = dirData.files.some((f: any) => (typeof f === "string" ? f : f.name) === path);
+      if (exists) {
         const uri = await Filesystem.getUri({ directory: dir, path });
         return uri.uri.replace("file://", "");
       }
     } catch (e) {
-      // File doesn't exist, proceed to download
+      // Fallback
+      try {
+        const stat = await Filesystem.stat({ directory: dir, path });
+        if (stat) {
+          const uri = await Filesystem.getUri({ directory: dir, path });
+          return uri.uri.replace("file://", "");
+        }
+      } catch (err) {}
     }
 
     console.log("[LocalAIService] Downloading GGUF model...", model.name);
@@ -434,9 +549,6 @@ export class LocalAIService {
               // still notify bytes update
               this.notify();
             }
-            if (status.bytes >= status.contentLength) {
-              finishAndResolve();
-            }
           }
         });
 
@@ -481,14 +593,25 @@ export class LocalAIService {
     this.notify();
 
     try {
-      getWorker();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (!window.llama) {
+         throw new Error("Native AI features are only supported on Windows and Linux currently.");
+      }
+      
+      const modelPath = await this.ensureNativeModel(activeModel);
+      initLlamaListener();
+      
+      const initResult = await window.llama.init(modelPath);
+      if (!initResult.success) {
+         throw new Error(initResult.error || "Failed to initialize LLM");
+      }
+      
       this._isLoaded = true;
     } catch (e: any) {
       console.error("[LocalAIService] Failed to load model:", e);
       if (e.message && e.message.includes("not supported")) {
         throw e;
       }
+      throw e;
     } finally {
       this._isLoading = false;
       this._downloadProgress = 0;
@@ -500,10 +623,14 @@ export class LocalAIService {
     prompt: string,
     options: QwenGenerationOptions & { onToken?: (token: string) => void },
   ): Promise<string> {
-    const worker = getWorker();
+    if (!window.llama) {
+      throw new Error("Native AI features are only supported on Windows and Linux currently.");
+    }
+    const llamaInstance = window.llama;
+    
     const id = Math.random().toString(36).substring(7);
 
-    return await new Promise<string>((resolve, reject) => {
+    return await new Promise<string>(async (resolve, reject) => {
       pendingRequests[id] = {
         resolve: (output: any) => {
           resolve(extractText(output).trim());
@@ -512,18 +639,32 @@ export class LocalAIService {
         onToken: options.onToken,
       };
 
-      worker.postMessage({
-        type: "generate",
-        id,
-        prompt,
-        options: {
-          max_new_tokens: options.maxNewTokens ?? 128,
-          temperature: options.temperature ?? 0.2,
-          top_p: options.topP ?? 0.9,
-          do_sample: true,
-          return_full_text: false,
-        },
-      });
+      try {
+          const res = await llamaInstance.generate(prompt, {
+            max_new_tokens: options.maxNewTokens ?? 128,
+            temperature: options.temperature ?? 0.2,
+            top_p: options.topP ?? 0.9,
+            do_sample: true,
+            return_full_text: false,
+          }, id);
+          
+          if (!res.success) {
+
+             reject(new Error(res.error || "Failed to generate"));
+             delete pendingRequests[id];
+             return;
+          }
+          
+          const output = res.output;
+          const req = pendingRequests[id];
+          if (req) {
+             req.resolve(output);
+             delete pendingRequests[id];
+          }
+      } catch(err) {
+         reject(err);
+         delete pendingRequests[id];
+      }
     });
   }
 
