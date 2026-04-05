@@ -1,6 +1,9 @@
 export interface IChatClient {
   sessions: Record<string, any>;
   userEmail: string | null;
+  callService: any;
+  messageService: any;
+  fileTransfer: any;
   send(frame: any): void;
   encryptForSession(
     sid: string,

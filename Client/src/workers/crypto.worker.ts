@@ -6,25 +6,25 @@ import {
 
 type WorkerMessage =
   | {
-      type: "INIT_SESSION";
-      sid: string;
-      jwksMap: Record<string, JsonWebKey>;
-      id: string;
-    }
+    type: "INIT_SESSION";
+    sid: string;
+    jwksMap: Record<string, JsonWebKey>;
+    id: string;
+  }
   | {
-      type: "ENCRYPT";
-      sid: string;
-      data: string | ArrayBuffer;
-      id: string;
-      priority: number;
-    }
+    type: "ENCRYPT";
+    sid: string;
+    data: string | ArrayBuffer;
+    id: string;
+    priority: number;
+  }
   | {
-      type: "DECRYPT";
-      sid: string;
-      data: string;
-      id: string;
-      priority: number;
-    };
+    type: "DECRYPT";
+    sid: string;
+    data: string;
+    id: string;
+    priority: number;
+  };
 
 const sessions: Record<string, Record<string, CryptoKey>> = {};
 
@@ -36,7 +36,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     switch (type) {
       case "INIT_SESSION": {
         const { sid, jwksMap, id } = msg;
-        const keysMap: Record<string, CryptoKey> = {};
+        const keysMap: Record<string, CryptoKey> = sessions[sid] || {};
         for (const [pubKey, jwk] of Object.entries(jwksMap)) {
           if (!jwk || typeof jwk !== "object") continue;
           try {
@@ -87,7 +87,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           try {
             decrypted = await decryptFromPackedString(data, key);
             if (decrypted) break;
-          } catch (e) {}
+          } catch (e) { }
         }
 
         if (!decrypted) throw new Error("Decryption failed for all known keys");

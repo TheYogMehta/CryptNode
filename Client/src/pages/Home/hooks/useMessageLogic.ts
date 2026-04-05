@@ -169,6 +169,25 @@ export const useMessageLogic = ({
       }
     });
 
+    const onMessageMetadataUpdated = (data: any) => {
+      const { sid, messageId, mediaOriginalName, mediaTotalSize, mediaMime, thumbnail } = data;
+      if (sid === activeChatRef.current) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? {
+                ...m,
+                mediaOriginalName: mediaOriginalName || m.mediaOriginalName,
+                mediaTotalSize: mediaTotalSize || m.mediaTotalSize,
+                mediaMime: mediaMime || m.mediaMime,
+                thumbnail: thumbnail || m.thumbnail,
+              }
+              : m,
+          ),
+        );
+      }
+    };
+
     const onMessageUpdated = ({ sid, id, text, type }: any) => {
       if (sid === activeChatRef.current) {
         setMessages((prev) =>
@@ -203,6 +222,7 @@ export const useMessageLogic = ({
     client.on("message_status", onMessageStatus);
     client.on("message_updated", onMessageUpdated);
     client.on("message_deleted", onMessageDeleted);
+    client.on("message_metadata_updated", onMessageMetadataUpdated);
     client.on("messages_synced", onMessagesSynced);
     client.on("rate_limit_exceeded", handleRateLimit);
 
@@ -214,6 +234,7 @@ export const useMessageLogic = ({
       client.off("message_status", onMessageStatus);
       client.off("message_updated", onMessageUpdated);
       client.off("message_deleted", onMessageDeleted);
+      client.off("message_metadata_updated", onMessageMetadataUpdated);
       client.off("messages_synced", onMessagesSynced);
       client.off("rate_limit_exceeded", handleRateLimit);
     };
@@ -352,7 +373,7 @@ export const useMessageLogic = ({
       type: fileToSend.type,
       caption: caption || "",
       compressed: (fileToSend as any).compressed,
-    } as any).catch((err) => {
+    } as any, tempId).catch((err) => {
       console.error("Failed to send file", err);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 3 } : m)),

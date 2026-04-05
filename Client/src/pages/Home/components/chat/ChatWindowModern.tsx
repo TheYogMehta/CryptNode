@@ -87,6 +87,7 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
     type: "image" | "video";
     description?: string;
     meta?: any;
+    mimeType?: string;
   } | null>(null);
   const sessionService = ChatClient.sessionService;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -185,9 +186,10 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
     url: string,
     type: "image" | "video",
     description?: string,
-    meta?: any
+    meta?: any,
+    mimeType?: string
   ) => {
-    setSelectedMedia({ url, type, description, meta });
+    setSelectedMedia({ url, type, description, meta, mimeType });
     setMediaModalOpen(true);
   };
 

@@ -124,6 +124,8 @@ export class MessageService extends EventEmitter {
           data.replyTo ? JSON.stringify(data.replyTo) : null,
         ],
       );
+      // Revive the session if it was previously deleted, so it appears in the UI again
+      await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
     } catch (e) {
       console.error("[MessageService] Failed to save received message:", e);
     }
@@ -163,6 +165,9 @@ export class MessageService extends EventEmitter {
         "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
         [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
+
+      // Revive the session if it was previously deleted
+      await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
 
       if (!this.client.sessionService.sessions[sid].online) {
         console.log(`[MessageService] Peer ${sid} is offline. Message queued locally.`);
@@ -610,7 +615,17 @@ export class MessageService extends EventEmitter {
               missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
             }
 
-            let manifestData: any = { messages: missing };
+            const messageIds = missing.map((m) => m.id);
+            let media: any[] = [];
+            if (messageIds.length > 0) {
+              const placeholders = messageIds.map(() => "?").join(",");
+              media = await queryDB(
+                `SELECT * FROM media WHERE message_id IN (${placeholders})`,
+                messageIds,
+              );
+            }
+
+            let manifestData: any = { messages: missing, media };
 
             // If this is our own device asking for sync, include full metadata too,
             // BUT only if we are the PRIMARY sync device. This prevents both devices
@@ -847,6 +862,7 @@ export class MessageService extends EventEmitter {
               aliases?: { sid: string; aliasName: string; aliasAvatar: string; timestamp: number; peerName?: string; peerAvatar?: string; peerNameVer?: number; peerAvatarVer?: number; peerEmail?: string; peerHash?: string; deletedAt?: number }[];
               profile?: { name?: string; avatar?: string; nameVersion?: number; avatarVersion?: number };
               messages?: any[];
+              media?: any[];
             };
             if (!manifest || typeof manifest !== "object") break;
 
@@ -1126,6 +1142,34 @@ export class MessageService extends EventEmitter {
                 await executeTransaction(statements);
               }
 
+              // ── media section ──
+              if (Array.isArray(manifest.media) && manifest.media.length > 0) {
+                const mediaStatements: { statement: string; values: any[] }[] = [];
+                for (const med of manifest.media) {
+                  if (!med.message_id || !med.filename) continue;
+                  mediaStatements.push({
+                    statement: `INSERT OR IGNORE INTO media 
+                      (filename, original_name, file_size, size, mime_type, message_id, status, download_progress, thumbnail, is_compressed) 
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    values: [
+                      med.filename,
+                      med.original_name,
+                      med.file_size,
+                      med.size || 0,
+                      med.mime_type,
+                      med.message_id,
+                      "pending", 
+                      0,
+                      med.thumbnail,
+                      med.is_compressed || 0,
+                    ],
+                  });
+                }
+                if (mediaStatements.length > 0) {
+                  await executeTransaction(mediaStatements);
+                }
+              }
+
               for (const syncSid of updatedSids) {
                 this.client.emit("messages_synced", { sid: syncSid });
               }
@@ -1161,21 +1205,34 @@ export class MessageService extends EventEmitter {
             console.log("[MessageService] Ignoring CALL_START sent by our own sibling device.");
             break;
           }
-          if (this.client.callService.isCalling || this.client.callService.incomingCallSid) {
+          
+          const incomingCallId = data?.callId;
+          const isSameCall = (this.client.callService.incomingCallId === incomingCallId && incomingCallId);
+          const isActuallyBusy = (this.client.callService.isCallConnected || (this.client.callService.isCalling && this.client.callService.currentCallSid !== sid));
+          const isProcessingDifferentIncoming = (this.client.callService.incomingCallSid && this.client.callService.incomingCallSid !== sid);
+
+          if (!isSameCall && (isActuallyBusy || isProcessingDifferentIncoming)) {
             console.log(
-              "[MessageService] Already on call, rejecting new call from",
+              "[MessageService] Already on call or different incoming call, rejecting new call from",
               sid,
             );
             const payloads = await this.client.encryptForSession(
               sid,
-              JSON.stringify({ t: "MSG", data: { type: "CALL_BUSY" } }),
+              JSON.stringify({ t: "MSG", data: { type: "CALL_BUSY", callId: incomingCallId } }),
               0,
             );
             this.client.send({ t: "MSG", sid, data: { payloads } });
             return;
           }
-          console.log("[MessageService] Received CALL_START");
+
+          if (isSameCall) {
+             console.log("[MessageService] Received duplicate CALL_START for same callId, ignoring.");
+             break;
+          }
+
+          console.log("[MessageService] Received CALL_START with callId:", incomingCallId);
           this.client.callService.incomingCallSid = sid;
+          this.client.callService.incomingCallId = incomingCallId;
 
           this.client.callService.playRingtone();
 
@@ -1228,7 +1285,7 @@ export class MessageService extends EventEmitter {
           console.log(
             "[MessageService] Received CALL_ACCEPT - call is being answered",
           );
-          this.client.emit("call_accepted", { sid });
+          this.client.emit("call_accepted", { sid, callId: data?.callId });
           break;
         case "CALL_END":
           if (isOwnMessage && !isOwnDeviceSession) break;
@@ -1242,6 +1299,7 @@ export class MessageService extends EventEmitter {
             sid,
             duration: callDuration,
             connected: wasCallConnected,
+            callId: data?.callId
           });
           break;
         case "SYNC_CALL_ACCEPT":
@@ -1249,17 +1307,23 @@ export class MessageService extends EventEmitter {
           if (isOwnMessage && isOwnDeviceSession) {
             console.log(`[MessageService] A sibling device broadcasted ${data.type}. Stopping call state regionally.`);
             
-            const isLocalActiveCall = (this.client.callService.isCalling && this.client.callService.currentCallSid === data.callSid);
             const isLocalIncomingCall = (!this.client.callService.isCalling && this.client.callService.incomingCallSid === data.callSid);
 
-            if (isLocalActiveCall || isLocalIncomingCall) {
+            if (isLocalIncomingCall) {
               const connected = this.client.callService.isCallConnected;
               const duration = this.client.callService.callStartTime
                 ? Date.now() - this.client.callService.callStartTime
                 : 0;
               this.client.callService.cleanupCall();
               // Emit so UI clears the ringing screen but does not log duplicates to DB
-              this.client.emit("call_ended", { sid: data.callSid, duration, connected, hideLog: true });
+              this.client.emit("call_ended", { 
+                sid: data.callSid, 
+                duration, 
+                connected, 
+                hideLog: true, 
+                reason: data.type === "SYNC_CALL_ACCEPT" ? "picked_up_elsewhere" : undefined,
+                callId: data.callId
+              });
             }
           }
           break;
@@ -1995,6 +2059,7 @@ export class MessageService extends EventEmitter {
         replyTo ? JSON.stringify(replyTo) : null,
       ],
     );
+    await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
     this.broadcastManifestToOwnDevices(false).catch(() => { });
     return id;
   }

@@ -3,9 +3,23 @@ import Modal from "@mui/material/Modal";
 import { X, FileText, Download } from "lucide-react";
 import * as mammoth from "mammoth";
 import DOMPurify from "dompurify";
+import { Document, Page, pdfjs } from "react-pdf";
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+
+// Import react-pdf styles
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
 import { UnsafeLinkModal } from "./UnsafeLinkModal";
 import { isTrustedUrl } from "../../../../utils/trustedDomains";
 import { openExternalUrl } from "../../../../utils/openExternalUrl";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { StorageUtils } from "../../../../services/storage/StorageUtils";
+
+
+// Configure PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface FileViewerModalProps {
   isOpen: boolean;
@@ -13,6 +27,7 @@ interface FileViewerModalProps {
   fileUrl: string | null;
   fileName: string;
   mimeType: string;
+  originalPath?: string | null; // Used for native Filesystem access on Android
 }
 
 export const FileViewerModal: React.FC<FileViewerModalProps> = ({
@@ -21,12 +36,17 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   fileUrl,
   fileName,
   mimeType,
+  originalPath,
 }) => {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  
+  // PDF state
+  const [numPages, setNumPages] = useState<number>(0);
+  const [scale, setScale] = useState<number>(1.0);
   const contentRef = useRef<HTMLDivElement>(null);
   const pdfBlobUrlRef = useRef<string | null>(null);
 
@@ -53,25 +73,32 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   };
 
   const isTextType = () => {
-    return !isPdf() && !isDocx();
-  };
-
-  const isPdf = () => {
-    return mimeType === "application/pdf" || getExtension() === "pdf";
-  };
-
-  const isDocx = () => {
+    const textExts = ["json", "txt", "md", "log", "js", "ts", "html", "css", "xml", "csv", "sql", "yml", "yaml", "sh", "py", "java", "c", "cpp"];
     return (
-      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      getExtension() === "docx" ||
-      getExtension() === "doc"
+      mimeType?.startsWith("text/") ||
+      mimeType === "application/json" ||
+      mimeType === "application/javascript" ||
+      textExts.includes(getExtension()) ||
+      (!isPdf() && !isDocx()) // Fallback
     );
   };
 
-  // We only support proper display for text, pdf, docx. Wait, does mammoth support .doc? Not really. But we can map .doc gracefully as format error inside mammoth.
-  
+  const isPdf = () => {
+    return (mimeType === "application/pdf" || getExtension() === "pdf") && !isDocx();
+  };
+
+  const isDocx = () => {
+    const ext = getExtension();
+    return (
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      mimeType === "application/msword" ||
+      ext === "docx" ||
+      ext === "doc"
+    );
+  };
+
   const isPreviewable = () => {
-     return true;
+     return isTextType() || isPdf() || isDocx();
   }
 
   useEffect(() => {
@@ -81,20 +108,55 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
       return;
     }
 
+    const readNativeFile = async (fileName: string) => {
+      try {
+        const { path, directory } = StorageUtils.resolvePath(fileName);
+        const file = await Filesystem.readFile({
+          path,
+          directory: directory as Directory,
+        });
+
+        
+        // Convert base64 string to ArrayBuffer
+        const binaryString = window.atob(file.data as string);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      } catch (err) {
+        console.error("Filesystem read error:", err);
+        throw err;
+      }
+    };
+
     const loadContent = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error("Failed to fetch file");
+        const isAndroid = Capacitor.getPlatform() === "android";
+        let arrayBuffer: ArrayBuffer;
+
+        if (isAndroid && originalPath) {
+          try {
+            arrayBuffer = await readNativeFile(originalPath);
+          } catch (nativeErr: any) {
+            console.warn("readNativeFile failed, falling back to fetch:", nativeErr);
+            const response = await fetch(fileUrl!);
+            if (!response.ok) throw new Error("Failed to fetch file");
+            arrayBuffer = await response.arrayBuffer();
+          }
+        } else {
+          const response = await fetch(fileUrl!);
+          if (!response.ok) throw new Error("Failed to fetch file");
+          arrayBuffer = await response.arrayBuffer();
+        }
 
         if (isDocx()) {
-          const arrayBuffer = await response.arrayBuffer();
           const result = await mammoth.convertToHtml({ arrayBuffer });
           const cleanHtml = DOMPurify.sanitize(result.value);
           setContent(cleanHtml);
         } else if (isTextType()) {
-          const arrayBuffer = await response.arrayBuffer();
           const uint8 = new Uint8Array(arrayBuffer.slice(0, 4096));
           let isBinary = false;
           for (let i = 0; i < uint8.length; i++) {
@@ -109,7 +171,15 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
           } else {
             try {
               const text = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
-              setContent(text);
+              if (mimeType === "application/json" || getExtension() === "json") {
+                try {
+                  setContent(JSON.stringify(JSON.parse(text), null, 2));
+                } catch {
+                  setContent(text);
+                }
+              } else {
+                setContent(text);
+              }
             } catch (e) {
               const text = new TextDecoder("utf-8").decode(arrayBuffer);
               setContent(text);
@@ -130,12 +200,26 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
       setLoading(true);
       setError(null);
       
-      fetch(fileUrl)
-        .then((res) => {
-          if (!res.ok) throw new Error("Failed to fetch PDF");
-          return res.arrayBuffer();
-        })
-        .then((buffer) => {
+      const loadPdf = async () => {
+        try {
+          const isAndroid = Capacitor.getPlatform() === "android";
+          let buffer: ArrayBuffer;
+
+          if (isAndroid && originalPath) {
+            try {
+              buffer = await readNativeFile(originalPath);
+            } catch (nativeErr: any) {
+              console.warn("readNativeFile failed for PDF, falling back to fetch:", nativeErr);
+              const res = await fetch(fileUrl!);
+              if (!res.ok) throw new Error("Failed to fetch PDF");
+              buffer = await res.arrayBuffer();
+            }
+          } else {
+            const res = await fetch(fileUrl!);
+            if (!res.ok) throw new Error("Failed to fetch PDF");
+            buffer = await res.arrayBuffer();
+          }
+
           if (!isMounted) return;
           const blob = new Blob([buffer], { type: "application/pdf" });
           const url = URL.createObjectURL(blob);
@@ -147,13 +231,15 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
           pdfBlobUrlRef.current = url;
           setPdfBlobUrl(url);
           setLoading(false);
-        })
-        .catch((err) => {
+        } catch (err) {
           if (!isMounted) return;
           console.error("Failed to process PDF file:", err);
           setError("Could not load PDF viewer. Please try downloading the file instead.");
           setLoading(false);
-        });
+        }
+      };
+      
+      loadPdf();
     } else {
       loadContent();
     }
@@ -165,7 +251,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
         pdfBlobUrlRef.current = null;
       }
     };
-  }, [isOpen, fileUrl, fileName, mimeType]);
+  }, [isOpen, fileUrl, fileName, mimeType, originalPath]);
 
   // Attach click handler to the docx container whenever content changes
   useDocLinkInterceptor(contentRef, handleDocLinkClick, [content]);
@@ -282,17 +368,116 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
               {error}
             </div>
           ) : isPdf() && pdfBlobUrl ? (
-            <iframe
-              src={`${pdfBlobUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`}
-              width="100%"
-              height="100%"
-              title="PDF Viewer"
-              style={{
-                border: "none",
-                backgroundColor: "white",
-                display: "block",
-              }}
-            />
+            <div 
+              style={{ height: "100%", display: "flex", flexDirection: "column", backgroundColor: "#323639" }}
+              onContextMenu={(e) => e.stopPropagation()}
+            >
+              {/* PDF Toolbar */}
+              <div 
+                style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "center", 
+                  gap: "20px", 
+                  padding: "8px", 
+                  backgroundColor: "#2a2a2a", 
+                  borderBottom: "1px solid rgba(255,255,255,0.1)",
+                  zIndex: 10
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ color: "white", fontSize: "12px", opacity: 0.8 }}>
+                    {numPages || "..."} Pages
+                  </span>
+                </div>
+
+                <div style={{ width: "1px", height: "20px", backgroundColor: "rgba(255,255,255,0.2)" }} />
+
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button
+                    onClick={() => setScale(prev => Math.max(prev - 0.2, 0.5))}
+                    style={{ background: "none", border: "none", color: "white", cursor: "pointer" }}
+                    title="Zoom Out"
+                  >
+                    <ZoomOut size={18} />
+                  </button>
+                  <span style={{ color: "white", fontSize: "13px", minWidth: "40px", textAlign: "center" }}>
+                    {Math.round(scale * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setScale(prev => Math.min(prev + 0.2, 3.0))}
+                    style={{ background: "none", border: "none", color: "white", cursor: "pointer" }}
+                    title="Zoom In"
+                  >
+                    <ZoomIn size={18} />
+                  </button>
+                  <button
+                    onClick={() => setScale(1.0)}
+                    style={{ background: "none", border: "none", color: "white", cursor: "pointer", marginLeft: "4px" }}
+                    title="Reset Zoom"
+                  >
+                    <Maximize size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* PDF Document Container */}
+              <div 
+                style={{ 
+                  flex: 1, 
+                  overflow: "auto", 
+                  display: "flex", 
+                  justifyContent: "center", 
+                  padding: "20px",
+                  userSelect: "text"
+                }}
+              >
+                <Document
+                  file={pdfBlobUrl}
+                  onLoadSuccess={({ numPages }: { numPages: number }) => {
+                    setNumPages(numPages);
+                  }}
+                  loading={
+                    <div style={{ color: "white", marginTop: "40px" }}>Loading PDF...</div>
+                  }
+                  error={
+                    <div style={{ color: "#f87171", marginTop: "40px" }}>Failed to load PDF.</div>
+                  }
+                >
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    {Array.from(new Array(numPages), (el, index) => (
+                      <div 
+                        key={`page_${index + 1}`} 
+                        style={{ marginBottom: "20px", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}
+                      >
+                        <Page 
+                          pageNumber={index + 1} 
+                          scale={scale} 
+                          loading=""
+                          renderAnnotationLayer={true}
+                          renderTextLayer={true}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </Document>
+              </div>
+
+              {/* Fallback footer info */}
+              <div 
+                style={{ 
+                  padding: "6px 20px", 
+                  backgroundColor: "#1a1a1a", 
+                  color: "rgba(255,255,255,0.4)", 
+                  fontSize: "10px", 
+                  textAlign: "center",
+                  display: "block",
+                  borderTop: "1px solid rgba(255,255,255,0.1)"
+                }}
+              >
+                Note: PDF rendering is powered by react-pdf. If issues persist, use <b>Save</b> to download.
+              </div>
+            </div>
           ) : isTextType() ? (
             <pre
               style={{
@@ -325,8 +510,8 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
               }}
             >
               <style>{`
-                .docx-viewer-inner { all: revert; user-select: text !important; -webkit-user-select: text !important; cursor: text; }
-                .docx-viewer-inner * { all: revert; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important; }
+                .docx-viewer-inner { all: revert; user-select: text !important; -webkit-user-select: text !important; cursor: text; pointer-events: auto !important; position: relative; z-index: 10; }
+                .docx-viewer-inner * { all: revert; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important; pointer-events: auto !important; }
                 .docx-viewer-inner p { margin: 0 0 0.6em 0; font-family: 'Calibri', 'Georgia', serif; font-size: 11pt; color: #1a1a1a; line-height: 1.5; }
                 .docx-viewer-inner h1 { font-size: 2em; font-weight: bold; margin: 0.8em 0 0.4em; }
                 .docx-viewer-inner h2 { font-size: 1.6em; font-weight: bold; margin: 0.7em 0 0.3em; }

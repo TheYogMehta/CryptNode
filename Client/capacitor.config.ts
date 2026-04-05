@@ -25,7 +25,6 @@ const config: CapacitorConfig = {
     SocialLogin: {
       google: true,
       facebook: false,
-      apple: false,
       twitter: false,
     },
     Keyboard: {

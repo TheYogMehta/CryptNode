@@ -1,5 +1,7 @@
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
-import { executeDB } from "./sqliteService";
+import { Capacitor } from "@capacitor/core";
+import { executeDB, getCurrentDbKey } from "./sqliteService";
+import { VaultCrypto } from "./VaultCrypto";
 import {
   StorageUtils,
   VAULT_DIR,
@@ -94,9 +96,12 @@ export const StorageService = {
 
     await StorageService.lock(fileName);
     try {
+      const dbKey = getCurrentDbKey();
+      const dataToWrite = dbKey ? await VaultCrypto.encrypt(data, dbKey) : data;
+
       await Filesystem.writeFile({
         path: pathObj.path,
-        data,
+        data: dataToWrite,
         directory: pathObj.directory,
         recursive: true,
         encoding: Encoding.UTF8,
@@ -192,7 +197,11 @@ export const StorageService = {
         encoding: Encoding.UTF8,
       });
 
-      const base64 = typeof file.data === "string" ? file.data : "";
+      const rawData = typeof file.data === "string" ? file.data : "";
+      if (!rawData) return "";
+
+      const dbKey = getCurrentDbKey();
+      const base64 = dbKey ? await VaultCrypto.decrypt(rawData, dbKey) : rawData;
       if (!base64) return "";
 
       const start = chunkIndex * CHUNK_SIZE;
@@ -224,7 +233,10 @@ export const StorageService = {
               encoding: Encoding.UTF8,
             });
             const data = typeof file.data === "string" ? file.data : "";
-            if (data) return data;
+            if (data) {
+              const dbKey = getCurrentDbKey();
+              return dbKey ? await VaultCrypto.decrypt(data, dbKey) : data;
+            }
           } catch (_e) {
             // Continue to next candidate/fallback.
           }
@@ -237,10 +249,45 @@ export const StorageService = {
         encoding: Encoding.UTF8,
       });
 
-      return typeof file.data === "string" ? file.data : "";
+      const rawData = typeof file.data === "string" ? file.data : "";
+      if (!rawData) return "";
+      
+      const dbKey = getCurrentDbKey();
+      return dbKey ? await VaultCrypto.decrypt(rawData, dbKey) : rawData;
     } catch (e) {
       console.warn(`[Storage] readFile failed for ${fileName}`, e);
       return "";
+    }
+  },
+
+  finalizeMediaFile: async (fileName: string): Promise<void> => {
+    await StorageService.lock(fileName);
+    try {
+      const { path, directory } = StorageUtils.resolvePath(fileName);
+      const file = await Filesystem.readFile({
+        path,
+        directory,
+        encoding: Encoding.UTF8,
+      });
+      const data = typeof file.data === "string" ? file.data : "";
+      if (!data || data.startsWith("VAULT_ENC_V1:")) return;
+
+      const dbKey = getCurrentDbKey();
+      if (!dbKey) return;
+      
+      const encryptedData = await VaultCrypto.encrypt(data, dbKey);
+      await Filesystem.writeFile({
+        path,
+        data: encryptedData,
+        directory,
+        recursive: true,
+        encoding: Encoding.UTF8,
+      });
+      console.log(`[Storage] Finalized encryption for ${fileName}`);
+    } catch (e) {
+      console.error("[Storage] Failed to finalize media file encryption", e);
+    } finally {
+      StorageService.unlock(fileName);
     }
   },
 
@@ -273,51 +320,30 @@ export const StorageService = {
     try {
       const { path, directory } = StorageUtils.resolvePath(fileName);
       const isLocal = StorageUtils.isLocalSystemPath(fileName);
-      let base64Data = "";
+      // Native stores base64 as UTF-8 string on disk; we must read it as UTF8.
+      let base64Data = await StorageService.readFile(fileName);
 
-      if (isLocal) {
-        const file = await Filesystem.readFile({ path, directory });
-        base64Data = typeof file.data === "string" ? file.data : "";
-        if (file.data instanceof Blob) {
-          base64Data = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const res = reader.result as string;
-              resolve(res.includes(",") ? res.split(",")[1] : res);
-            };
-            reader.readAsDataURL(file.data as Blob);
-          });
-        }
-      } else {
-        const raw = (fileName || "").split("/").pop() || fileName;
-        const profileCandidates = Array.from(
-          new Set([raw, raw.endsWith(".jpg") ? raw : `${raw}.jpg`]),
-        );
+      if (!base64Data && isLocal) {
+          // Fallback for profile images which might be in a different directory
+          const raw = (fileName || "").split("/").pop() || fileName;
+          const profileCandidates = Array.from(
+            new Set([raw, raw.endsWith(".jpg") ? raw : `${raw}.jpg`]),
+          );
 
-        // Profile images are stored under PROFILE_DIR, not VAULT_DIR.
-        for (const profileName of profileCandidates) {
-          try {
-            const profileRead = await Filesystem.readFile({
-              path: `${PROFILE_DIR}/${profileName}`,
-              directory: Directory.Data,
-              encoding: Encoding.UTF8,
-            });
-            base64Data =
-              typeof profileRead.data === "string" ? profileRead.data : "";
-            if (base64Data) break;
-          } catch (_e) {
-            // Try next candidate/fallback.
+          for (const profileName of profileCandidates) {
+            try {
+              const profileRead = await Filesystem.readFile({
+                path: `${PROFILE_DIR}/${profileName}`,
+                directory: Directory.Data,
+              });
+              if (typeof profileRead.data === "string") {
+                base64Data = profileRead.data;
+                break;
+              }
+            } catch (_e) {
+              // Try next candidate
+            }
           }
-        }
-
-        if (!base64Data) {
-          const file = await Filesystem.readFile({
-            path,
-            directory,
-            encoding: Encoding.UTF8,
-          });
-          base64Data = typeof file.data === "string" ? file.data : "";
-        }
       }
 
       const mime = StorageUtils.getMimeType(fileName, mimeType);

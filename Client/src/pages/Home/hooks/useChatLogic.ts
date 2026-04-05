@@ -15,7 +15,15 @@ export const useChatLogic = (shouldInit: boolean = true) => {
 
   const addMessage = useCallback(
     (msg: ChatMessage) => {
-      messageLogic.actions.setMessages((prev) => [...prev, msg]);
+      messageLogic.actions.setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === msg.id);
+        if (idx !== -1) {
+          const newMessages = [...prev];
+          newMessages[idx] = msg;
+          return newMessages;
+        }
+        return [...prev, msg];
+      });
     },
     [messageLogic.actions],
   );

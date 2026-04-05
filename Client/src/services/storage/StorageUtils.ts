@@ -41,6 +41,18 @@ export const StorageUtils = {
       else if (ext === "wav") mime = "audio/wav";
       else if (ext === "ogg") mime = "audio/ogg";
       else if (ext === "m4a") mime = "audio/mp4";
+      else if (ext === "pdf") mime = "application/pdf";
+      else if (ext === "json") mime = "application/json";
+      else if (ext === "txt") mime = "text/plain";
+      else if (ext === "md") mime = "text/markdown";
+      else if (ext === "html") mime = "text/html";
+      else if (ext === "css") mime = "text/css";
+      else if (ext === "js") mime = "application/javascript";
+      else if (ext === "xml") mime = "application/xml";
+      else if (ext === "doc") mime = "application/msword";
+      else if (ext === "docx") mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      else if (ext === "xls") mime = "application/vnd.ms-excel";
+      else if (ext === "xlsx") mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     }
 
     if (fileName.includes("voice-note") && ext === "webm") {

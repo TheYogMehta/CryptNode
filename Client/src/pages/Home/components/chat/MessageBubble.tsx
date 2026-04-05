@@ -200,6 +200,7 @@ export const MessageBubble = React.memo(
       type: "image" | "video",
       description?: string,
       meta?: any,
+      mimeType?: string,
     ) => void;
     messageLayout?: "bubble" | "modern";
     senderName?: string;
@@ -266,7 +267,7 @@ export const MessageBubble = React.memo(
         sender: msg.sender,
         senderName: senderName,
         timestamp: msg.timestamp,
-      });
+      }, msg.mediaMime);
     };
 
     const normalizeUrlToken = (value: string): string =>
@@ -1198,7 +1199,8 @@ export const MessageBubble = React.memo(
     );
 
     return (
-      <BubbleWrapper
+      <>
+        <BubbleWrapper
         isMe={isModernLayout ? false : isMe}
         hasReactions={groupedReactions.length > 0}
         onContextMenu={handleContextMenu}
@@ -1612,15 +1614,17 @@ export const MessageBubble = React.memo(
             }}
           />
         )}
-
-        <FileViewerModal
-          isOpen={viewerOpen}
-          onClose={handleCloseViewer}
-          fileUrl={imageSrc}
-          fileName={msg.mediaOriginalName || msg.mediaFilename || msg.text || "File"}
-          mimeType={msg.mediaMime || "application/octet-stream"}
-        />
       </BubbleWrapper>
+
+      <FileViewerModal
+        isOpen={viewerOpen}
+        onClose={handleCloseViewer}
+        fileUrl={imageSrc}
+        fileName={msg.mediaOriginalName || msg.mediaFilename || msg.text || "File"}
+        mimeType={msg.mediaMime || "application/octet-stream"}
+        originalPath={msg.mediaFilename}
+      />
+    </>
     );
   },
 );

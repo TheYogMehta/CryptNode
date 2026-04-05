@@ -111,6 +111,8 @@ export const MobileCategoryList = styled.div`
   flex-direction: column;
   height: 100%;
   background-color: ${colors.background.primary};
+  overflow-y: auto;
+  padding-bottom: ${spacing[10]};
 `;
 
 export const MobileHeader = styled.div`

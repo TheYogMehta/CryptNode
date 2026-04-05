@@ -13,6 +13,8 @@ export class CallService {
   public currentLocalStream: MediaStream | null = null;
   public currentCallSid: string | null = null;
   public incomingCallSid: string | null = null;
+  public currentCallId: string | null = null;
+  public incomingCallId: string | null = null;
   public currentCallRemotePubKey: string | null = null;
   public micStream: MediaStream | null = null;
   public cameraStream: MediaStream | null = null;
@@ -185,14 +187,15 @@ export class CallService {
     try {
       this.isCalling = true;
       this.currentCallSid = sid;
-      console.log("[CallService] startCall: Initiating WebRTC call to", sid);
+      this.currentCallId = crypto.randomUUID(); // Generate unique call instance ID
+      console.log("[CallService] startCall: Initiating WebRTC call to", sid, "with callId", this.currentCallId);
 
       const myPubKey = await this.client.getPublicKeyString();
       const callStartPayloads = await this.client.encryptForSession(
         sid,
         JSON.stringify({
           t: "MSG",
-          data: { type: "CALL_START", mode, senderPubKey: myPubKey },
+          data: { type: "CALL_START", mode, senderPubKey: myPubKey, callId: this.currentCallId },
         }),
         0,
       );
@@ -434,7 +437,7 @@ export class CallService {
       sid,
       JSON.stringify({
         t: "MSG",
-        data: { type: innerType, ...rest },
+        data: { type: innerType, callId: this.currentCallId || this.incomingCallId, ...rest },
       }),
       0,
     );
@@ -759,7 +762,7 @@ export class CallService {
 
     const payloads = await this.client.encryptForSession(
       sid,
-      JSON.stringify({ t: "MSG", data: { type: "CALL_ACCEPT" } }),
+      JSON.stringify({ t: "MSG", data: { type: "CALL_ACCEPT", callId: this.currentCallId || this.incomingCallId } }),
       0,
     );
     this.client.send({ t: "MSG", sid, data: { payloads }, c: true, p: 0 });
@@ -778,7 +781,7 @@ export class CallService {
     try {
       const payloads = await this.client.encryptForSession(
         targetSid,
-        JSON.stringify({ t: "MSG", data: { type: "CALL_END" } }),
+        JSON.stringify({ t: "MSG", data: { type: "CALL_END", callId: this.currentCallId || this.incomingCallId } }),
         0,
       );
 
@@ -799,12 +802,14 @@ export class CallService {
       console.warn("[CallService] Failed to send CALL_END message", e);
     }
     const wasConnected = this.isCallConnected;
+    const callIdToLog = this.currentCallId || this.incomingCallId;
     this.cleanupCall();
     const duration = this.callStartTime ? Date.now() - this.callStartTime : 0;
     this.client.emit("call_ended", {
       sid: targetSid,
       duration,
       connected: wasConnected,
+      callId: callIdToLog
     });
   }
 
@@ -813,6 +818,8 @@ export class CallService {
     this.isCalling = false;
     this.currentCallSid = null;
     this.incomingCallSid = null;
+    this.currentCallId = null;
+    this.incomingCallId = null;
     this.isCallConnected = false;
     this.hasEmittedCallConnected = false;
     this.currentCallRemotePubKey = null;
@@ -937,13 +944,8 @@ export class CallService {
       await this.flushPendingIce();
       console.log("[CallService] Set remote description from answer");
 
-      if (
-        this.peerConnection?.connectionState === "connected" ||
-        this.peerConnection?.iceConnectionState === "connected" ||
-        this.peerConnection?.iceConnectionState === "completed"
-      ) {
-        this.emitCallConnected(sid);
-      }
+      // Signal connected state immediately for UI responsiveness
+      this.emitCallConnected(sid);
     } catch (err) {
       console.error("[CallService] Error handling RTC answer:", err);
     }

@@ -53,6 +53,7 @@ export class FileTransferService {
     sid: string,
     fileData: File | Blob | string,
     fileInfo: { name: string; size: number; type: string; caption?: string },
+    messageId?: string
   ) {
     if (!this.client.sessions[sid]) throw new Error("Session not found");
 
@@ -103,15 +104,16 @@ export class FileTransferService {
         : isAudio
           ? "audio"
           : "file";
-    const messageId = await this.client.insertMessageRecord(
+    const finalMessageId = await this.client.insertMessageRecord(
       sid,
       fileInfo.caption || "",
       msgType,
       "me",
+      messageId
     );
 
     await StorageService.initMediaEntry(
-      messageId,
+      finalMessageId,
       fileInfo.name,
       fileInfo.size,
       fileInfo.type,
@@ -130,7 +132,7 @@ export class FileTransferService {
           caption: fileInfo.caption || "",
           size: fileInfo.size,
           mimeType: fileInfo.type,
-          messageId,
+          messageId: finalMessageId,
           thumbnail: thumb,
           compressed: (fileInfo as any).compressed || false,
         },
@@ -456,9 +458,11 @@ export class FileTransferService {
             this.client.emit("file_downloaded", { messageId, filename });
           } catch (e) {
             console.error("[FileTransfer] Decompression failed:", e);
+            await StorageService.finalizeMediaFile(filename);
             this.client.emit("file_downloaded", { messageId, filename });
           }
         } else {
+          await StorageService.finalizeMediaFile(filename);
           this.client.emit("file_downloaded", { messageId, filename });
         }
       } else {
@@ -529,6 +533,15 @@ export class FileTransferService {
         thumbnail: data.thumbnail,
         id: localId,
         mediaStatus: "pending",
+      });
+    } else {
+      this.client.emit("message_metadata_updated", {
+        sid,
+        messageId: localId,
+        mediaOriginalName: data.name,
+        mediaTotalSize: data.size,
+        mediaMime: data.mimeType,
+        thumbnail: data.thumbnail,
       });
     }
   }

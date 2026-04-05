@@ -14,7 +14,7 @@
     "electron:start": "cd electron && npm run electron:start",
     "electron:pack": "cd electron && npm run electron:pack",
     "android:start": "npx cap open android",
-    "android:pack": "cd android && ./gradlew clean assembleRelease -x lint --parallel --build-cache"
+    "android:pack": "cd android && ./gradlew clean assembleRelease -x lint --parallel && ./gradlew --stop"
   },
   "dependencies": {
     "@capacitor-community/privacy-screen": "^6.0.0",
@@ -77,6 +77,8 @@
     "react-router": "^5.3.4",
     "react-router-dom": "^5.3.4",
     "react-virtuoso": "^4.18.1",
+    "react-pdf": "^9.1.1",
+    "pdfjs-dist": "4.4.168",
     "styled-components": "^6.3.9",
     "yet-another-react-lightbox": "^3.29.1"
   },

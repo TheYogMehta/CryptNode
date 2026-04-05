@@ -343,6 +343,7 @@ export function setupContentSecurityPolicy(customScheme: string): void {
       script-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
       worker-src * data: blob: 'unsafe-inline' 'unsafe-eval';
       frame-src * blob: data:;
+      object-src * blob: data:;
       frame-ancestors *;
     `;
 

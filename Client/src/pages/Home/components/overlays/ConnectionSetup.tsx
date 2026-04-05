@@ -192,7 +192,7 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                     onClick={() => {
                       ChatClient.acceptFriend(
                         req.email,
-                        req.publicKey,
+                        req.publicKeys?.length ? req.publicKeys : req.publicKey,
                         req.senderHash,
                       );
                       setPending((prev) =>

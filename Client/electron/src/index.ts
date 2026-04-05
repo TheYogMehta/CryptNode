@@ -28,6 +28,7 @@ app.commandLine.appendSwitch("disable-http-cache");
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("enable-features", "WebRTCPipeWireCapturer");
 }
+app.commandLine.appendSwitch("plugins");
 
 // Graceful handling of unhandled errors.
 unhandled();

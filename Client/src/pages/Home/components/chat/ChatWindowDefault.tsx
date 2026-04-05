@@ -182,6 +182,7 @@ export const ChatWindowDefault = ({
     type: "image" | "video";
     description?: string;
     meta?: any;
+    mimeType?: string;
   } | null>(null);
 
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
@@ -477,9 +478,10 @@ export const ChatWindowDefault = ({
     url: string,
     type: "image" | "video",
     description?: string,
-    meta?: any
+    meta?: any,
+    mimeType?: string
   ) => {
-    setSelectedMedia({ url, type, description, meta });
+    setSelectedMedia({ url, type, description, meta, mimeType });
     setMediaModalOpen(true);
   };
 

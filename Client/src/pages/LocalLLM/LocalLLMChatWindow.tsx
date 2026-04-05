@@ -90,16 +90,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
     scrollToBottom();
   }, [messages, isGenerating]);
 
-  const handleDownload = async () => {
-    if (!activeModel) return;
-    try {
-      await localAIService.downloadModel(activeModel);
-      await localAIService.init();
-      setIsInstalled(true);
-    } catch (e: any) {
-      alert("Failed to download or initialize the model: " + e.message);
-    }
-  };
+
 
 
 
@@ -286,15 +277,13 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
         ) : (
           <div className="local-llm-locked" style={themeVars}>
             <div className="local-llm-locked-inner">
-              <h2 className="sc-title">Download Required</h2>
+              <h2 className="sc-title">Model Not Downloaded</h2>
               <p className="sc-subtitle" style={{ marginBottom: "20px" }}>
-                To chat with {activeModel.name} entirely offline, you need to download this model according to your preference from the Settings.
+                The selected model <strong>{activeModel.name}</strong> is not present on this device.
               </p>
-              <ul style={{ textAlign: "left", fontSize: "0.9rem", color: "var(--sc-text-secondary)", marginBottom: "30px" }}>
-                <li>🔒 100% Private & Locally executed</li>
-                <li>🚀 Works entirely offline</li>
-                <li>🤖 {activeModel.description}</li>
-              </ul>
+              <p className="sc-subtitle" style={{ marginBottom: "25px" }}>
+                Please ensure the model file is manually placed in the local storage directory or select an already downloaded model in settings.
+              </p>
               <div className="local-llm-row" style={{ justifyContent: "center" }}>
                 <button
                   onClick={onOpenSettings}
@@ -307,26 +296,6 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
             </div>
           </div>
         )
-      ) : (isDownloading && !isInstalled) ? (
-        <div className="local-llm-locked" style={themeVars}>
-          <div className="local-llm-locked-inner">
-            <h2 className="sc-title">Downloading AI Model</h2>
-            <p className="sc-subtitle">Please wait, this might take a while depending on your internet connection...</p>
-            <div style={{ marginTop: "30px", width: "100%", maxWidth: "300px", margin: "30px auto 0" }}>
-              <div style={{ width: "100%", background: "var(--sc-surface-primary)", height: "8px", borderRadius: "4px", overflow: "hidden" }}>
-                <div style={{ width: `${downloadProgress}%`, height: "100%", background: "var(--sc-primary-main)", transition: "width 0.3s ease" }}></div>
-              </div>
-              <p style={{ marginTop: "10px", fontSize: "0.9rem", color: "var(--sc-text-secondary)" }}>
-                {downloadProgress}% Completed
-              </p>
-              {downloadInfo && (
-                <p style={{ marginTop: "5px", fontSize: "0.8rem", color: "var(--sc-text-secondary)", opacity: 0.7 }}>
-                  {Math.round(downloadInfo.bytes / 1024 / 1024)}MB / {Math.round(downloadInfo.total / 1024 / 1024)}MB
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
       ) : (
         <>
           <div className="local-llm-content">

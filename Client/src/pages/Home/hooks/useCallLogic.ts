@@ -67,6 +67,7 @@ export const useCallLogic = ({
       setActiveCall((prev: any) => {
         if (!prev) return prev;
         if (!payload.sid || prev.sid === payload.sid) {
+          if (prev.status === "connected") return prev;
           return { ...prev, status: "connecting" };
         }
         return prev;
@@ -102,25 +103,32 @@ export const useCallLogic = ({
       const sid = typeof data === "string" ? data : data.sid;
       const duration = typeof data === "object" ? data.duration : 0;
       const connected = typeof data === "object" ? !!data.connected : false;
+      const reason = typeof data === "object" ? data.reason : null;
+      const callId = typeof data === "object" ? data.callId : null;
 
       let text = "";
-      if (connected) {
+      if (reason === "picked_up_elsewhere") {
+        text = "Picked up on another device";
+      } else if (connected) {
         const min = Math.floor(duration / 60000);
         const sec = Math.floor((duration % 60000) / 1000);
-        const durationStr = `${min}m ${sec}s`;
-        text = `Call ended • ${durationStr}`;
+        const textDuration = `${min}m ${sec}s`;
+        text = `Call ended • ${textDuration}`;
       } else {
         text = "Missed Call";
       }
 
-      if (typeof data === "object" && data.hideLog) return;
+      // If hideLog is true, we still might want to show "Picked up elsewhere" locally
+      if (typeof data === "object" && data.hideLog && reason !== "picked_up_elsewhere") return;
 
-      const id = crypto.randomUUID();
+      // Use a deterministic ID based on callId so sync replaces placeholders
+      const id = callId ? `call_log_${callId}` : crypto.randomUUID();
       const timestamp = Date.now();
 
       try {
+        // Use INSERT OR REPLACE so the final duration log overwrites the "Picked up" placeholder
         await executeDB(
-          "INSERT INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, 'system', ?, 'system', ?, 1)",
+          "INSERT OR REPLACE INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, 'system', ?, 'system', ?, 1)",
           [id, sid, text, timestamp],
         );
 

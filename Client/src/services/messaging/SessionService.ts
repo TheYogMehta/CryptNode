@@ -70,7 +70,7 @@ export class SessionService extends EventEmitter {
   public async loadSessions() {
     const previousSessions = this.sessions;
     const newSessions: Record<string, ChatSession> = {};
-    const rows = await queryDB("SELECT * FROM sessions WHERE deleted_at IS NULL OR deleted_at = 0");
+    const rows = await queryDB("SELECT * FROM sessions");
     for (const row of rows) {
       try {
         const normalizedPeerEmail = this.normalizeEmail(row.peer_email);
@@ -87,7 +87,7 @@ export class SessionService extends EventEmitter {
               "jwk",
               jwk as JsonWebKey,
               { name: "AES-GCM" },
-              false,
+              true,
               ["encrypt", "decrypt"],
             );
           } catch (importErr) {
@@ -101,6 +101,9 @@ export class SessionService extends EventEmitter {
         const peerPubKeysList = row.peer_pub_keys
           ? JSON.parse(row.peer_pub_keys)
           : [];
+        const ownPubKeysList = row.own_pub_keys
+          ? JSON.parse(row.own_pub_keys)
+          : [];
 
         newSessions[row.sid] = {
           cryptoKeys: cryptoKeysMap,
@@ -113,6 +116,7 @@ export class SessionService extends EventEmitter {
           peer_avatar_ver: row.peer_avatar_ver || 0,
           isConnected: this.connectedSids.has(row.sid),
           peerPubKeys: peerPubKeysList,
+          ownPubKeys: ownPubKeysList,
           notes: row.notes || undefined,
         };
 
@@ -240,12 +244,12 @@ export class SessionService extends EventEmitter {
       // Check if another finalization just gave us these exact keys.
       if (this.sessions[sid]) {
         const currentKeysStr = JSON.stringify({
-          peer: this.sessions[sid].peerPubKeys || [],
-          own: this.sessions[sid].ownPubKeys || [],
+          peer: [...(this.sessions[sid].peerPubKeys || [])].sort(),
+          own: [...(this.sessions[sid].ownPubKeys || [])].sort(),
         });
         const incomingKeysStr = JSON.stringify({
-          peer: remotePubB64s || [],
-          own: ownPubKeys || [],
+          peer: [...(remotePubB64s || [])].sort(),
+          own: [...(ownPubKeys || [])].sort(),
         });
         if (currentKeysStr === incomingKeysStr) {
           // Keys are strictly identical, just update metadata and abort re-derivation.
@@ -283,7 +287,9 @@ export class SessionService extends EventEmitter {
       this.sessions[sid].peerPubKeys = remotePubB64s;
       this.sessions[sid].ownPubKeys = ownPubKeys || [];
 
-      const cryptoKeysMap: Record<string, CryptoKey> = {};
+      // Start with existing keys to avoid losing keys that might still be needed
+      // for synced or in-flight messages (e.g. from other devices).
+      const cryptoKeysMap: Record<string, CryptoKey> = { ...this.sessions[sid].cryptoKeys };
       const jwksMap: Record<string, any> = {};
 
       const allKeysForDerivation = new Set([
@@ -292,10 +298,18 @@ export class SessionService extends EventEmitter {
       ]);
 
       for (const pubB64 of allKeysForDerivation) {
-        if (!pubB64) continue;
-        const sharedKey = await this.deriveSharedKey(pubB64);
-        cryptoKeysMap[pubB64] = sharedKey;
-        jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", sharedKey);
+        if (!pubB64 || cryptoKeysMap[pubB64]) continue;
+        try {
+          const sharedKey = await this.deriveSharedKey(pubB64);
+          cryptoKeysMap[pubB64] = sharedKey;
+        } catch (e) {
+          console.warn(`[SessionService] Failed to derive key for ${pubB64}`, e);
+        }
+      }
+
+      // Always export all current keys to sync with worker
+      for (const [pubB64, key] of Object.entries(cryptoKeysMap)) {
+        jwksMap[pubB64] = await crypto.subtle.exportKey("jwk", key);
       }
 
       let peerAvatarFile: string | undefined = undefined;
@@ -339,13 +353,14 @@ export class SessionService extends EventEmitter {
 
       await WorkerManager.getInstance().initSession(sid, jwksMap);
       await executeDB(
-        "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys) VALUES (?, ?, ?)",
-        [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s)],
+        "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys, own_pub_keys) VALUES (?, ?, ?, ?)",
+        [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s), JSON.stringify(ownPubKeys || [])],
       );
       await executeDB(
         `UPDATE sessions
          SET keyJWK = ?,
              peer_pub_keys = ?,
+             own_pub_keys = ?,
              peer_email = COALESCE(?, peer_email),
              peer_hash = COALESCE(?, peer_hash),
              peer_name = COALESCE(?, peer_name),
@@ -362,6 +377,7 @@ export class SessionService extends EventEmitter {
         [
           JSON.stringify(jwksMap),
           JSON.stringify(remotePubB64s),
+          JSON.stringify(ownPubKeys || []),
           normalizedPeerEmail || null,
           resolvedPeerEmailHash || null,
           peerName || null,
@@ -880,12 +896,12 @@ export class SessionService extends EventEmitter {
 
         // Dynamic Key Rotation if peer app was reinstalled or devices changed
         const currentKeys = JSON.stringify({
-          peer: this.sessions[item.sid].peerPubKeys || [],
-          own: this.sessions[item.sid].ownPubKeys || [],
+          peer: [...(this.sessions[item.sid].peerPubKeys || [])].sort(),
+          own: [...(this.sessions[item.sid].ownPubKeys || [])].sort(),
         });
         const newKeys = JSON.stringify({
-          peer: item.peerPubKeys || [],
-          own: item.ownPubKeys || [],
+          peer: [...(item.peerPubKeys || [])].sort(),
+          own: [...(item.ownPubKeys || [])].sort(),
         });
         if ((item.peerPubKeys || item.ownPubKeys) && currentKeys !== newKeys) {
           console.log(

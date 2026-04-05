@@ -7,10 +7,8 @@
  * Priority order:
  *  1. Electron  → window.electron.openExternal  (IPC → shell.openExternal)
  *  2. Android   → Capacitor App.openUrl         (fires Android Intent)
- *  3. Web / iOS → window.open with noopener
  */
 import { Capacitor } from "@capacitor/core";
-import { App } from "@capacitor/app";
 
 export async function openExternalUrl(url: string): Promise<void> {
   if (!/^https?:\/\//i.test(url)) return;
@@ -25,17 +23,9 @@ export async function openExternalUrl(url: string): Promise<void> {
     // fall through
   }
 
-  // ── Android (Capacitor) ───────────────────────────────────────────────────
-  if (Capacitor.getPlatform() === "android") {
-    try {
-      // App.openUrl fires an ACTION_VIEW Intent which opens the system browser
-      await (App as any).openUrl({ url });
-      return;
-    } catch {
-      // fall through to window.open
-    }
-  }
-
-  // ── Web / iOS / fallback ─────────────────────────────────────────────────
+  // ── Android / Web Fallback ────────────────────────────────────────────────
+  // On Android, the WebView + our MainActivity.java navigation guard will
+  // intercept this navigation, launch an ACTION_VIEW Intent, and cancel the
+  // webview load. On web, this simply opens a new tab.
   window.open(url, "_blank", "noopener,noreferrer");
 }

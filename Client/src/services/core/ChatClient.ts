@@ -352,11 +352,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
               req.avatar || "",
               successfulPubKey,
               data.senderHash || "",
+              data.publicKeys || [],
             );
 
             this.emit("inbound_request", {
               ...req,
               publicKey: successfulPubKey,
+              publicKeys: data.publicKeys || [],
               sid: computedSid,
             });
             this.emit("notification", {
@@ -551,6 +553,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
                   req.avatar || "",
                   successfulPubKey,
                   reqData.senderHash || "",
+                  reqData.publicKeys || [],
                 );
 
                 const myEmail = this.normalizeEmail(this.authService.userEmail);
@@ -561,6 +564,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
                 this.emit("inbound_request", {
                   ...req,
                   publicKey: successfulPubKey,
+                  publicKeys: reqData.publicKeys || [],
                   sid: computedSid,
                 });
 
@@ -706,12 +710,13 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
   public async acceptFriend(
     targetEmail: string,
-    remotePub: string,
+    remotePubs: string | string[],
     senderHash: string,
   ) {
+    const keysToUse = Array.isArray(remotePubs) ? remotePubs : [remotePubs];
     return this.sessionService.acceptFriend(
       targetEmail,
-      [remotePub],
+      keysToUse,
       senderHash,
     );
   }
@@ -760,8 +765,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
   public async deleteChat(sid: string) {
     await this.messageService.deleteChatLocally(sid);
-    // Remove from in-memory sessions so the UI un-renders the ChatWindow automatically
-    delete this.sessionService.sessions[sid];
     this.emit("session_updated");
   }
 
@@ -791,8 +794,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
     sid: string,
     fileData: File | Blob | string,
     fileInfo: { name: string; size: number; type: string; caption?: string },
+    messageId?: string
   ) {
-    return this.fileTransfer.sendFile(sid, fileData, fileInfo);
+    return this.fileTransfer.sendFile(sid, fileData, fileInfo, messageId);
   }
 
   public async requestDownload(

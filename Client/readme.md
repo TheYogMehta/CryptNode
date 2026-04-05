@@ -146,7 +146,7 @@ assets/
 npx @capacitor/assets generate
 ```
 
-- Will automatically generate all **Android `mipmap-*` icons** and **iOS icons**.
+- Will automatically generate all **Android `mipmap-*` icons**.
 - Splash screens will also be generated if present.
 - Plugin reads the `assets/` folder by default — no `--asset-path` needed.
 

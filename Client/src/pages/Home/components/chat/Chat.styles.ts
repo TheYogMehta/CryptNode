@@ -149,6 +149,9 @@ export const InputContainer = styled.div`
   gap: ${spacing[3]};
   position: relative;
   border-top: 1px solid ${colors.border.subtle};
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};
@@ -159,6 +162,7 @@ export const InputContainer = styled.div`
 
 export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
   flex: 1;
+  min-width: 0;
   background-color: ${colors.background.tertiary};
   border-radius: ${radii.xl};
   padding: ${spacing[3]} ${spacing[4]};
@@ -186,6 +190,7 @@ export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
 
 export const ChatInput = styled.textarea`
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   color: ${colors.text.primary};
@@ -216,10 +221,6 @@ export const SendButton = styled.button<{ isRecording?: boolean; isChangingState
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   flex-shrink: 0;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-
-  svg {
-    animation: ${scaleIn} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-  }
 
   ${(props) =>
     props.isRecording &&

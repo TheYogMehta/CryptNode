@@ -39,7 +39,8 @@ const SCHEMA = {
       alias_timestamp INTEGER DEFAULT 0,
       last_manifest_sync INTEGER DEFAULT 0,
       notes TEXT,
-      deleted_at INTEGER DEFAULT 0
+      deleted_at INTEGER DEFAULT 0,
+      own_pub_keys TEXT
     `,
     indices: [],
   },
@@ -131,6 +132,7 @@ const SCHEMA = {
       name TEXT,
       avatar TEXT,
       publicKey TEXT,
+      publicKeys TEXT,
       senderHash TEXT,
       action TEXT DEFAULT 'pending',
       timestamp INTEGER
@@ -152,6 +154,7 @@ export const tableOrder = [
 ];
 
 export const getCurrentDbName = () => currentDbName;
+export const getCurrentDbKey = () => currentKey;
 
 export const switchDatabase = async (dbName: string, key?: string) => {
   if (currentDbName === dbName && dbReady && currentKey === (key || null))
@@ -176,15 +179,16 @@ export const dbInit = () => {
       } catch (e: any) {
         const msg = e.message || JSON.stringify(e);
         if (
+          msg === "{}" ||
           msg.includes("passphrase already in store") ||
           msg.includes("setEncryptionSecret")
         ) {
           console.log(
-            "[sqlite] Passphrase likely already in store, continuing...",
+            "[sqlite] Passphrase likely already in store or non-critical error, continuing...",
           );
           lastSecretSet = key;
         } else {
-          console.warn("Failed to set encryption key/secret:", e);
+          console.warn(`[sqlite] Failed to set encryption key/secret for ${currentDbName}: ${msg}`);
         }
       }
     }
@@ -647,10 +651,11 @@ export const addPendingRequest = async (
   avatar: string,
   publicKey: string,
   senderHash: string,
+  publicKeys?: string[],
 ) => {
   await executeDB(
-    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-    [email, name, avatar, publicKey, senderHash, Date.now()],
+    "INSERT OR REPLACE INTO pending_requests (email, name, avatar, publicKey, publicKeys, senderHash, action, timestamp) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+    [email, name, avatar, publicKey, publicKeys ? JSON.stringify(publicKeys) : null, senderHash, Date.now()],
   );
 };
 
@@ -663,6 +668,7 @@ export const getPendingRequests = async (): Promise<any[]> => {
     name: r.name,
     avatar: r.avatar,
     publicKey: r.publicKey,
+    publicKeys: r.publicKeys ? JSON.parse(r.publicKeys) : [],
     senderHash: r.senderHash,
     action: r.action,
     timestamp: r.timestamp,
@@ -672,13 +678,14 @@ export const getPendingRequests = async (): Promise<any[]> => {
 /** Returns all request entries including accepted/denied tombstones for manifest sync */
 export const getAllPendingRequestsEntries = async (): Promise<any[]> => {
   const rows = await queryDB(
-    "SELECT email, name, avatar, publicKey, senderHash, action, timestamp FROM pending_requests ORDER BY timestamp DESC",
+    "SELECT email, name, avatar, publicKey, publicKeys, senderHash, action, timestamp FROM pending_requests ORDER BY timestamp DESC",
   );
   return rows.map((r: any) => ({
     email: r.email,
     name: r.name,
     avatar: r.avatar,
     publicKey: r.publicKey,
+    publicKeys: r.publicKeys ? JSON.parse(r.publicKeys) : [],
     senderHash: r.senderHash,
     action: r.action,
     timestamp: r.timestamp,

@@ -48,10 +48,6 @@ export const LocalAISettings = () => {
   }, []);
 
   const handleDownload = async (model: LocalAIModel) => {
-    if (Capacitor.getPlatform() === 'web' && (model.sizeBytes > 1.5 * 1024 * 1024 * 1024 || model.sizeBytes === 0)) {
-      alert("Your browser cannot allocate enough memory to handle large model downloads. Please build and run the native Android/Desktop app to download and use models over ~1.5GB.");
-      return;
-    }
 
     if (model.sizeBytes > 2 * 1024 * 1024 * 1024 || model.sizeBytes === 0) {
       setWarningModel(model);

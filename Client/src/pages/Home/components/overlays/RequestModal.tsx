@@ -48,7 +48,7 @@ export const RequestModal = ({
               onClick={async () => {
                 await ChatClient.acceptFriend(
                   inboundReq!.email,
-                  inboundReq!.publicKey,
+                  inboundReq!.publicKeys?.length ? inboundReq!.publicKeys : inboundReq!.publicKey,
                   "",
                 );
                 setInboundReq(null);

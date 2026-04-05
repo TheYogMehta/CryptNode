@@ -263,7 +263,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				rows, err := s.db.Query(`
 					SELECT sid, user1_hash, user2_hash 
 					FROM friends 
-					WHERE (user1_hash = ? OR user2_hash = ?) AND sid IS NOT NULL
+					WHERE (user1_hash = ? OR user2_hash = ?) AND sid IS NOT NULL AND user1_hash != user2_hash
 				`, eh, eh)
 				if err != nil {
 					log.Printf("Error querying sessions for %s: %v", email, err)

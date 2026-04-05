@@ -43,12 +43,9 @@ import { deleteItemsByOwner } from "../../../../utils/secureStorage";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { DeviceManager } from "../settings/DeviceManager";
 import { LocalAISettings } from "../settings/LocalAISettings";
+import { LogSettings } from "../settings/LogSettings";
 import { Capacitor } from "@capacitor/core";
 
-const formatBytes = (bytes: number) => {
-  if (!bytes) return "0.00 MB";
-  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-};
 
 interface SettingsOverlayProps {
   onClose: () => void;
@@ -65,7 +62,8 @@ type SettingsCategory =
   | "Security"
   | "Appearance"
   | "Devices"
-  | "Local AI";
+  | "Local AI"
+  | "Logs";
 
 export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   onClose,
@@ -128,12 +126,22 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       )
     ) {
       if (confirm("Really really sure? This cannot be undone.")) {
-        
+
         // If this is the ONLY account, ask if they want to delete downloaded local models too
         let deleteModels = false;
-        if (accounts.length <= 1 && Capacitor.getPlatform() !== 'web') {
-          if (confirm("You are deleting your last account. Do you also want to delete all downloaded AI models from this device?")) {
-            deleteModels = true;
+        if (accounts.length <= 1 && Capacitor.getPlatform() !== 'android') {
+          try {
+            await localAIService.refreshInstalledStatus();
+            const installedModels = await localAIService.getEnhancedModels();
+            const hasDownloadedModels = installedModels.some(m => m.isDownloaded);
+
+            if (hasDownloadedModels) {
+              if (confirm("You are deleting your last account. Do you also want to delete all downloaded AI models from this device?")) {
+                deleteModels = true;
+              }
+            }
+          } catch (err) {
+            console.error("Failed to check for downloaded models", err);
           }
         }
 
@@ -258,9 +266,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     { id: "Profile", label: "Profile" },
     { id: "Devices", label: "Devices" },
     { id: "Appearance", label: "Appearance" },
+    { id: "Logs", label: "Logs" },
     { id: "Security", label: "Security" },
     { id: "Account", label: "Data & Storage" },
   ];
+
   if (!isAndroid) {
     menuItems.push({ id: "Local AI", label: "Local AI Models" });
   }
@@ -314,6 +324,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             if (onSwitchAccount) onSwitchAccount(email);
           }
         }} />;
+      case "Logs":
+        return <LogSettings />;
       default:
         return null;
     }
@@ -455,6 +467,8 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               }
             }} />
           )}
+
+          {activeCategory === "Logs" && <LogSettings />}
         </SettingsContent>
       </SettingsContainer>
       {deletingOverlay}

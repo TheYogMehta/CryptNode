@@ -95,6 +95,9 @@ export const InputArea = styled.div`
   padding: ${spacing[4]};
   background-color: ${colors.background.primary};
   border-top: 1px solid ${colors.border.subtle};
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
 `;
 
 export const InputWrapper = styled.div`
@@ -114,6 +117,7 @@ export const InputWrapper = styled.div`
 
 export const Input = styled.input`
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   color: ${colors.text.primary};

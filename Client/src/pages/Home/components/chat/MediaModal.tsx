@@ -90,7 +90,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
           sources: [
             {
               src: currentUrl,
-              type: "video/mp4",
+              type: media.mimeType || "video/mp4",
             },
           ],
         }
