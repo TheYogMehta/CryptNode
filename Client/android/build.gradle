@@ -18,9 +18,6 @@ allprojects {
         google()
         mavenCentral()
         maven { url "https://jitpack.io" }
-        // The most reliable repo for Tor binaries
-        maven { url "https://raw.githubusercontent.com/guardianproject/gpmaven/master" }
-        maven { url "https://guardianproject.info/repo/" }
     }
     configurations.all {
         resolutionStrategy {
