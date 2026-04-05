@@ -16,6 +16,7 @@ import { isTrustedUrl } from "../../../../utils/trustedDomains";
 import { openExternalUrl } from "../../../../utils/openExternalUrl";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { StorageUtils } from "../../../../services/storage/StorageUtils";
+import { StorageService } from "../../../../services/storage/StorageService";
 
 
 // Configure PDF.js worker
@@ -108,17 +109,14 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
       return;
     }
 
-    const readNativeFile = async (fileName: string) => {
+    const readNativeFile = async (fileName: string): Promise<ArrayBuffer> => {
       try {
-        const { path, directory } = StorageUtils.resolvePath(fileName);
-        const file = await Filesystem.readFile({
-          path,
-          directory: directory as Directory,
-        });
+        // Use StorageService.readFile which handles decryption of vault-encrypted files
+        const base64Data = await StorageService.readFile(fileName);
+        if (!base64Data) throw new Error("Empty file data");
 
-        
-        // Convert base64 string to ArrayBuffer
-        const binaryString = window.atob(file.data as string);
+        // base64Data is a plain base64 string (no data URI prefix)
+        const binaryString = window.atob(base64Data);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);

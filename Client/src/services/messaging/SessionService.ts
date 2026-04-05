@@ -348,6 +348,7 @@ export class SessionService extends EventEmitter {
         isConnected: true,
         peerPubKeys: remotePubB64s,
         ownPubKeys: ownPubKeys || [],
+        deletedAt: undefined, // Clear deletion tombstone — session is being (re)established
       });
       this.connectedSids.add(sid);
 
@@ -361,6 +362,7 @@ export class SessionService extends EventEmitter {
          SET keyJWK = ?,
              peer_pub_keys = ?,
              own_pub_keys = ?,
+             deleted_at = 0,
              peer_email = COALESCE(?, peer_email),
              peer_hash = COALESCE(?, peer_hash),
              peer_name = COALESCE(?, peer_name),

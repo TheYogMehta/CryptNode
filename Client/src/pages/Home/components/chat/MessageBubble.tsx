@@ -660,11 +660,12 @@ export const MessageBubble = React.memo(
     };
 
     const handleSave = async () => {
-      if (msg.mediaFilename && msg.text) {
+      if (msg.mediaFilename) {
+        const saveFileName = msg.mediaOriginalName || msg.text || msg.mediaFilename;
         try {
           const savedPath = await StorageService.saveToDownloads(
             msg.mediaFilename,
-            msg.text,
+            saveFileName,
           );
           alert(`Saved to: ${savedPath}`);
         } catch (e) {
@@ -674,7 +675,7 @@ export const MessageBubble = React.memo(
       } else if (imageSrc) {
         const a = document.createElement("a");
         a.href = imageSrc;
-        a.download = msg.text || "download";
+        a.download = msg.mediaOriginalName || msg.text || "download";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

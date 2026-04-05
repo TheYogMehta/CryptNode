@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { VAULT_DIR } from "./StorageUtils";
+import { StorageService } from "./StorageService";
 
 export const PlatformStorage = {
   saveToDownloads: async (
@@ -10,7 +11,6 @@ export const PlatformStorage = {
     const platform = Capacitor.getPlatform();
 
     if (platform === "android") {
-      const srcPath = `${VAULT_DIR}/${vaultFileName}`;
       const folderName = "Download/cryptnode";
 
       const perm = await Filesystem.checkPermissions();
@@ -59,11 +59,18 @@ export const PlatformStorage = {
         }
       }
 
-      await Filesystem.copy({
-        from: srcPath,
-        directory: Directory.Data,
-        to: `${folderName}/${finalName}`,
-        toDirectory: Directory.ExternalStorage,
+      // Read and decrypt the vault file, then write decoded binary to Downloads.
+      // StorageService.readFile returns plain base64 (no data URI prefix).
+      // Capacitor writeFile without encoding treats `data` as base64 and writes binary.
+      const decryptedBase64 = await StorageService.readFile(vaultFileName);
+      if (!decryptedBase64) throw new Error("Failed to read vault file");
+
+      await Filesystem.writeFile({
+        path: `${folderName}/${finalName}`,
+        data: decryptedBase64,
+        directory: Directory.ExternalStorage,
+        recursive: true,
+        // No encoding: Capacitor writes the base64 as binary bytes
       });
 
       return `Downloads/cryptnode/${finalName}`;
