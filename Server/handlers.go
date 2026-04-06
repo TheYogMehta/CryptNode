@@ -1020,8 +1020,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			eh := emailHash(client.email)
 
-			s.db.Exec("DELETE FROM public_keys WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM devices WHERE email_hash = ?", eh)
 			s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? OR target_hash = ?", eh, eh)
+			s.db.Exec("DELETE FROM offline_notifications WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM fcm_tokens WHERE email_hash = ?", eh)
 
 			rows, err := s.db.Query("SELECT sid, CASE WHEN user1_hash = ? THEN user2_hash ELSE user1_hash END AS target_hash FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh, eh)
 			if err == nil {
