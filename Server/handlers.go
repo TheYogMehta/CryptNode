@@ -259,7 +259,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				ownSidSum := sha256.Sum256([]byte(email + ":" + email))
 				ownSid := hex.EncodeToString(ownSidSum[:])
-				
+
 				rows, err := s.db.Query(`
 					SELECT sid, user1_hash, user2_hash 
 					FROM friends 
@@ -438,7 +438,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				sessions = append(sessions, map[string]any{
 					"sid":         ownSid,
 					"online":      len(siblingClients) > 0,
-					"peerHash":    eh,      // peer IS ourselves → client detects isOwnDevice
+					"peerHash":    eh,
 					"peerPubKeys": siblingPubKeys,
 					"ownPubKeys":  myPubKeysForOwn,
 				})
@@ -516,6 +516,69 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			respBytes, _ := json.Marshal(map[string]any{"devices": devicesList})
 			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
+
+		case "DELETE_DEVICE":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+
+			var d struct {
+				TargetPubKey string `json:"targetPubKey"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			d.TargetPubKey = strings.TrimSpace(d.TargetPubKey)
+			if d.TargetPubKey == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Missing target public key"}`)})
+				continue
+			}
+
+			eh := emailHash(client.email)
+			var currentPubKey string
+			_ = s.db.QueryRow(
+				"SELECT public_key FROM sockets WHERE socket_id = ? LIMIT 1",
+				client.id,
+			).Scan(&currentPubKey)
+			if currentPubKey != "" && currentPubKey == d.TargetPubKey {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"You cannot delete the current device from this session."}`)})
+				continue
+			}
+
+			var socketIDs []string
+			socketRows, err := s.db.Query(
+				"SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?",
+				eh,
+				d.TargetPubKey,
+			)
+			if err == nil {
+				for socketRows.Next() {
+					var socketID string
+					if scanErr := socketRows.Scan(&socketID); scanErr == nil {
+						socketIDs = append(socketIDs, socketID)
+					}
+				}
+				socketRows.Close()
+			}
+
+			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+			s.db.Exec("DELETE FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
+
+			for _, socketID := range socketIDs {
+				s.mu.Lock()
+				targetClient, ok := s.clients[socketID]
+				s.mu.Unlock()
+				if ok {
+					s.send(targetClient, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"This device has been removed from your account."}`)})
+					targetClient.conn.Close()
+				}
+			}
+
+			respBytes, _ := json.Marshal(map[string]any{
+				"success":      true,
+				"targetPubKey": d.TargetPubKey,
+			})
+			s.send(client, Frame{T: "DEVICE_DELETE_SUCCESS", Data: json.RawMessage(respBytes)})
+			s.broadcastDeviceList(eh)
 
 		case "GET_PUBLIC_KEY":
 			if client.email == "" {
@@ -748,7 +811,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			for _, tc := range targetClients {
 				newSess.clients[tc.id] = tc // requester (User 1)
 			}
-			
 			// Also add all my sibling clients (User 2's other devices) to the session
 			var siblingClients []*Client
 			sibRows, _ := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ? AND socket_id != ?", senderHash, client.id)
@@ -795,10 +857,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			// Broadcast SYNC_ACCEPT to own devices so they remove pending request and derive session
 			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_ACCEPT", map[string]any{
-				"targetHash": targetHash,
-				"sid": sid,
+				"targetHash":  targetHash,
+				"sid":         sid,
 				"peerPubKeys": targetActivePubKeys,
-				"ownPubKeys": senderActivePubKeys,
+				"ownPubKeys":  senderActivePubKeys,
 			})
 
 		case "FRIEND_DENY":
@@ -1001,7 +1063,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
 						s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", f.TargetHash, string(frameEvent), time.Now())
 					}
-					
 					// Force close active session loops for safety
 					s.mu.Lock()
 					if sess, ok := s.sessions[f.SID]; ok {
