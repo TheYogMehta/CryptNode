@@ -4,7 +4,6 @@ import { ChatMessage } from "../../types";
 import ChatClient from "../../../../services/core/ChatClient";
 import { StorageService } from "../../../../services/storage/StorageService";
 import { Capacitor } from "@capacitor/core";
-import { Clipboard } from "@capacitor/clipboard";
 import {
   Reply,
   Plus,
@@ -63,6 +62,10 @@ import {
   EditActionButtons,
   EditButton,
 } from "./Chat.styles";
+import {
+  canCopySingleMessage,
+  copySingleMessageToClipboard,
+} from "./chatClipboard";
 
 // ─── GifBubble ────────────────────────────────────────────────────────────────
 // Renders tenor/giphy GIFs without layout shift by reserving an aspect-ratio
@@ -214,7 +217,12 @@ export const MessageBubble = React.memo(
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
     const touchStartX = useRef(0);
+    const touchStartY = useRef(0);
     const touchMoveX = useRef(0);
+    const touchMoveY = useRef(0);
+    const touchMovedRef = useRef(false);
+    const suppressNextClickRef = useRef(false);
+    const longPressTriggeredRef = useRef(false);
     const prevMsgId = useRef<string>(msg.id);
 
     const [isLoading, setIsLoading] = useState(false);
@@ -248,6 +256,7 @@ export const MessageBubble = React.memo(
 
     const { isInstalled: isAiInstalled } = useAIStatus(false);
     const isAndroidPlatform = Capacitor.getPlatform() === "android";
+    const canCopyMessage = canCopySingleMessage(msg);
     const [msgSummaryOpen, setMsgSummaryOpen] = useState(false);
     const [msgSummary, setMsgSummary] = useState("");
     const [isSummarizingMsg, setIsSummarizingMsg] = useState(false);
@@ -341,40 +350,13 @@ export const MessageBubble = React.memo(
     };
 
     const handleCopy = async () => {
-      const text = msg.text || "";
-      let base64Image: string | undefined = undefined;
-
       try {
-        if (msg.type === "image" && imageSrc) {
-          try {
-            const res = await fetch(imageSrc);
-            const blob = await res.blob();
-            base64Image = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-          } catch (e) {
-            console.error("Failed to fetch image for clipboard", e);
-          }
-        }
-
-        const payload: any = {};
-        if (text) {
-          payload.string = text;
-        } else if (!base64Image) {
-          payload.string = ""; // Fallback
-        }
-
-        if (base64Image) {
-          payload.image = base64Image;
-        }
-
-        await Clipboard.write(payload);
+        await copySingleMessageToClipboard(msg);
       } catch (err) {
         console.error("Clipboard copy failed", err);
-        alert("Failed to copy to clipboard");
+        alert(
+          err instanceof Error ? err.message : "Failed to copy to clipboard",
+        );
       }
       setContextMenu(null);
     };
@@ -811,10 +793,22 @@ export const MessageBubble = React.memo(
       const clientY = touch.clientY;
 
       touchStartX.current = clientX;
+      touchStartY.current = clientY;
+      touchMoveX.current = clientX;
+      touchMoveY.current = clientY;
+      touchMovedRef.current = false;
+      longPressTriggeredRef.current = false;
+
+      if (selectionMode) {
+        setSwipeOffset(0);
+        setIsSwiping(false);
+        return;
+      }
 
       setIsSwiping(true);
 
       pressTimer.current = setTimeout(() => {
+        longPressTriggeredRef.current = true;
         setContextMenu({
           mouseX: clientX,
           mouseY: clientY,
@@ -826,23 +820,52 @@ export const MessageBubble = React.memo(
     };
 
     const onTouchMove = (e: React.TouchEvent) => {
-      touchMoveX.current = e.touches[0].clientX;
+      const touch = e.touches[0];
+      touchMoveX.current = touch.clientX;
+      touchMoveY.current = touch.clientY;
       const diff = touchMoveX.current - touchStartX.current;
+      const diffY = touchMoveY.current - touchStartY.current;
 
-      if (Math.abs(diff) > 30) {
+      if (Math.abs(diff) > 10 || Math.abs(diffY) > 10) {
+        touchMovedRef.current = true;
+      }
+
+      if (Math.abs(diff) > 30 || Math.abs(diffY) > 12) {
         if (pressTimer.current) clearTimeout(pressTimer.current);
       }
 
+      if (selectionMode) return;
       if (!isSwiping) return;
-      if (diff > 0) {
-        setSwipeOffset(Math.min(diff, 60));
+      if (diff < 0) {
+        setSwipeOffset(Math.max(diff, -60));
       }
     };
 
     const onTouchEnd = () => {
-      if (pressTimer.current) clearTimeout(pressTimer.current);
+      if (pressTimer.current) {
+        clearTimeout(pressTimer.current);
+        pressTimer.current = null;
+      }
 
-      if (swipeOffset >= 50 && onReply) {
+      if (longPressTriggeredRef.current) {
+        suppressNextClickRef.current = true;
+      }
+
+      if (selectionMode) {
+        if (
+          isAndroidPlatform &&
+          !touchMovedRef.current &&
+          !longPressTriggeredRef.current
+        ) {
+          suppressNextClickRef.current = true;
+          onToggleSelect?.(msg);
+        }
+        setSwipeOffset(0);
+        setIsSwiping(false);
+        return;
+      }
+
+      if (swipeOffset <= -50 && onReply) {
         onReply(msg);
         if (window.navigator && window.navigator.vibrate) {
           window.navigator.vibrate(10);
@@ -850,6 +873,21 @@ export const MessageBubble = React.memo(
       }
       setSwipeOffset(0);
       setIsSwiping(false);
+    };
+
+    const handleBubbleClickCapture = (e: React.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (!selectionMode) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleSelect?.(msg);
     };
 
     const groupedReactions = Object.entries(
@@ -1204,15 +1242,13 @@ export const MessageBubble = React.memo(
         <BubbleWrapper
         isMe={isModernLayout ? false : isMe}
         hasReactions={groupedReactions.length > 0}
+        onClickCapture={handleBubbleClickCapture}
         onContextMenu={handleContextMenu}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        onClick={() => {
-          if (selectionMode) onToggleSelect?.(msg);
-        }}
         style={{
           ...(isSelected ? { backgroundColor: "rgba(99, 102, 241, 0.15)", borderRadius: "8px", outline: "1px solid #6366f1", padding: "4px" } : {})
         }}
@@ -1226,15 +1262,15 @@ export const MessageBubble = React.memo(
           <div
             style={{
               position: "absolute",
-              left: 0,
+              right: 0,
               top: 0,
               bottom: 0,
               width: "60px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              opacity: swipeOffset / 50,
-              transform: `translateX(${swipeOffset - 60}px)`,
+              opacity: Math.abs(swipeOffset) / 50,
+              transform: `translateX(${swipeOffset + 60}px)`,
               color: "#6366f1",
             }}
           >
@@ -1447,15 +1483,17 @@ export const MessageBubble = React.memo(
               <Reply size={18} /> Reply
             </MenuItem>
 
-            <MenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopy();
-              }}
-              style={{ gap: "10px" }}
-            >
-              <Copy size={18} /> Copy
-            </MenuItem>
+            {canCopyMessage && (
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCopy();
+                }}
+                style={{ gap: "10px" }}
+              >
+                <Copy size={18} /> Copy
+              </MenuItem>
+            )}
 
             {isAiInstalled && !isAndroidPlatform && msg.type === "text" && (msg.text || "").trim().length >= 20 && (
               <MenuItem

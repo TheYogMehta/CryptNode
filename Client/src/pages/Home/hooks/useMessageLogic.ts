@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import ChatClient from "../../../services/core/ChatClient";
 import { queryDB, executeDB } from "../../../services/storage/sqliteService";
+import { getMessageTypeForUpload } from "../../../utils/mediaType";
 import { ChatMessage } from "../types";
 
 interface UseMessageLogicProps {
@@ -351,13 +352,7 @@ export const useMessageLogic = ({
       sid: activeChat,
       sender: "me",
       text: caption || fileToSend.name,
-      type: fileToSend.type.startsWith("image")
-        ? "image"
-        : (fileToSend.type.startsWith("video") || fileToSend.name.toLowerCase().endsWith(".mp4"))
-          ? "video"
-          : fileToSend.type.startsWith("audio")
-            ? "audio"
-            : "file",
+      type: getMessageTypeForUpload(fileToSend),
       timestamp: Date.now(),
       mediaTotalSize: fileToSend.size,
       tempUrl: URL.createObjectURL(fileToSend),

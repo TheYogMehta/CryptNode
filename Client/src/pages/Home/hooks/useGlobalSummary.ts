@@ -67,13 +67,7 @@ export const useGlobalSummary = (sessions: SessionData[]) => {
       }
 
       const prompt =
-        `Example:\n` +
-        `[Messages from Sarah]:\n- meeting pushed to Friday\n- can you send the slides?\n` +
-        `[Messages from Tom]:\n- I'll be 10 mins late\n\n` +
-        `Digest:\n` +
-        `Sarah: Meeting moved to Friday. Wants slides.\n` +
-        `Tom: Arriving 10 minutes late.\n\n` +
-        `Now write a digest for these messages (one line per person, only facts stated):\n` +
+        `Write a digest for these messages (one line per person, only facts stated):\n` +
         `${context}\n` +
         `Digest:\n`;
 

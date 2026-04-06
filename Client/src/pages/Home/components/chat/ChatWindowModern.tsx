@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import {
   Send,
@@ -42,6 +42,10 @@ import { UserProfileModal } from "../overlays/UserProfileModal";
 import { MediaModal } from "./MediaModal";
 import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
+import {
+  canCopySelectedMessages,
+  copySelectedMessagesToClipboard,
+} from "./chatClipboard";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -98,6 +102,11 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
 
   const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
   const selectionMode = selectedMessages.size > 0;
+  const selectedMessageItems = useMemo(
+    () => messages.filter((msg) => msg.id && selectedMessages.has(msg.id)),
+    [messages, selectedMessages],
+  );
+  const canCopySelected = canCopySelectedMessages(selectedMessageItems);
 
   const handleToggleSelect = (msg: ChatMessage) => {
     if (!msg.id) return;
@@ -113,19 +122,12 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
   const clearSelection = () => setSelectedMessages(new Set());
 
   const handleCopySelected = async () => {
+    if (!canCopySelected) return;
+
     try {
-      const msgsToCopy = messages.filter(m => m.id && selectedMessages.has(m.id)).sort((a,b) => a.timestamp - b.timestamp);
-      const text = msgsToCopy.map(m => {
-        const sender = m.sender === "me" ? "Me" : (session?.alias_name || session?.peer_name || "User");
-        const time = new Date(m.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        const content = m.text || (m.mediaFilename ? `[File: ${m.mediaFilename}]` : `[${m.type}]`);
-        return `[${time}] ${sender}: ${content}`;
-      }).join('\n');
-      
-      const { Clipboard } = await import("@capacitor/clipboard");
-      await Clipboard.write({ string: text });
+      await copySelectedMessagesToClipboard(selectedMessageItems, session);
       clearSelection();
-    } catch(e) {
+    } catch (e) {
       console.error("Copy multiple failed", e);
     }
   };
@@ -211,9 +213,11 @@ export const ChatWindowModern: React.FC<ChatWindowProps> = ({
             </span>
           </div>
           <div style={{ display: "flex", gap: "12px", position: "relative" }}>
-            <ActionButton onClick={handleCopySelected} title="Copy selected">
-              <Copy size={20} />
-            </ActionButton>
+            {canCopySelected && (
+              <ActionButton onClick={handleCopySelected} title="Copy selected">
+                <Copy size={20} />
+              </ActionButton>
+            )}
             <ActionButton onClick={handleDeleteSelected} title="Delete selected" style={{ color: "#ef4444" }}>
               <Trash2 size={20} />
             </ActionButton>

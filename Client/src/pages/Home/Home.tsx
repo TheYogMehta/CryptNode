@@ -359,35 +359,95 @@ const Home = () => {
     });
   }, [state.userEmail, state.view]);
 
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [touchEnd, setTouchEnd] = useState<number | null>(null);
-
   const minSwipeDistance = 50;
+  const swipeEdgeActivationWidth = 72;
+  const touchGestureRef = useRef<{
+    startX: number | null;
+    startY: number | null;
+    currentX: number | null;
+    currentY: number | null;
+  }>({
+    startX: null,
+    startY: null,
+    currentX: null,
+    currentY: null,
+  });
+
+  const resetTouchGesture = useCallback(() => {
+    touchGestureRef.current = {
+      startX: null,
+      startY: null,
+      currentX: null,
+      currentY: null,
+    };
+  }, []);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
-    setTouchEnd(null);
-    setTouchStart(e.targetTouches[0].clientX);
+    const touch = e.touches[0];
+    touchGestureRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+    };
   }, []);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX);
+    const touch = e.touches[0];
+    touchGestureRef.current.currentX = touch.clientX;
+    touchGestureRef.current.currentY = touch.clientY;
   }, []);
 
-  const onTouchEnd = useCallback(() => {
-    if (!touchStart || !touchEnd) return;
-    const distance = touchStart - touchEnd;
-    const isLeftSwipe = distance > minSwipeDistance;
-    const isRightSwipe = distance < -minSwipeDistance;
+  const onTouchCancel = useCallback(() => {
+    resetTouchGesture();
+  }, [resetTouchGesture]);
 
-    if (isRightSwipe && isMobile && !state.isSidebarOpen) {
-      if (touchStart < 50) {
-        actions.setIsSidebarOpen(true);
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const { startX, startY, currentX, currentY } = touchGestureRef.current;
+
+      if (startX === null || startY === null) {
+        resetTouchGesture();
+        return;
       }
-    }
-    if (isLeftSwipe && isMobile && state.isSidebarOpen) {
-      actions.setIsSidebarOpen(false);
-    }
-  }, [touchStart, touchEnd, isMobile, state.isSidebarOpen, actions]);
+
+      const endTouch = e.changedTouches[0];
+      const endX = endTouch?.clientX ?? currentX;
+      const endY = endTouch?.clientY ?? currentY;
+
+      if (endX === null || endY === null) {
+        resetTouchGesture();
+        return;
+      }
+
+      const deltaX = endX - startX;
+      const deltaY = endY - startY;
+      const isHorizontalSwipe =
+        Math.abs(deltaX) >= minSwipeDistance &&
+        Math.abs(deltaX) > Math.abs(deltaY);
+      const startedNearLeftEdge = startX <= swipeEdgeActivationWidth;
+
+      if (isHorizontalSwipe && isMobile) {
+        if (deltaX > 0 && !state.isSidebarOpen && startedNearLeftEdge) {
+          actions.setIsSidebarOpen(true);
+        }
+
+        if (deltaX < 0 && state.isSidebarOpen) {
+          actions.setIsSidebarOpen(false);
+        }
+      }
+
+      resetTouchGesture();
+    },
+    [
+      actions,
+      isMobile,
+      minSwipeDistance,
+      resetTouchGesture,
+      state.isSidebarOpen,
+      swipeEdgeActivationWidth,
+    ],
+  );
 
   const onSelectChat = useCallback(
     (sid: string) => {
@@ -583,6 +643,7 @@ const Home = () => {
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         <ConnectionBanner />
         {state.error && <ErrorToast>{state.error}</ErrorToast>}

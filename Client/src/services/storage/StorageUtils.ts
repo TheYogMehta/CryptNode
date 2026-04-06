@@ -36,7 +36,14 @@ export const StorageUtils = {
       else if (ext === "gif") mime = "image/gif";
       else if (ext === "webp") mime = "image/webp";
       else if (ext === "mp4") mime = "video/mp4";
+      else if (ext === "mov") mime = "video/quicktime";
+      else if (ext === "m4v") mime = "video/x-m4v";
       else if (ext === "webm") mime = "video/webm";
+      else if (ext === "mkv") mime = "video/x-matroska";
+      else if (ext === "avi") mime = "video/x-msvideo";
+      else if (ext === "3gp") mime = "video/3gpp";
+      else if (ext === "3g2") mime = "video/3gpp2";
+      else if (ext === "ogv") mime = "video/ogg";
       else if (ext === "mp3") mime = "audio/mpeg";
       else if (ext === "wav") mime = "audio/wav";
       else if (ext === "ogg") mime = "audio/ogg";

@@ -2,6 +2,7 @@ import { StorageService, CHUNK_SIZE } from "../storage/StorageService";
 import { queryDB, executeDB } from "../storage/sqliteService";
 import { MAX_ENCRYPTED_PAYLOAD_CHARS } from "../core/protocolLimits";
 import { sha256 } from "../../utils/crypto";
+import { getMessageTypeForUpload } from "../../utils/mediaType";
 
 export interface IFileTransferClient {
   sessions: Record<string, any>;
@@ -93,17 +94,10 @@ export class FileTransferService {
     if (typeof fileData !== "string") {
       URL.revokeObjectURL(thumbUri);
     }
-    const isImage = fileInfo.type.startsWith("image/");
-    const isVideo = fileInfo.type.startsWith("video/") || fileInfo.name.toLowerCase().endsWith(".mp4");
-    const isAudio = fileInfo.type.startsWith("audio/") && !isVideo;
-
-    const msgType = isImage
-      ? "image"
-      : isVideo
-        ? "video"
-        : isAudio
-          ? "audio"
-          : "file";
+    const msgType = getMessageTypeForUpload({
+      name: fileInfo.name,
+      type: fileInfo.type,
+    });
     const finalMessageId = await this.client.insertMessageRecord(
       sid,
       fileInfo.caption || "",
@@ -485,16 +479,10 @@ export class FileTransferService {
   }
 
   public async handleFileInfo(sid: string, data: any, sender: string = "other") {
-    const isImage = data.mimeType.startsWith("image/");
-    const isVideo = data.mimeType.startsWith("video/");
-    const isAudio = data.mimeType.startsWith("audio/");
-    const msgType = isImage
-      ? "image"
-      : isVideo
-        ? "video"
-        : isAudio
-          ? "audio"
-          : "file";
+    const msgType = getMessageTypeForUpload({
+      name: data.name,
+      type: data.mimeType,
+    });
 
     const existingRows = await queryDB("SELECT 1 FROM messages WHERE id = ?", [data.messageId]);
     const isNewMessage = existingRows.length === 0;

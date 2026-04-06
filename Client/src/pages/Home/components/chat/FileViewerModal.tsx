@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import Modal from "@mui/material/Modal";
-import { X, FileText, Download } from "lucide-react";
+import { X, FileText } from "lucide-react";
 import * as mammoth from "mammoth";
 import DOMPurify from "dompurify";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Capacitor } from "@capacitor/core";
-import { Filesystem, Directory } from "@capacitor/filesystem";
 
 // Import react-pdf styles
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -14,8 +13,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { UnsafeLinkModal } from "./UnsafeLinkModal";
 import { isTrustedUrl } from "../../../../utils/trustedDomains";
 import { openExternalUrl } from "../../../../utils/openExternalUrl";
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from "lucide-react";
-import { StorageUtils } from "../../../../services/storage/StorageUtils";
+import { ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { StorageService } from "../../../../services/storage/StorageService";
 
 
@@ -313,26 +311,6 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             </h2>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <a
-              href={fileUrl || "#"}
-              download={fileName}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                color: "rgba(255, 255, 255, 0.7)",
-                background: "rgba(255, 255, 255, 0.05)",
-                padding: "6px 12px",
-                borderRadius: "6px",
-                textDecoration: "none",
-                fontSize: "14px",
-                gap: "6px",
-                transition: "all 0.2s",
-              }}
-              onMouseOver={(e) => { e.currentTarget.style.color = "white"; e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
-              onMouseOut={(e) => { e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)"; e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
-            >
-              <Download size={16} /> Save
-            </a>
             <button
               onClick={onClose}
               style={{
@@ -461,20 +439,6 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
                 </Document>
               </div>
 
-              {/* Fallback footer info */}
-              <div 
-                style={{ 
-                  padding: "6px 20px", 
-                  backgroundColor: "#1a1a1a", 
-                  color: "rgba(255,255,255,0.4)", 
-                  fontSize: "10px", 
-                  textAlign: "center",
-                  display: "block",
-                  borderTop: "1px solid rgba(255,255,255,0.1)"
-                }}
-              >
-                Note: PDF rendering is powered by react-pdf. If issues persist, use <b>Save</b> to download.
-              </div>
             </div>
           ) : isTextType() ? (
             <pre

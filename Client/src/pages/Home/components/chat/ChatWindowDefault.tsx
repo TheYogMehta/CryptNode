@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { Capacitor } from "@capacitor/core";
-import { StorageService } from "../../../../services/storage/StorageService";
 import ChatClient from "../../../../services/core/ChatClient";
 import { MessageBubble } from "./MessageBubble";
 import { PortShareModal } from "./PortShareModal";
@@ -65,6 +64,14 @@ import { useAIStatus } from "../../hooks/useAIStatus";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import { UserProfileModal } from "../overlays/UserProfileModal";
 import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
+import {
+  getUploadPreviewType,
+  normalizeSelectedUploadFile,
+} from "../../../../utils/mediaType";
+import {
+  canCopySelectedMessages,
+  copySelectedMessagesToClipboard,
+} from "./chatClipboard";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -136,6 +143,11 @@ export const ChatWindowDefault = ({
 
   const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
   const selectionMode = selectedMessages.size > 0;
+  const selectedMessageItems = useMemo(
+    () => messages.filter((msg) => msg.id && selectedMessages.has(msg.id)),
+    [messages, selectedMessages],
+  );
+  const canCopySelected = canCopySelectedMessages(selectedMessageItems);
 
   const handleToggleSelect = (msg: ChatMessage) => {
     if (!msg.id) return;
@@ -151,19 +163,12 @@ export const ChatWindowDefault = ({
   const clearSelection = () => setSelectedMessages(new Set());
 
   const handleCopySelected = async () => {
+    if (!canCopySelected) return;
+
     try {
-      const msgsToCopy = messages.filter(m => m.id && selectedMessages.has(m.id)).sort((a,b) => a.timestamp - b.timestamp);
-      const text = msgsToCopy.map(m => {
-        const sender = m.sender === "me" ? "Me" : (session?.alias_name || session?.peer_name || "User");
-        const time = new Date(m.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        const content = m.text || (m.mediaFilename ? `[File: ${m.mediaFilename}]` : `[${m.type}]`);
-        return `[${time}] ${sender}: ${content}`;
-      }).join('\n');
-      
-      const { Clipboard } = await import("@capacitor/clipboard");
-      await Clipboard.write({ string: text });
+      await copySelectedMessagesToClipboard(selectedMessageItems, session);
       clearSelection();
-    } catch(e) {
+    } catch (e) {
       console.error("Copy multiple failed", e);
     }
   };
@@ -314,15 +319,14 @@ export const ChatWindowDefault = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createPendingAttachment = (file: File): PendingAttachment => {
-    const isImage = file.type.startsWith("image/");
-    const isVideo = file.type.startsWith("video/") || file.name.toLowerCase().endsWith(".mp4");
+    const previewType = getUploadPreviewType(file);
     return {
       id: crypto.randomUUID(),
       file,
       name: file.name,
       description: "",
-      previewUrl: isImage || isVideo ? URL.createObjectURL(file) : null,
-      mediaType: isImage ? "image" : isVideo ? "video" : "file",
+      previewUrl: previewType !== "unknown" ? URL.createObjectURL(file) : null,
+      mediaType: previewType === "unknown" ? "file" : previewType,
     };
   };
 
@@ -337,13 +341,13 @@ export const ChatWindowDefault = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0 && activeChat) {
-      const filesArr = Array.from(e.target.files).map(f => 
-        f.name.toLowerCase().endsWith(".mp4") && !f.type.startsWith("video/") 
-          ? new File([f], f.name, { type: "video/mp4", lastModified: f.lastModified }) 
-          : f
+      const filesArr = Array.from(e.target.files).map(normalizeSelectedUploadFile);
+      const mediaFiles = filesArr.filter(
+        (file) => getUploadPreviewType(file) !== "unknown",
       );
-      const mediaFiles = filesArr.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
-      const docFiles = filesArr.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
+      const docFiles = filesArr.filter(
+        (file) => getUploadPreviewType(file) === "unknown",
+      );
 
       if (mediaFiles.length > 0) {
         setSelectedFiles((prev) => [...prev, ...mediaFiles]);
@@ -503,15 +507,14 @@ export const ChatWindowDefault = ({
       }
       if (files.length > 0) {
         e.preventDefault();
-        
-        const filesArr = files.map(f => 
-          f.name.toLowerCase().endsWith(".mp4") && !f.type.startsWith("video/") 
-            ? new File([f], f.name, { type: "video/mp4", lastModified: f.lastModified }) 
-            : f
-        );
 
-        const mediaFiles = filesArr.filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
-        const docFiles = filesArr.filter((f) => !f.type.startsWith("image/") && !f.type.startsWith("video/"));
+        const filesArr = files.map(normalizeSelectedUploadFile);
+        const mediaFiles = filesArr.filter(
+          (file) => getUploadPreviewType(file) !== "unknown",
+        );
+        const docFiles = filesArr.filter(
+          (file) => getUploadPreviewType(file) === "unknown",
+        );
 
         if (mediaFiles.length > 0) {
           setSelectedFiles((prev) => [...prev, ...mediaFiles]);
@@ -630,9 +633,11 @@ export const ChatWindowDefault = ({
             </span>
           </div>
           <HeaderActions>
-            <IconButton variant="ghost" size="md" onClick={handleCopySelected} title="Copy selected">
-              <Copy size={20} />
-            </IconButton>
+            {canCopySelected && (
+              <IconButton variant="ghost" size="md" onClick={handleCopySelected} title="Copy selected">
+                <Copy size={20} />
+              </IconButton>
+            )}
             <IconButton variant="ghost" size="md" onClick={handleDeleteSelected} title="Delete selected" style={{ color: "#ef4444" }}>
               <Trash2 size={20} />
             </IconButton>

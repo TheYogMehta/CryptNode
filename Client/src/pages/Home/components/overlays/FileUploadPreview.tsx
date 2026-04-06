@@ -3,7 +3,6 @@ import styled from "@emotion/styled";
 import {
   X,
   Edit2 as EditIcon,
-  Check,
   ChevronLeft,
   ChevronRight,
   Trash2,
@@ -23,6 +22,8 @@ import {
   shadows,
 } from "../../../../theme/design-system";
 import { IconButton } from "../../../../components/ui/IconButton";
+import { getUploadPreviewType } from "../../../../utils/mediaType";
+import { canRenderVideoSource } from "../../../../utils/videoPreview";
 
 const OverlayContainer = styled.div`
   position: fixed;
@@ -307,11 +308,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
       id: crypto.randomUUID(),
       file: f,
       previewUrl: URL.createObjectURL(f),
-      type: (f.type.startsWith("image/")
-        ? "image"
-        : f.type.startsWith("video/")
-        ? "video"
-        : "unknown") as "image" | "video" | "unknown",
+      type: getUploadPreviewType(f),
       caption: "",
     })),
   );
@@ -328,11 +325,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
         id: crypto.randomUUID(),
         file: f,
         previewUrl: URL.createObjectURL(f),
-        type: (f.type.startsWith("image/")
-          ? "image"
-          : f.type.startsWith("video/")
-          ? "video"
-          : "unknown") as "image" | "video" | "unknown",
+        type: getUploadPreviewType(f),
         caption: "",
       }));
 
@@ -342,6 +335,17 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
+  const [videoStatus, setVideoStatus] = useState<
+    Record<
+      string,
+      {
+        state: "idle" | "checking" | "ready" | "unsupported";
+        message?: string;
+      }
+    >
+  >({});
+  const checkedVideosRef = useRef<Set<string>>(new Set());
+  const fileListRef = useRef<FileData[]>(fileList);
 
   React.useEffect(() => {
     if (isEditing) {
@@ -356,10 +360,63 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
     }
   }, [isEditing]);
 
+  React.useEffect(() => {
+    fileListRef.current = fileList;
+  }, [fileList]);
+
+  React.useEffect(() => {
+    return () => {
+      fileListRef.current.forEach((file) => {
+        URL.revokeObjectURL(file.previewUrl);
+      });
+    };
+  }, []);
+
+  const ensureVideoPreviewable = useCallback(async (item: FileData) => {
+    if (item.type !== "video") return;
+
+    setVideoStatus((prev) => ({
+      ...prev,
+      [item.id]: { state: "checking" },
+    }));
+
+    const canRender = await canRenderVideoSource(item.previewUrl);
+    if (canRender) {
+      setVideoStatus((prev) => ({
+        ...prev,
+        [item.id]: { state: "ready" },
+      }));
+      return;
+    }
+
+    setVideoStatus((prev) => ({
+      ...prev,
+      [item.id]: {
+        state: "unsupported",
+        message:
+          "Preview unavailable for this video codec. It will still send as a video.",
+      },
+    }));
+  }, []);
+
+  React.useEffect(() => {
+    fileList.forEach((item) => {
+      if (item.type !== "video" || checkedVideosRef.current.has(item.id)) return;
+      checkedVideosRef.current.add(item.id);
+      void ensureVideoPreviewable(item);
+    });
+  }, [fileList, ensureVideoPreviewable]);
+
   const currentFile = fileList[currentIndex];
+  const currentVideoState = currentFile ? videoStatus[currentFile.id] : undefined;
 
   const handleRemove = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
+    const removedFile = fileList[index];
+    if (removedFile) {
+      URL.revokeObjectURL(removedFile.previewUrl);
+      checkedVideosRef.current.delete(removedFile.id);
+    }
     if (fileList.length === 1) {
       onClose();
       return;
@@ -470,6 +527,7 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
               source={currentFile.previewUrl}
               onSave={saveEdit}
               onClose={() => setIsEditing(false)}
+              useBackendTranslations={false}
               annotationsCommon={{
                 fill: "#ff0000",
               }}
@@ -502,7 +560,55 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
             {currentFile.type === "image" ? (
               <img src={currentFile.previewUrl} alt="Preview" />
             ) : currentFile.type === "video" ? (
-              <video src={currentFile.previewUrl} controls />
+              <>
+                <video src={currentFile.previewUrl} controls />
+                {currentVideoState &&
+                  currentVideoState.state !== "ready" &&
+                  currentVideoState.state !== "idle" && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "rgba(0, 0, 0, 0.72)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "12px",
+                        padding: "24px",
+                        textAlign: "center",
+                        zIndex: 2,
+                      }}
+                    >
+                      <div style={{ fontSize: "16px", fontWeight: 600 }}>
+                        {currentVideoState.message ||
+                          (currentVideoState.state === "checking"
+                            ? "Checking video compatibility..."
+                            : "Preview unavailable")}
+                      </div>
+                      {currentVideoState.state === "checking" && (
+                        <div
+                          style={{
+                            width: "240px",
+                            maxWidth: "80%",
+                            height: "8px",
+                            borderRadius: "999px",
+                            background: "rgba(255,255,255,0.16)",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "45%",
+                              height: "100%",
+                              background: colors.primary.DEFAULT,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+              </>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
                 <FileText size={64} style={{ opacity: 0.8 }} />

@@ -8,9 +8,8 @@ import "yet-another-react-lightbox/styles.css";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import Video from "yet-another-react-lightbox/plugins/video";
 import Download from "yet-another-react-lightbox/plugins/download";
-import { videoTranscoder } from "../../../../services/media/VideoTranscoder";
-import { CircularProgress, Button, Box, Typography } from "@mui/material";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { Box, Typography } from "@mui/material";
+import { AlertTriangle } from "lucide-react";
 
 interface MediaModalProps {
   isOpen: boolean;
@@ -34,52 +33,17 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   onClose,
   media,
 }) => {
-  const [transcoding, setTranscoding] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
-  const [transcodedUrl, setTranscodedUrl] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
   const [hasCodecError, setHasCodecError] = React.useState(false);
 
   React.useEffect(() => {
     if (!isOpen) {
-      if (transcodedUrl) URL.revokeObjectURL(transcodedUrl);
-      setTranscodedUrl(null);
-      setTranscoding(false);
-      setProgress(0);
-      setError(null);
       setHasCodecError(false);
     }
   }, [isOpen]);
 
-  const handleTranscode = async () => {
-    if (!media || media.type !== "video" || transcoding) return;
-    
-    setTranscoding(true);
-    setError(null);
-    setProgress(0);
-
-    try {
-      const response = await fetch(media.url);
-      const blob = await response.blob();
-      
-      const transcodedBlob = await videoTranscoder.transcodeToH264(blob, (p) => {
-        setProgress(p * 100);
-      });
-      
-      const newUrl = URL.createObjectURL(transcodedBlob);
-      setTranscodedUrl(newUrl);
-      setHasCodecError(false);
-    } catch (err: any) {
-      console.error("Transcoding failed:", err);
-      setError("Transcoding failed. The video might be too large or corrupted.");
-    } finally {
-      setTranscoding(false);
-    }
-  };
-
   if (!isOpen || !media) return null;
 
-  const currentUrl = transcodedUrl || media.url;
+  const currentUrl = media.url;
 
   const slides = [
     media.type === "video"
@@ -114,17 +78,25 @@ export const MediaModal: React.FC<MediaModalProps> = ({
             return (
               <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                 <video
+                  key={currentUrl}
                   src={slide.src}
                   controls
                   autoPlay
+                  playsInline
                   style={{ maxWidth: '100%', maxHeight: '100%' }}
+                  onLoadedMetadata={(e) => {
+                    const video = e.currentTarget;
+                    setHasCodecError(
+                      video.videoWidth === 0 || video.videoHeight === 0,
+                    );
+                  }}
                   onError={(e) => {
                     console.warn("Video playback error detected", e);
-                    if (!transcodedUrl) setHasCodecError(true);
+                    setHasCodecError(true);
                   }}
                 />
                 
-                {(hasCodecError || error) && !transcoding && (
+                {hasCodecError && (
                   <Box sx={{ 
                     position: 'absolute', 
                     inset: 0, 
@@ -138,39 +110,10 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                   }}>
                     <AlertTriangle color="#f87171" size={48} />
                     <Typography variant="h6" color="white" sx={{ mt: 2, textAlign: 'center' }}>
-                      {error || "This video format is not natively supported."}
+                      This video codec is not supported in the in-app viewer.
                     </Typography>
                     <Typography variant="body2" color="rgba(255,255,255,0.7)" sx={{ mb: 3, textAlign: 'center' }}>
-                      We can fix this by transcoding it to a compatible format.
-                    </Typography>
-                    <Button 
-                      variant="contained" 
-                      startIcon={<RefreshCw size={18} />}
-                      onClick={handleTranscode}
-                      sx={{ bgcolor: '#6366f1', '&:hover': { bgcolor: '#4f46e5' } }}
-                    >
-                      Fix Video (Transcode)
-                    </Button>
-                  </Box>
-                )}
-
-                {transcoding && (
-                  <Box sx={{ 
-                    position: 'absolute', 
-                    inset: 0, 
-                    bgcolor: 'rgba(0,0,0,0.8)', 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    zIndex: 10
-                  }}>
-                    <CircularProgress variant="determinate" value={progress} size={64} sx={{ color: '#6366f1' }} />
-                    <Typography color="white" sx={{ mt: 2, fontWeight: 'bold' }}>
-                      Fixing Video... {Math.round(progress)}%
-                    </Typography>
-                    <Typography variant="body2" color="rgba(255,255,255,0.6)" sx={{ mt: 1 }}>
-                      This may take a minute on mobile devices.
+                      Use the download button in the top-right to save it and open it with your device's video player.
                     </Typography>
                   </Box>
                 )}
