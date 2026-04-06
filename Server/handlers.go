@@ -199,7 +199,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			respBytes, _ := json.Marshal(resp)
 			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
-			go s.broadcastDeviceList(eh)
 
 			go func() {
 				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
@@ -1052,165 +1051,69 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			eh := emailHash(client.email)
+			
+			s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? OR target_hash = ?", eh, eh)
+			s.db.Exec("DELETE FROM offline_notifications WHERE email_hash = ?", eh)
+			s.db.Exec("DELETE FROM fcm_tokens WHERE email_hash = ?", eh)
 
-			type Friend struct {
-				SID        string
-				TargetHash string
-			}
-			var friends []Friend
-			var deletedDevices int64
-			var deletedSockets int64
+			rows, err := s.db.Query("SELECT sid, CASE WHEN user1_hash = ? THEN user2_hash ELSE user1_hash END AS target_hash FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh, eh)
 
-			tx, err := s.db.Begin()
-			if err != nil {
-				s.logger.Printf("[Server] DELETE_ACCOUNT begin failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-
-			rows, err := tx.Query("SELECT sid, CASE WHEN user1_hash = ? THEN user2_hash ELSE user1_hash END AS target_hash FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh, eh)
-			if err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT friend lookup failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			for rows.Next() {
-				var f Friend
-				if scanErr := rows.Scan(&f.SID, &f.TargetHash); scanErr == nil {
-					friends = append(friends, f)
+			if err == nil {
+				type Friend struct {
+					SID        string
+					TargetHash string
 				}
-			}
-			rows.Close()
-
-			deviceResult, err := tx.Exec("DELETE FROM devices WHERE email_hash = ?", eh)
-			if err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT device delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if rowsAffected, rowsErr := deviceResult.RowsAffected(); rowsErr == nil {
-				deletedDevices = rowsAffected
-			}
-
-			socketResult, err := tx.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
-			if err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT socket delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if rowsAffected, rowsErr := socketResult.RowsAffected(); rowsErr == nil {
-				deletedSockets = rowsAffected
-			}
-			if _, err := tx.Exec("DELETE FROM requests WHERE sender_hash = ? OR target_hash = ?", eh, eh); err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT request delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if _, err := tx.Exec("DELETE FROM offline_notifications WHERE email_hash = ?", eh); err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT offline notification delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if _, err := tx.Exec("DELETE FROM fcm_tokens WHERE email_hash = ?", eh); err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT fcm token delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if _, err := tx.Exec("DELETE FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh); err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT friend delete failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-			if err := tx.Commit(); err != nil {
-				_ = tx.Rollback()
-				s.logger.Printf("[Server] DELETE_ACCOUNT commit failed for %s: %v", client.email, err)
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to delete account"}`)})
-				continue
-			}
-
-			var remainingDevices int
-			if err := s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ?", eh).Scan(&remainingDevices); err != nil {
-				s.logger.Printf("[Server] DELETE_ACCOUNT post-commit device verification failed for %s: %v", client.email, err)
-			} else if remainingDevices > 0 {
-				s.logger.Printf("[Server] DELETE_ACCOUNT found %d lingering device rows for %s after commit; retrying hard sweep", remainingDevices, client.email)
-				if _, sweepErr := s.db.Exec("DELETE FROM devices WHERE email_hash = ?", eh); sweepErr != nil {
-					s.logger.Printf("[Server] DELETE_ACCOUNT hard sweep failed for %s: %v", client.email, sweepErr)
+				var friends []Friend
+				for rows.Next() {
+					var f Friend
+					if err := rows.Scan(&f.SID, &f.TargetHash); err == nil {
+						friends = append(friends, f)
+					}
 				}
-				if verifyErr := s.db.QueryRow("SELECT COUNT(*) FROM devices WHERE email_hash = ?", eh).Scan(&remainingDevices); verifyErr != nil {
-					s.logger.Printf("[Server] DELETE_ACCOUNT post-sweep device verification failed for %s: %v", client.email, verifyErr)
-				}
-			}
-
-			var remainingSockets int
-			if err := s.db.QueryRow("SELECT COUNT(*) FROM sockets WHERE email_hash = ?", eh).Scan(&remainingSockets); err != nil {
-				s.logger.Printf("[Server] DELETE_ACCOUNT post-commit socket verification failed for %s: %v", client.email, err)
-			} else if remainingSockets > 0 {
-				s.logger.Printf("[Server] DELETE_ACCOUNT found %d lingering sockets for %s after commit; retrying hard sweep", remainingSockets, client.email)
-				if _, sweepErr := s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh); sweepErr != nil {
-					s.logger.Printf("[Server] DELETE_ACCOUNT socket hard sweep failed for %s: %v", client.email, sweepErr)
-				}
-				if verifyErr := s.db.QueryRow("SELECT COUNT(*) FROM sockets WHERE email_hash = ?", eh).Scan(&remainingSockets); verifyErr != nil {
-					s.logger.Printf("[Server] DELETE_ACCOUNT post-sweep socket verification failed for %s: %v", client.email, verifyErr)
-				}
-			}
-
-			for _, f := range friends {
-				// Notify target devices they were unfriended by the deleted account
-				targetRows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", f.TargetHash)
-				hasSockets := false
-				if err == nil {
-					for targetRows.Next() {
-						hasSockets = true
-						var socketID string
-						targetRows.Scan(&socketID)
-						s.mu.Lock()
-						if targetClient, ok := s.clients[socketID]; ok {
-							respData, _ := json.Marshal(map[string]string{"senderHash": eh})
-							s.send(targetClient, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+				rows.Close()
+				for _, f := range friends {
+					// Notify target devices they were unfriended by the deleted account
+					targetRows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", f.TargetHash)
+					hasSockets := false
+					if err == nil {
+						for targetRows.Next() {
+							hasSockets = true
+							var socketID string
+							targetRows.Scan(&socketID)
+							s.mu.Lock()
+							if targetClient, ok := s.clients[socketID]; ok {
+								respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+								s.send(targetClient, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+							}
+							s.mu.Unlock()
 						}
-						s.mu.Unlock()
+						targetRows.Close()
 					}
-					targetRows.Close()
-				}
 
-				// Queue offline notification
-				if !hasSockets {
-					respData, _ := json.Marshal(map[string]string{"senderHash": eh})
-					frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
-					if _, err := s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", f.TargetHash, string(frameEvent), time.Now()); err != nil {
-						s.logger.Printf("[Server] DELETE_ACCOUNT failed to queue offline UNFRIENDED for %s -> %s: %v", client.email, f.TargetHash, err)
+					// Queue offline notification
+					if !hasSockets {
+						respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+						frameEvent, _ := json.Marshal(Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+						s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", f.TargetHash, string(frameEvent), time.Now())
 					}
-				}
-				// Force close active session loops for safety
-				s.mu.Lock()
-				if sess, ok := s.sessions[f.SID]; ok {
-					sess.mu.Lock()
-					for _, c := range sess.clients {
-						if c.id != client.id {
-							respData, _ := json.Marshal(map[string]string{"senderHash": eh})
-							s.send(c, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+					// Force close active session loops for safety
+					s.mu.Lock()
+					if sess, ok := s.sessions[f.SID]; ok {
+						sess.mu.Lock()
+						for _, c := range sess.clients {
+							if c.id != client.id {
+								respData, _ := json.Marshal(map[string]string{"senderHash": eh})
+								s.send(c, Frame{T: "UNFRIENDED", Data: json.RawMessage(respData)})
+							}
 						}
+						sess.mu.Unlock()
 					}
-					sess.mu.Unlock()
+					s.mu.Unlock()
 				}
-				s.mu.Unlock()
-			}
 
-			log.Printf(
-				"[Server] Deleted account for %s (devices_deleted=%d, sockets_deleted=%d, devices_remaining=%d, sockets_remaining=%d)",
-				client.email,
-				deletedDevices,
-				deletedSockets,
-				remainingDevices,
-				remainingSockets,
-			)
+				s.db.Exec("DELETE FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
+			}
 			client.conn.Close()
 
 		case "REATTACH":
