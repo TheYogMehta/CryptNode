@@ -528,69 +528,6 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			respBytes, _ := json.Marshal(map[string]any{"devices": devicesList})
 			s.send(client, Frame{T: "DEVICE_LIST", Data: json.RawMessage(respBytes)})
 
-		case "DELETE_DEVICE":
-			if client.email == "" {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
-				continue
-			}
-
-			var d struct {
-				TargetPubKey string `json:"targetPubKey"`
-			}
-			json.Unmarshal(frame.Data, &d)
-			d.TargetPubKey = strings.TrimSpace(d.TargetPubKey)
-			if d.TargetPubKey == "" {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Missing target public key"}`)})
-				continue
-			}
-
-			eh := emailHash(client.email)
-			var currentPubKey string
-			_ = s.db.QueryRow(
-				"SELECT public_key FROM sockets WHERE socket_id = ? LIMIT 1",
-				client.id,
-			).Scan(&currentPubKey)
-			if currentPubKey != "" && currentPubKey == d.TargetPubKey {
-				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"You cannot delete the current device from this session."}`)})
-				continue
-			}
-
-			var socketIDs []string
-			socketRows, err := s.db.Query(
-				"SELECT socket_id FROM sockets WHERE email_hash = ? AND public_key = ?",
-				eh,
-				d.TargetPubKey,
-			)
-			if err == nil {
-				for socketRows.Next() {
-					var socketID string
-					if scanErr := socketRows.Scan(&socketID); scanErr == nil {
-						socketIDs = append(socketIDs, socketID)
-					}
-				}
-				socketRows.Close()
-			}
-
-			s.db.Exec("DELETE FROM devices WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-			s.db.Exec("DELETE FROM sockets WHERE email_hash = ? AND public_key = ?", eh, d.TargetPubKey)
-
-			for _, socketID := range socketIDs {
-				s.mu.Lock()
-				targetClient, ok := s.clients[socketID]
-				s.mu.Unlock()
-				if ok {
-					s.send(targetClient, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"This device has been removed from your account."}`)})
-					targetClient.conn.Close()
-				}
-			}
-
-			respBytes, _ := json.Marshal(map[string]any{
-				"success":      true,
-				"targetPubKey": d.TargetPubKey,
-			})
-			s.send(client, Frame{T: "DEVICE_DELETE_SUCCESS", Data: json.RawMessage(respBytes)})
-			s.broadcastDeviceList(eh)
-
 		case "GET_PUBLIC_KEY":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
@@ -1051,7 +988,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			eh := emailHash(client.email)
-			
+
 			s.db.Exec("DELETE FROM sockets WHERE email_hash = ?", eh)
 			s.db.Exec("DELETE FROM requests WHERE sender_hash = ? OR target_hash = ?", eh, eh)
 			s.db.Exec("DELETE FROM offline_notifications WHERE email_hash = ?", eh)
