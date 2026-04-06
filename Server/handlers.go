@@ -29,6 +29,27 @@ func fetchFCMTokens(db *sql.DB, emailHash string) []string {
 	return tokens
 }
 
+func fetchDevicePubKeys(db *sql.DB, emailHash string) []string {
+	var pubKeys []string
+	rows, err := db.Query("SELECT DISTINCT public_key FROM devices WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", emailHash)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var pk string
+			if err := rows.Scan(&pk); err == nil {
+				pubKeys = append(pubKeys, pk)
+			}
+		}
+	}
+	return pubKeys
+}
+
+func fetchLatestDevicePubKey(db *sql.DB, emailHash string) string {
+	var publicKey string
+	_ = db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", emailHash).Scan(&publicKey)
+	return publicKey
+}
+
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -189,6 +210,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						if err := rows.Scan(&id, &data); err == nil {
 							var notif Frame
 							if json.Unmarshal([]byte(data), &notif) == nil {
+								if notif.TargetPubKey != "" && notif.TargetPubKey != d.PublicKey {
+									continue
+								}
 								s.send(client, notif)
 								idsToDelete = append(idsToDelete, id)
 							}
@@ -216,23 +240,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					var ts time.Time
 					rows.Scan(&senderHash, &packet, &ts)
 
-					var pubKeys []string
-					keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
-					if err == nil {
-						for keyRows.Next() {
-							var pk string
-							if err := keyRows.Scan(&pk); err == nil {
-								pubKeys = append(pubKeys, pk)
-							}
-						}
-						keyRows.Close()
-					}
-
-					var singlePubKey string
-					if len(pubKeys) > 0 {
+					pubKeys := fetchDevicePubKeys(s.db, senderHash)
+					singlePubKey := fetchLatestDevicePubKey(s.db, senderHash)
+					if singlePubKey == "" && len(pubKeys) > 0 {
 						singlePubKey = pubKeys[0]
-					} else {
-						s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 					}
 
 					if len(pubKeys) == 0 && singlePubKey != "" {
@@ -644,23 +655,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					s.logger.Printf("Error storing request for key %s: %v", payload.PublicKey, err)
 				}
 			}
-			var senderPubKeys []string
-			keyRows, err := s.db.Query("SELECT DISTINCT public_key FROM sockets WHERE email_hash = ? AND public_key IS NOT NULL AND public_key != ''", senderHash)
-			if err == nil {
-				for keyRows.Next() {
-					var pk string
-					if err := keyRows.Scan(&pk); err == nil {
-						senderPubKeys = append(senderPubKeys, pk)
-					}
-				}
-				keyRows.Close()
-			}
-
-			var singlePubKey string
-			if len(senderPubKeys) > 0 {
+			senderPubKeys := fetchDevicePubKeys(s.db, senderHash)
+			singlePubKey := fetchLatestDevicePubKey(s.db, senderHash)
+			if singlePubKey == "" && len(senderPubKeys) > 0 {
 				singlePubKey = senderPubKeys[0]
-			} else {
-				s.db.QueryRow("SELECT public_key FROM devices WHERE email_hash = ? ORDER BY last_active DESC LIMIT 1", senderHash).Scan(&singlePubKey)
 			}
 
 			if len(senderPubKeys) == 0 && singlePubKey != "" {
@@ -757,9 +755,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			keyRows.Close()
 
+			targetDevicePubKeys := fetchDevicePubKeys(s.db, targetHash)
+			targetDeviceKeySet := make(map[string]struct{}, len(targetDevicePubKeys))
+			for _, pk := range targetDevicePubKeys {
+				targetDeviceKeySet[pk] = struct{}{}
+			}
+
 			// Collect target clients and send FRIEND_ACCEPTED per-device
 			var targetClients []*Client
 			var targetActivePubKeys []string
+			targetActivePubKeySet := make(map[string]struct{})
 			tRows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
 			for tRows.Next() {
 				var socketID, targetSocketPubKey string
@@ -784,12 +789,39 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						targetClients = append(targetClients, targetClient)
 						if targetSocketPubKey != "" {
 							targetActivePubKeys = append(targetActivePubKeys, targetSocketPubKey)
+							targetActivePubKeySet[targetSocketPubKey] = struct{}{}
 						}
 					}
 				}
 				s.mu.Unlock()
 			}
 			tRows.Close()
+
+			for _, payload := range d.Payloads {
+				if payload.PublicKey == "" || payload.EncryptedPacket == "" {
+					continue
+				}
+				if _, ok := targetDeviceKeySet[payload.PublicKey]; !ok {
+					continue
+				}
+				if _, ok := targetActivePubKeySet[payload.PublicKey]; ok {
+					continue
+				}
+
+				respData, _ := json.Marshal(map[string]any{
+					"senderHash":      senderHash,
+					"encryptedPacket": payload.EncryptedPacket,
+					"publicKeys":      myPubKeys,
+				})
+				frameEvent, _ := json.Marshal(Frame{
+					T:            "FRIEND_ACCEPTED",
+					TargetPubKey: payload.PublicKey,
+					Data:         json.RawMessage(respData),
+				})
+				if _, err := s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now()); err != nil {
+					s.logger.Printf("Error queueing offline FRIEND_ACCEPTED for key %s: %v", payload.PublicKey, err)
+				}
+			}
 
 			s.send(client, Frame{T: "FRIEND_ACCEPTED_ACK", Data: json.RawMessage(`{"targetEmail":"` + targetEmail + `"}`)})
 
