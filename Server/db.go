@@ -14,6 +14,15 @@ func (s *Server) initDB() error {
 	if err != nil {
 		return err
 	}
+	s.db.SetMaxOpenConns(1)
+	s.db.SetMaxIdleConns(1)
+
+	if _, err := s.db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return fmt.Errorf("error enabling WAL mode: %v", err)
+	}
+	if _, err := s.db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		return fmt.Errorf("error setting busy timeout: %v", err)
+	}
 
 	// Create tables
 	queries := []string{
