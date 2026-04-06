@@ -199,6 +199,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			respBytes, _ := json.Marshal(resp)
 			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
+			go s.broadcastDeviceList(eh)
 
 			go func() {
 				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
