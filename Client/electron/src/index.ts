@@ -12,22 +12,19 @@ import {
   BrowserWindow,
   shell,
 } from "electron";
-import electronIsDev from "electron-is-dev";
 import unhandled from "electron-unhandled";
 import keytar from "keytar";
 import {
   ElectronCapacitorApp,
   setupContentSecurityPolicy,
-  setupReloadWatcher,
 } from "./setup";
-import * as https from "https";
-import * as http from "http";
+import fetch from "node-fetch";
+import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
 
 
 app.commandLine.appendSwitch("disable-http-cache");
-if (process.platform === "linux") {
-  app.commandLine.appendSwitch("enable-features", "WebRTCPipeWireCapturer");
-}
 app.commandLine.appendSwitch("plugins");
 
 // Graceful handling of unhandled errors.
@@ -63,16 +60,10 @@ if (capacitorFileConfig.electron?.deepLinkingEnabled) {
   });
 }
 
-// If we are in Dev mode, use the file watcher components.
-if (electronIsDev) {
-  setupReloadWatcher(myCapacitorApp);
-}
-
 // Run Applicationapp
 (async () => {
   // Wait for electron app to be ready.
   await app.whenReady();
-  // Security - Set Content-Security-Policy based on whether or not we are in dev mode.
   setupContentSecurityPolicy(myCapacitorApp.getCustomURLScheme());
   // Initialize our app, build windows, and load content.
   await myCapacitorApp.init();
@@ -85,7 +76,6 @@ if (electronIsDev) {
       const allowedPermissions = [
         "media",
         "mediaKeySystem",
-        "display-capture",
         "notifications",
         "clipboard-read",
         "clipboard-write",
@@ -98,22 +88,6 @@ if (electronIsDev) {
       }
     },
   );
-
-  if (session.defaultSession.setDisplayMediaRequestHandler) {
-    session.defaultSession.setDisplayMediaRequestHandler(
-      async (_request, callback) => {
-        try {
-          const sources = await desktopCapturer.getSources({
-            types: ["screen", "window"],
-          });
-          callback({ video: sources[0], audio: undefined });
-        } catch (e) {
-          console.error("[Main] setDisplayMediaRequestHandler error:", e);
-          callback({ video: null, audio: undefined });
-        }
-      },
-    );
-  }
 })();
 
 // Handle when all of our windows are close (platforms have their own expectations).
@@ -191,24 +165,6 @@ ipcMain.handle("GoogleLogin", async () => {
   });
 });
 
-// ============================================================================
-// Screen Sharing
-// ============================================================================
-import { desktopCapturer } from "electron";
-
-ipcMain.handle("get-desktop-sources", async () => {
-  console.log("[Main] get-desktop-sources called");
-  const sources = await desktopCapturer.getSources({
-    types: ["window", "screen"],
-  });
-  console.log(`[Main] Found ${sources.length} sources`);
-  return sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    thumbnail: source.thumbnail.toDataURL(),
-  }));
-});
-
 ipcMain.handle("open-external-url", async (_event, url: string) => {
   try {
     const parsed = new URL(url);
@@ -223,14 +179,51 @@ ipcMain.handle("open-external-url", async (_event, url: string) => {
   }
 });
 
+ipcMain.handle(
+  "save-to-downloads",
+  async (_event, { base64Data, originalName }: { base64Data: string; originalName: string }) => {
+    try {
+      const safeOriginalName = path.basename((originalName || "").trim() || "download");
+      const normalizedBase64 = (base64Data || "").includes(",")
+        ? base64Data.split(",").pop() || ""
+        : base64Data || "";
+
+      if (!normalizedBase64) {
+        throw new Error("No file data received");
+      }
+
+      const downloadsDir = app.getPath("downloads");
+      const targetDir = path.join(downloadsDir, "cryptnode");
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      let finalName = safeOriginalName;
+      let counter = 1;
+      const parsedName = path.parse(safeOriginalName);
+
+      while (fs.existsSync(path.join(targetDir, finalName))) {
+        finalName = `${parsedName.name} (${counter++})${parsedName.ext}`;
+      }
+
+      fs.writeFileSync(
+        path.join(targetDir, finalName),
+        Buffer.from(normalizedBase64, "base64"),
+      );
+
+      return path.join("Downloads", "cryptnode", finalName);
+    } catch (e: any) {
+      console.error("[Main] Failed to save file to downloads:", e);
+      throw new Error(e?.message || "Failed to save file");
+    }
+  },
+);
+
 // ============================================================================
 // Secure Storage
 // ============================================================================
 let activeUserHash: string | null = null;
-const GLOBAL_KEYS = ["cryptnode_accounts"];
 
 function checkAccess(key: string): boolean {
-  if (GLOBAL_KEYS.includes(key)) return true;
+  if (key === "cryptnode_accounts") return true;
   if (activeUserHash && key.includes(activeUserHash)) {
     return true;
   }
@@ -265,20 +258,18 @@ ipcMain.handle(
 // ============================================================================
 // Database Cleanup
 // ============================================================================
-import * as path from "path";
-import * as os from "os";
-import * as fs from "fs";
-
 ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
   try {
-    let dbFolderConfig: any = (capacitorFileConfig as any).plugins?.CapacitorSQLite;
+    let dbFolderConfig: any = (capacitorFileConfig as any).plugins
+      ?.CapacitorSQLite;
 
     if (!dbFolderConfig) {
       try {
         const appPath = app.getAppPath();
         const jsonPath = path.join(appPath, "capacitor.config.json");
         if (fs.existsSync(jsonPath)) {
-          dbFolderConfig = JSON.parse(fs.readFileSync(jsonPath, "utf8"))?.plugins?.CapacitorSQLite;
+          dbFolderConfig = JSON.parse(fs.readFileSync(jsonPath, "utf8"))
+            ?.plugins?.CapacitorSQLite;
         } else {
           const jsPath = path.join(appPath, "build", "capacitor.config.js");
           if (fs.existsSync(jsPath)) {
@@ -287,7 +278,10 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
           }
         }
       } catch (err) {
-        console.warn("[Main] Could not fallback parse config for DB deletion:", err);
+        console.warn(
+          "[Main] Could not fallback parse config for DB deletion:",
+          err,
+        );
       }
     }
 
@@ -304,23 +298,21 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
     ) {
       dbFolder = dbFolderConfig.electronWindowsLocation;
     }
-
-    const appName = app.getName() || "cryptnode";
     const databasesPathsToTry: string[] = [];
 
-    // Handle backslashes and forward slashes for absolute paths
-    if (dbFolder.includes(path.sep) || dbFolder.includes("/") || dbFolder.includes("\\")) {
+    const isAbsolute =
+      dbFolder.includes(path.sep) ||
+      dbFolder.includes("/") ||
+      dbFolder.includes("\\");
+
+    if (isAbsolute) {
       databasesPathsToTry.push(dbFolder);
-      databasesPathsToTry.push(path.join(dbFolder, appName));
       databasesPathsToTry.push(path.join(dbFolder, "cryptnode"));
-      databasesPathsToTry.push(path.join(dbFolder, "CryptNode"));
     } else {
-      databasesPathsToTry.push(path.join(os.homedir(), dbFolder, appName));
       databasesPathsToTry.push(path.join(os.homedir(), dbFolder, "cryptnode"));
-      databasesPathsToTry.push(path.join(os.homedir(), dbFolder, "CryptNode"));
     }
 
-    const uniquePaths = Array.from(new Set(databasesPathsToTry));
+    const uniquePaths = databasesPathsToTry;
 
     const targets = [
       `${dbName}SQLite.db`,
@@ -350,7 +342,7 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
                 if (err.code === "EBUSY" || err.code === "EPERM") {
                   retries--;
                   if (retries === 0) throw err;
-                  await new Promise(resolve => setTimeout(resolve, 300));
+                  await new Promise((resolve) => setTimeout(resolve, 300));
                 } else {
                   throw err;
                 }
@@ -359,13 +351,23 @@ ipcMain.handle("DeleteDatabaseFiles", async (_event, dbName: string) => {
           }
         } catch (err: any) {
           console.error(`[Main] Error deleting DB file ${fullPath}:`, err);
-          return { success: false, error: err.message || String(err), count: filesDeleted };
+          return {
+            success: false,
+            error: err.message || String(err),
+            count: filesDeleted,
+          };
         }
       }
     }
 
     if (!anyExisted) {
-      return { success: false, error: "Database files not found in any known path. Attempted: " + uniquePaths[0], count: 0 };
+      return {
+        success: false,
+        error:
+          "Database files not found in any known path. Attempted: " +
+          uniquePaths[0],
+        count: 0,
+      };
     }
 
     return { success: filesDeleted > 0, count: filesDeleted };
@@ -383,11 +385,16 @@ let globalModel: any = null;
 let globalContext: any = null;
 let globalSession: any = null;
 
-const asyncImportDynamic = new Function('modulePath', 'return import(modulePath)');
+const asyncImportDynamic = new Function(
+  "modulePath",
+  "return import(modulePath)",
+);
 
 ipcMain.handle("llama:init", async (event, { modelPath }) => {
   try {
-    const { getLlama, LlamaChatSession } = await asyncImportDynamic("node-llama-cpp");
+    const { getLlama, LlamaChatSession } = await asyncImportDynamic(
+      "node-llama-cpp",
+    );
 
     if (!globalLlama) {
       globalLlama = await getLlama();
@@ -409,12 +416,17 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
     try {
       globalModel = await globalLlama.loadModel({ modelPath });
     } catch (modelErr: any) {
-      console.warn("[Main] GPU model load failed, falling back to CPU. Original error:", modelErr?.message || modelErr);
+      console.warn(
+        "[Main] GPU model load failed, falling back to CPU. Original error:",
+        modelErr?.message || modelErr,
+      );
       try {
         globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
         usedCpuFallback = true;
       } catch (cpuErr: any) {
-        throw new Error(`Model load failed on both GPU and CPU: ${cpuErr?.message || cpuErr}`);
+        throw new Error(
+          `Model load failed on both GPU and CPU: ${cpuErr?.message || cpuErr}`,
+        );
       }
     }
 
@@ -424,12 +436,20 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
 
     for (const ctxSize of contextSizes) {
       try {
-        globalContext = await globalModel.createContext({ contextSize: ctxSize });
+        globalContext = await globalModel.createContext({
+          contextSize: ctxSize,
+        });
         contextCreated = true;
-        console.log(`[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""}`);
+        console.log(
+          `[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""
+          }`,
+        );
         break;
       } catch (ctxErr: any) {
-        console.warn(`[Main] Context creation failed at size ${ctxSize}, trying smaller... Original error:`, ctxErr?.message || ctxErr);
+        console.warn(
+          `[Main] Context creation failed at size ${ctxSize}, trying smaller... Original error:`,
+          ctxErr?.message || ctxErr,
+        );
         // If we haven't tried CPU fallback yet for model, do it now
         if (!usedCpuFallback) {
           console.warn("[Main] Retrying model load with CPU fallback...");
@@ -438,10 +458,15 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
             globalModel = null;
           }
           try {
-            globalModel = await globalLlama.loadModel({ modelPath, gpuLayers: 0 });
+            globalModel = await globalLlama.loadModel({
+              modelPath,
+              gpuLayers: 0,
+            });
             usedCpuFallback = true;
           } catch (cpuErr: any) {
-            throw new Error(`CPU fallback model load failed: ${cpuErr?.message || cpuErr}`);
+            throw new Error(
+              `CPU fallback model load failed: ${cpuErr?.message || cpuErr}`,
+            );
           }
         }
         continue;
@@ -453,10 +478,14 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
         await globalModel.dispose();
         globalModel = null;
       }
-      throw new Error("Context creation failed: Could not allocate memory even at minimum context size (512)");
+      throw new Error(
+        "Context creation failed: Could not allocate memory even at minimum context size (512)",
+      );
     }
 
-    globalSession = new LlamaChatSession({ contextSequence: globalContext.getSequence() });
+    globalSession = new LlamaChatSession({
+      contextSequence: globalContext.getSequence(),
+    });
 
     return { success: true, cpuFallback: usedCpuFallback };
   } catch (err: any) {
@@ -467,7 +496,7 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
 
 ipcMain.handle("llama:clearChat", async () => {
   if (globalSession) {
-    if (typeof globalSession.setChatHistory === 'function') {
+    if (typeof globalSession.setChatHistory === "function") {
       globalSession.setChatHistory([]);
     } else if (globalSession.chatHistory) {
       globalSession.chatHistory = [];
@@ -488,7 +517,7 @@ ipcMain.handle("llama:generate", async (event, { prompt, options, id }) => {
       topP: options.top_p || 0.9,
       onTextChunk(chunk: string) {
         event.sender.send("llama:token", { id, token: chunk });
-      }
+      },
     });
 
     return { success: true, output: response };
@@ -535,8 +564,6 @@ ipcMain.handle("llama:delete", async (event, { filename }) => {
   }
 });
 
-import fetch from "node-fetch";
-
 const activeDownloads: Record<string, any> = {};
 
 ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
@@ -563,7 +590,7 @@ ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
         event.sender.send("llama:download-progress", {
           id,
           bytes: downloadedBytes,
-          total: totalBytes
+          total: totalBytes,
         });
       });
 
@@ -576,7 +603,10 @@ ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
           fs.renameSync(partPath, filePath);
           resolve({ success: true, path: filePath });
         } catch (e: any) {
-          resolve({ success: false, error: "Failed to finalize downloaded file: " + e.message });
+          resolve({
+            success: false,
+            error: "Failed to finalize downloaded file: " + e.message,
+          });
         }
       });
 
@@ -599,7 +629,6 @@ ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
     return { success: false, error: err.message };
   }
 });
-
 
 ipcMain.handle("llama:cancel-download", async (event, { id }) => {
   if (activeDownloads[id]) {

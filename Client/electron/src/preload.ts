@@ -13,8 +13,9 @@ contextBridge.exposeInMainWorld("SafeStorage", {
 });
 
 contextBridge.exposeInMainWorld("electron", {
-  getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
   openExternal: (url: string) => ipcRenderer.invoke("open-external-url", url),
+  saveToDownloads: (base64Data: string, originalName: string) =>
+    ipcRenderer.invoke("save-to-downloads", { base64Data, originalName }),
   deleteDatabaseFiles: (dbName: string) =>
     ipcRenderer.invoke("DeleteDatabaseFiles", dbName),
 });

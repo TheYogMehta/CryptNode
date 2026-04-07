@@ -4,7 +4,6 @@ import {
   CapacitorSplashScreen,
   setupCapacitorElectronPlugins,
 } from "@capacitor-community/electron";
-import chokidar from "chokidar";
 import type { MenuItemConstructorOptions } from "electron";
 import {
   app,
@@ -16,43 +15,10 @@ import {
   Tray,
   session,
 } from "electron";
-import electronIsDev from "electron-is-dev";
 import windowStateKeeper from "electron-window-state";
 import { join } from "path";
 import { createServer } from "http";
 import handler from "serve-handler";
-
-// Define components for a watcher to detect when the webapp is changed so we can reload in Dev mode.
-const reloadWatcher = {
-  debouncer: null,
-  ready: false,
-  watcher: null,
-};
-export function setupReloadWatcher(
-  electronCapacitorApp: ElectronCapacitorApp,
-): void {
-  reloadWatcher.watcher = chokidar
-    .watch(join(app.getAppPath(), "app"), {
-      ignored: /[/\\]\./,
-      persistent: true,
-    })
-    .on("ready", () => {
-      reloadWatcher.ready = true;
-    })
-    .on("all", (_event, _path) => {
-      if (reloadWatcher.ready) {
-        clearTimeout(reloadWatcher.debouncer);
-        reloadWatcher.debouncer = setTimeout(async () => {
-          electronCapacitorApp.getMainWindow().webContents.reload();
-          reloadWatcher.ready = false;
-          clearTimeout(reloadWatcher.debouncer);
-          reloadWatcher.debouncer = null;
-          reloadWatcher.watcher = null;
-          setupReloadWatcher(electronCapacitorApp);
-        }, 1500);
-      }
-    });
-}
 
 // Define our class to manage our app.
 export class ElectronCapacitorApp {
@@ -308,9 +274,6 @@ export class ElectronCapacitorApp {
         this.MainWindow.show();
       }
       setTimeout(() => {
-        if (electronIsDev) {
-          this.MainWindow.webContents.openDevTools();
-        }
         CapElectronEventEmitter.emit(
           "CAPELECTRON_DeeplinkListenerInitialized",
           "",
