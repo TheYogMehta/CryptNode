@@ -138,7 +138,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
       console.warn("[DeviceManager] Failed to resolve local public key", e);
       setLocalPubKey("");
     }
-    ChatClient.send({ t: "GET_DEVICES" });
+    if (ChatClient.isConnected) {
+      ChatClient.send({ t: "GET_DEVICES" });
+    }
   }, [currentUserEmail]);
 
   useEffect(() => {

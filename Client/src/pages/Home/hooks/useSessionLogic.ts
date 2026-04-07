@@ -124,7 +124,9 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     }
 
     const requestLinkedDevices = () => {
-      ChatClient.send({ t: "GET_DEVICES" });
+      if (ChatClient.isConnected) {
+        ChatClient.send({ t: "GET_DEVICES" });
+      }
     };
 
     const onDeviceList = (data: { devices?: LinkedDeviceEntry[] }) => {
@@ -136,7 +138,12 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       );
     };
 
+    const onAuthSuccessLocally = () => {
+      requestLinkedDevices();
+    };
+
     ChatClient.on("device_list", onDeviceList);
+    ChatClient.on("auth_success", onAuthSuccessLocally);
     requestLinkedDevices();
 
     const intervalId = window.setInterval(requestLinkedDevices, 30_000);
@@ -144,6 +151,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     return () => {
       window.clearInterval(intervalId);
       ChatClient.off("device_list", onDeviceList);
+      ChatClient.off("auth_success", onAuthSuccessLocally);
     };
   }, [shouldInit, userEmail]);
 

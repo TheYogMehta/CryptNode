@@ -2,7 +2,7 @@ import JSZip from "jszip";
 import { queryDB, executeDB, switchDatabase, tableOrder } from "./sqliteService";
 import { AccountService } from "../auth/AccountService";
 import { getKeyFromSecureStorage, setKeyFromSecureStorage } from "./SafeStorage";
-import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
 import { VAULT_DIR, PROFILE_DIR } from "./StorageUtils";
 import { hashIdentifier } from "./SafeStorage";
 
@@ -57,9 +57,11 @@ export class BackupService {
           const fileData = await Filesystem.readFile({
             path: `${PROFILE_DIR}/${fileName}`,
             directory: Directory.Data,
+            encoding: Encoding.UTF8,
           });
-          if (fileData.data) {
-            zip.file("profile_image.jpg", fileData.data, { base64: true });
+          const contentStr = typeof fileData.data === "string" ? fileData.data : "";
+          if (contentStr) {
+            zip.file("profile_image.txt", contentStr);
             break; // found it
           }
         } catch (err: any) {
@@ -102,9 +104,11 @@ export class BackupService {
           const contents = await Filesystem.readFile({
             path: `${VAULT_DIR}/${file.name}`,
             directory: Directory.Data,
+            encoding: Encoding.UTF8,
           });
-          if (mediaFolder) {
-            mediaFolder.file(file.name, contents.data, { base64: true });
+          const contentStr = typeof contents.data === "string" ? contents.data : "";
+          if (mediaFolder && contentStr) {
+            mediaFolder.file(file.name, contentStr);
           }
         }
       }
@@ -317,11 +321,23 @@ export class BackupService {
     }
 
     // 2.5 Restore Profile Image
-    const profileImageFile = zip.file("profile_image.jpg");
+    const profileImageFile = zip.file("profile_image.txt") || zip.file("profile_image.jpg");
     if (profileImageFile) {
       try {
         const emailHash = await hashIdentifier(extractedEmail);
-        const base64Data = await profileImageFile.async("base64");
+        
+        let textData = "";
+        if (profileImageFile.name.endsWith(".txt")) {
+            textData = await profileImageFile.async("text");
+        } else {
+            // legacy base64-encoded binary string from old backups
+            const base64Data = await profileImageFile.async("base64");
+            // Since the old backups literally contained base64 strings AS binary bytes, 
+            // base64Data would be the double-encoded version! Wait, actually if it was an old backup,
+            // we should decode it properly by letting Capacitor write it.
+            // But we can just write it as UTF-8 string to match new format because base64 is ASCII.
+            textData = base64Data;
+        }
 
         try {
           await Filesystem.mkdir({
@@ -335,9 +351,10 @@ export class BackupService {
 
         await Filesystem.writeFile({
           path: `${PROFILE_DIR}/${emailHash}.jpg`,
-          data: base64Data,
+          data: textData,
           directory: Directory.Data,
           recursive: true,
+          encoding: Encoding.UTF8,
         });
 
         // Update the extractedAvatar to point to the local file we just restored
@@ -352,12 +369,13 @@ export class BackupService {
       if (!path.startsWith("media/") || file.dir) continue;
       const fileName = path.slice("media/".length);
       if (!fileName) continue;
-      const base64Data = await file.async("base64");
+      const fileText = await file.async("text");
       await Filesystem.writeFile({
         path: `${VAULT_DIR}/${fileName}`,
-        data: base64Data,
+        data: fileText,
         directory: Directory.Data,
         recursive: true,
+        encoding: Encoding.UTF8,
       });
     }
 

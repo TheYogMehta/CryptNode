@@ -160,6 +160,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.authService.userEmail;
   }
 
+  public get isConnected(): boolean {
+    return socket.isConnected();
+  }
+
   public hasToken(): boolean {
     return this.authService.hasToken();
   }
