@@ -331,6 +331,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           style={{
             flex: 1,
             position: "relative",
+            minHeight: 0,
             backgroundColor: shouldShowRemoteVideo
               ? "black"
               : colors.surface.primary,

@@ -459,6 +459,7 @@ export class CallService {
               width: { ideal: 640 },
               height: { ideal: 480 },
               frameRate: { ideal: 15 },
+              facingMode: "user",
             },
             audio: false,
           });
@@ -468,7 +469,7 @@ export class CallService {
             err,
           );
           this.cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
+            video: { facingMode: "user" },
             audio: false,
           });
         }

@@ -302,7 +302,7 @@ export const ChatWindowDefault = ({
   useEffect(() => {
     if (messages.length > prevLengthRef.current && virtuosoRef.current) {
       const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.sender === "me") {
+      if (lastMessage?.sender === "me" || isAtBottom) {
         const index = firstItemIndex + messages.length - 1;
         if (pendingScrollTimeoutRef.current !== null) {
           window.clearTimeout(pendingScrollTimeoutRef.current);
@@ -323,7 +323,7 @@ export const ChatWindowDefault = ({
       }
     }
     prevLengthRef.current = messages.length;
-  }, [messages]);
+  }, [messages, isAtBottom, firstItemIndex]);
 
   useEffect(() => {
     return () => {
@@ -944,31 +944,79 @@ export const ChatWindowDefault = ({
               </div>
             ) : null,
           }}
-          itemContent={(index: number, msg: ChatMessage) => (
-            <div style={{ marginBottom: 4 }}>
-              <MessageBubble
-                key={msg.id || index}
-                msg={msg}
-                onReply={setReplyingTo}
-                onMediaClick={handleMediaClick}
-                messageLayout={messageLayout}
-                senderName={
-                  msg.sender === "me"
-                    ? "You"
-                    : session?.alias_name ||
-                    session?.peer_name ||
-                    (session?.peerEmail
-                      ? session.peerEmail.split("@")[0]
-                      : undefined) ||
-                    "User"
-                }
-                senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
-                selectionMode={selectionMode}
-                isSelected={!!msg.id && selectedMessages.has(msg.id)}
-                onToggleSelect={handleToggleSelect}
-              />
-            </div>
-          )}
+          itemContent={(index: number, msg: ChatMessage) => {
+            const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
+            let showDateDivider = false;
+            
+            if (!prevMsg) {
+              showDateDivider = true;
+            } else {
+              const currentDate = new Date(msg.timestamp).setHours(0, 0, 0, 0);
+              const prevDate = new Date(prevMsg.timestamp).setHours(0, 0, 0, 0);
+              if (currentDate !== prevDate) {
+                showDateDivider = true;
+              }
+            }
+
+            return (
+              <div style={{ marginBottom: 4 }}>
+                {showDateDivider && (
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    margin: '24px 0 16px',
+                    gap: '12px',
+                    padding: '0 16px'
+                  }}>
+                    <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,0.06)' }} />
+                    <span style={{ 
+                      fontSize: '11px', 
+                      fontWeight: 500, 
+                      color: 'rgba(255,255,255,0.4)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {(() => {
+                        const date = new Date(msg.timestamp);
+                        const today = new Date();
+                        const isToday = date.toDateString() === today.toDateString();
+                        const yesterday = new Date(today);
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        const isYesterday = date.toDateString() === yesterday.toDateString();
+                        
+                        if (isToday) return "Today";
+                        if (isYesterday) return "Yesterday";
+                        return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+                      })()}
+                    </span>
+                    <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,0.06)' }} />
+                  </div>
+                )}
+                <MessageBubble
+                  key={msg.id || index}
+                  msg={msg}
+                  onReply={setReplyingTo}
+                  onMediaClick={handleMediaClick}
+                  messageLayout={messageLayout}
+                  senderName={
+                    msg.sender === "me"
+                      ? "You"
+                      : session?.alias_name ||
+                      session?.peer_name ||
+                      (session?.peerEmail
+                        ? session.peerEmail.split("@")[0]
+                        : undefined) ||
+                      "User"
+                  }
+                  senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
+                  selectionMode={selectionMode}
+                  isSelected={!!msg.id && selectedMessages.has(msg.id)}
+                  onToggleSelect={handleToggleSelect}
+                />
+              </div>
+            );
+          }}
         />
         {filteredMessages.length === 0 && (
           <div
