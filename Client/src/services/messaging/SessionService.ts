@@ -14,6 +14,8 @@ import { WorkerManager } from "../core/WorkerManager";
 import socket from "../core/SocketManager";
 import { sha256, bufferToBase64 } from "../../utils/crypto";
 import { StorageService } from "../storage/StorageService";
+import { avatarCacheService } from "../storage/AvatarCacheService";
+
 
 export interface ChatSession {
   cryptoKeys: Record<string, CryptoKey>;
@@ -191,12 +193,11 @@ export class SessionService extends EventEmitter {
         avatarData = me.public_avatar;
       } else {
         try {
-          const fileSrc = await StorageService.getFileSrc(
+          const fileSrc = await StorageService.getProfileImage(
             me.public_avatar,
-            "image/jpeg",
           );
           if (fileSrc) avatarData = fileSrc;
-        } catch (_e) {}
+        } catch (_e) { }
       }
     }
 
@@ -228,7 +229,7 @@ export class SessionService extends EventEmitter {
             if (fileSrc) avatarData = fileSrc;
           }
         }
-      } catch (_e) {}
+      } catch (_e) { }
     }
 
     if (
@@ -370,6 +371,8 @@ export class SessionService extends EventEmitter {
               avatarBase64,
               sid,
             );
+            // Bust cache so components re-fetch the newly saved file
+            avatarCacheService.bust(peerAvatarFile);
           } catch (_e) {
             peerAvatarFile = undefined;
           }
@@ -642,8 +645,8 @@ export class SessionService extends EventEmitter {
                   undefined,
                   pUser?.name,
                   pUser?.avatar,
-                  undefined,
-                  undefined,
+                  pUser?.name ? 1 : undefined,    // set ver=1 if we have name
+                  pUser?.avatar ? 1 : undefined,   // set ver=1 if we have avatar
                   undefined,
                   false,
                 ),
@@ -954,7 +957,7 @@ export class SessionService extends EventEmitter {
         const emailStr = this.normalizeEmail(this.authService.userEmail);
         try {
           ownSid = await sha256(emailStr + ":" + emailStr);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (
@@ -1063,7 +1066,7 @@ export class SessionService extends EventEmitter {
             const emailStr = this.normalizeEmail(this.authService.userEmail);
             try {
               ownSid = await sha256(emailStr + ":" + emailStr);
-            } catch (e) {}
+            } catch (e) { }
           }
 
           if (ownSid && item.sid === ownSid && !item.online) {

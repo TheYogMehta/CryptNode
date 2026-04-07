@@ -39,9 +39,12 @@ export const StorageService = {
       // Ignore if exists
     }
 
+    const dbKey = getCurrentDbKey();
+    const dataToWrite = dbKey ? await VaultCrypto.encrypt(data, dbKey) : data;
+
     await Filesystem.writeFile({
       path,
-      data,
+      data: dataToWrite,
       directory: Directory.Data,
       recursive: true,
       encoding: Encoding.UTF8,
@@ -67,7 +70,13 @@ export const StorageService = {
           encoding: Encoding.UTF8,
         });
 
-        const base64 = typeof file.data === "string" ? file.data : "";
+        let base64 = typeof file.data === "string" ? file.data : "";
+        if (!base64) continue;
+
+        // Decrypt if stored encrypted; VaultCrypto.decrypt is a no-op on plain data
+        const dbKey = getCurrentDbKey();
+        if (dbKey) base64 = await VaultCrypto.decrypt(base64, dbKey);
+
         if (base64) return `data:image/jpeg;base64,${base64}`;
       } catch (_e) {
         // Try next candidate.
@@ -233,6 +242,7 @@ export const StorageService = {
             });
             const data = typeof file.data === "string" ? file.data : "";
             if (data) {
+              // Decrypt if stored encrypted; VaultCrypto.decrypt is a no-op on plain data
               const dbKey = getCurrentDbKey();
               return dbKey ? await VaultCrypto.decrypt(data, dbKey) : data;
             }

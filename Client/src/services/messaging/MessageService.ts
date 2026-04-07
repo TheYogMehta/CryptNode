@@ -1572,11 +1572,10 @@ export class MessageService extends EventEmitter {
                 if (!me.public_avatar.startsWith("data:")) {
                   try {
                     console.log(
-                      `[MessageService] Reading avatar file via StorageService.getFileSrc: ${me.public_avatar}`,
+                      `[MessageService] Reading avatar file via StorageService.getProfileImage: ${me.public_avatar}`,
                     );
-                    const fileData = await StorageService.getFileSrc(
+                    const fileData = await StorageService.getProfileImage(
                       me.public_avatar,
-                      "image/jpeg",
                     );
                     avatarBase64 = this.normalizeProfileAvatarPayload(fileData);
                     console.log(
