@@ -705,7 +705,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				go sendPushNotification(tokens, targetHash, 1)
 			}
 
-			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(`{"success":true}`)})
+			respData, _ := json.Marshal(map[string]any{
+				"success":     true,
+				"targetEmail": targetEmail,
+			})
+			s.send(client, Frame{T: "REQUEST_SENT", Data: json.RawMessage(respData)})
 
 		case "FRIEND_ACCEPT":
 			if client.email == "" {
@@ -926,7 +930,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					rows.Scan(&socketID)
 					s.mu.Lock()
 					if targetClient, ok := s.clients[socketID]; ok {
-						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+						respData, _ := json.Marshal(map[string]string{
+							"senderHash": senderHash,
+							"reason":     "rejected",
+						})
 						s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
 					}
 					s.mu.Unlock()
@@ -935,7 +942,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if !hasSockets {
-				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+				respData, _ := json.Marshal(map[string]string{
+					"senderHash": senderHash,
+					"reason":     "rejected",
+				})
 				frame, _ := json.Marshal(Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
 				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frame), time.Now())
 			}
@@ -981,7 +991,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						rows.Scan(&socketID)
 						s.mu.Lock()
 						if targetClient, ok := s.clients[socketID]; ok {
-							respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+							respData, _ := json.Marshal(map[string]string{
+								"senderHash": senderHash,
+								"reason":     "blocked",
+							})
 							s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
 						}
 						s.mu.Unlock()
@@ -990,7 +1003,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if !hasSockets {
-					respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+					respData, _ := json.Marshal(map[string]string{
+						"senderHash": senderHash,
+						"reason":     "blocked",
+					})
 					frame, _ := json.Marshal(Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
 					s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frame), time.Now())
 				}
@@ -1127,7 +1143,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 				s.db.Exec("DELETE FROM friends WHERE user1_hash = ? OR user2_hash = ?", eh, eh)
 			}
-			client.conn.Close()
+
+			respBytes, _ := json.Marshal(map[string]bool{"success": true})
+			s.send(client, Frame{T: "DELETE_ACCOUNT_SUCCESS", Data: json.RawMessage(respBytes)})
 
 		case "REATTACH":
 			if client.email == "" {
