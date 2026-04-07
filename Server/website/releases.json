@@ -1,7 +1,7 @@
 [
   {
-    "version": "v3.0.0",
-    "date": "2026-03-30",
+    "version": "v4.0.0",
+    "date": "2026-04-07",
     "notes": "Stable Release",
     "files": {
       "windows": "cryptnode.Setup.exe",
