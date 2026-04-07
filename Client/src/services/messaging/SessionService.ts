@@ -7,6 +7,7 @@ import {
   addBlockedUser,
   removeBlockedUser,
   removePendingRequest,
+  acceptPendingRequest,
   updateOutboundRequestHistoryStatus,
 } from "../storage/sqliteService";
 import { WorkerManager } from "../core/WorkerManager";
@@ -38,7 +39,7 @@ export class SessionService extends EventEmitter {
     string,
     { online: boolean; peerPubKeys: string[] }
   > = new Map();
-  private static readonly MAX_HANDSHAKE_AVATAR_B64 = 160 * 1024;
+  private static readonly MAX_HANDSHAKE_AVATAR_B64 = 512 * 1024;
 
   constructor(authService: AuthService) {
     super();
@@ -628,15 +629,19 @@ export class SessionService extends EventEmitter {
         const handler = (data: any) => {
           if (data.targetEmail === targetEmail) {
             socket.off("FRIEND_ACCEPTED_ACK", handler);
-            removePendingRequest(targetEmail)
-              .then(() =>
+            queryDB("SELECT name, avatar FROM pending_requests WHERE email = ? LIMIT 1", [this.normalizeEmail(targetEmail)])
+              .then((rows) => {
+                const pUser = rows && rows.length > 0 ? rows[0] : null;
+                return acceptPendingRequest(targetEmail).then(() => pUser);
+              })
+              .then((pUser) =>
                 this.finalizeSession(
                   sid,
                   remotePubB64s,
                   targetEmail,
                   undefined,
-                  undefined,
-                  undefined,
+                  pUser?.name,
+                  pUser?.avatar,
                   undefined,
                   undefined,
                   undefined,

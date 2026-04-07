@@ -789,6 +789,7 @@ const Home = () => {
                 onAddFriend={() => actions.setView("add")}
                 onOpenSettings={onOpenSettings}
                 onOpenVault={onOpenVault}
+                isMobile={isMobile}
                 sessionCount={state.sessions.length}
                 onlineCount={
                   state.sessions.filter((session) => session.online).length

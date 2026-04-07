@@ -147,6 +147,7 @@ export const isImageFileLike = (file: FileLike): boolean => {
 
 export const isVideoFileLike = (file: FileLike): boolean => {
   const type = getNormalizedType(file.type);
+  if (type.startsWith("audio/")) return false;
   return type.startsWith("video/") || VIDEO_EXTENSIONS.has(getFileExtension(file.name));
 };
 

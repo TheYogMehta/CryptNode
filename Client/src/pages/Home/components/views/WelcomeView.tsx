@@ -55,6 +55,7 @@ export const WelcomeView = ({
   onAddFriend,
   onOpenSettings,
   onOpenVault,
+  isMobile,
   sessionCount,
   onlineCount,
   unreadCount,
@@ -64,6 +65,7 @@ export const WelcomeView = ({
   onAddFriend: () => void;
   onOpenSettings: () => void;
   onOpenVault: () => void;
+  isMobile: boolean;
   sessionCount: number;
   onlineCount: number;
   unreadCount: number;
@@ -162,12 +164,14 @@ export const WelcomeView = ({
                 Keep passwords, notes, and sensitive files in one encrypted place that stays local-first.
               </HighlightText>
             </HighlightCard>
-            <HighlightCard>
-              <HighlightTitle>Local AI</HighlightTitle>
-              <HighlightText>
-                Run AI features on-device for summaries, assistance, and private workflows without depending on cloud chat storage.
-              </HighlightText>
-            </HighlightCard>
+            {!isMobile && (
+              <HighlightCard>
+                <HighlightTitle>Local AI</HighlightTitle>
+                <HighlightText>
+                  Run AI features on-device for summaries, assistance, and private workflows without depending on cloud chat storage.
+                </HighlightText>
+              </HighlightCard>
+            )}
             <HighlightCard>
               <HighlightTitle>Secure Chat</HighlightTitle>
               <HighlightText>

@@ -459,7 +459,11 @@ export const ChatWindowDefault = ({
     if (!isRecording) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
         });
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
@@ -945,9 +949,10 @@ export const ChatWindowDefault = ({
             ) : null,
           }}
           itemContent={(index: number, msg: ChatMessage) => {
-            const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
+            const localIndex = Math.max(0, index - (firstItemIndex || 0));
+            const prevMsg = localIndex > 0 ? filteredMessages[localIndex - 1] : null;
             let showDateDivider = false;
-            
+
             if (!prevMsg) {
               showDateDivider = true;
             } else {
@@ -961,18 +966,18 @@ export const ChatWindowDefault = ({
             return (
               <div style={{ marginBottom: 4 }}>
                 {showDateDivider && (
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     margin: '24px 0 16px',
                     gap: '12px',
                     padding: '0 16px'
                   }}>
                     <div style={{ height: 1, flex: 1, background: 'rgba(255,255,255,0.06)' }} />
-                    <span style={{ 
-                      fontSize: '11px', 
-                      fontWeight: 500, 
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 500,
                       color: 'rgba(255,255,255,0.4)',
                       textTransform: 'uppercase',
                       letterSpacing: '0.5px'
@@ -984,7 +989,7 @@ export const ChatWindowDefault = ({
                         const yesterday = new Date(today);
                         yesterday.setDate(yesterday.getDate() - 1);
                         const isYesterday = date.toDateString() === yesterday.toDateString();
-                        
+
                         if (isToday) return "Today";
                         if (isYesterday) return "Yesterday";
                         return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });

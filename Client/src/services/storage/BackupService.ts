@@ -43,17 +43,31 @@ export class BackupService {
 
     // 1.8 Export Profile Image
     try {
+      const candidates: string[] = [];
+      if (account?.avatarUrl && !account.avatarUrl.startsWith("http") && !account.avatarUrl.startsWith("data:")) {
+        candidates.push(account.avatarUrl);
+      }
       const emailHash = await hashIdentifier(userEmail);
-      const profilePath = `${PROFILE_DIR}/${emailHash}.jpg`;
-      const fileData = await Filesystem.readFile({
-        path: profilePath,
-        directory: Directory.Data,
-      });
-      if (fileData.data) {
-        zip.file("profile_image.jpg", fileData.data, { base64: true });
+      candidates.push(`${emailHash}.jpg`);
+      const dbName = await AccountService.getDbName(userEmail);
+      candidates.push(`${dbName}.jpg`);
+
+      for (const fileName of candidates) {
+        try {
+          const fileData = await Filesystem.readFile({
+            path: `${PROFILE_DIR}/${fileName}`,
+            directory: Directory.Data,
+          });
+          if (fileData.data) {
+            zip.file("profile_image.jpg", fileData.data, { base64: true });
+            break; // found it
+          }
+        } catch (err: any) {
+          // Continue to next candidate
+        }
       }
     } catch (e) {
-      console.warn("[BackupService] Profile image not found or read error", e);
+      console.warn("[BackupService] Profile image read error", e);
     }
 
     // 2. Export Master/Identity Keys

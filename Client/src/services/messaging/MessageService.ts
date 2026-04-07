@@ -635,6 +635,61 @@ export class MessageService extends EventEmitter {
           this.client.emit("call_mode_changed", { sid, mode: data.mode });
           break;
 
+        case "SYNC_STATE_BROADCAST": {
+          if (isOwnMessage && !isOwnDeviceSession) break;
+          try {
+            const peerTotal = Number(data.total) || 0;
+            const res = await queryDB("SELECT COUNT(*) as c FROM messages WHERE sid = ?", [sid]);
+            const localTotal = res[0]?.c || 0;
+            if (localTotal < peerTotal) {
+              console.log(`[MessageService] Sync gap detected. Local: ${localTotal}, Peer: ${peerTotal}. Forcing full SYNC...`);
+              this.client.send({
+                t: "MSG", sid,
+                data: {
+                  payloads: await this.client.encryptForSession(sid, JSON.stringify({
+                    t: "MSG", data: { type: "SYNC_REQ", timestamp: Date.now(), direction: "DESC", limit: Math.min(peerTotal, 500) }
+                  }), 0)
+                }, c: false, p: 0
+              });
+            }
+          } catch (e) {
+            console.warn(`[MessageService] Error handling SYNC_STATE_BROADCAST`, e);
+          }
+          break;
+        }
+
+        case "SYNC_REQ": {
+           try {
+             console.log(`[MessageService] Handling SYNC_REQ from ${sid}. Sending MANIFEST of our messages...`);
+             // We'll send our messages up to reasonable limit to fill their gap.
+             const missing = await queryDB(
+               "SELECT * FROM messages WHERE sid = ? AND sender = 'me' ORDER BY timestamp DESC LIMIT 300",
+               [sid]
+             );
+             // Also include anything they sent that we successfully stored, in case they lost their own messages.
+             const missingTheirs = await queryDB(
+               "SELECT * FROM messages WHERE sid = ? AND sender != 'me' ORDER BY timestamp DESC LIMIT 300",
+               [sid]
+             );
+             const combined = [...missing, ...missingTheirs].sort((a, b) => a.timestamp - b.timestamp);
+             const messageIds = combined.map(m => m.id);
+             let media: any[] = [];
+             if (messageIds.length > 0) {
+               const placeholders = messageIds.map(() => "?").join(",");
+               media = await queryDB(`SELECT * FROM media WHERE message_id IN (${placeholders})`, messageIds);
+               media = this.dedupeMediaRows(media);
+             }
+             const payloads = await this.client.encryptForSession(
+               sid,
+               JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: combined, media } } }), 0
+             );
+             this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+           } catch (e) {
+             console.warn(`[MessageService] Failed to handle SYNC_REQ`, e);
+           }
+           break;
+        }
+
         // ── Efficient peer sync handshake ──────────────────────────────────────
         // Step 1: peer A calls sendManifestToPeer → sends SYNC_HINT with the
         //         latest timestamp of messages A has received FROM B.

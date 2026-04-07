@@ -352,12 +352,6 @@ const HistoryTime = styled.div`
   font-weight: ${typography.fontWeight.medium};
 `;
 
-const HistoryTimeMeta = styled.div`
-  margin-top: 4px;
-  color: ${colors.text.tertiary};
-  font-size: ${typography.fontSize.xs};
-`;
-
 const StatusBadge = styled.span<{ $status: OutboundRequestStatus }>`
   display: inline-flex;
   align-items: center;
@@ -648,7 +642,6 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                         </HistoryCell>
                         <HistoryCell>
                           <HistoryTime>{formatHistoryTimestamp(entry.sentAt)}</HistoryTime>
-                          <HistoryTimeMeta>Request created</HistoryTimeMeta>
                         </HistoryCell>
                       </HistoryBodyRow>
                     ))}

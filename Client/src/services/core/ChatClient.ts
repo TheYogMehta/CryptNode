@@ -708,6 +708,7 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async deleteAccount() {
+    this.authService.setAuthToken("");
     return new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         this.off("delete_account_success", onAck);

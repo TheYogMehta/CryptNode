@@ -382,9 +382,6 @@ export class CallService {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 48000 },
-          sampleSize: { ideal: 16 },
         },
       });
 
