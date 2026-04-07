@@ -14,12 +14,13 @@ export const LocalAISettings = () => {
   const [installedModels, setInstalledModels] = useState<Record<string, boolean>>({});
   const [customUrl, setCustomUrl] = useState("");
   const [warningModel, setWarningModel] = useState<LocalAIModel | null>(null);
-  const [editingParams, setEditingParams] = useState<{id: string, name: string, description: string} | null>(null);
+  const [editingParams, setEditingParams] = useState<{ id: string, name: string, description: string } | null>(null);
   const [downloadFolder, setDownloadFolder] = useState<string>("");
   const [deleteModelId, setDeleteModelId] = useState<string | null>(null);
   const [removeModelId, setRemoveModelId] = useState<string | null>(null);
   const [isDeletingModel, setIsDeletingModel] = useState(false);
   const [isRemovingModel, setIsRemovingModel] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
 
   useEffect(() => {
     const fetchState = async () => {
@@ -99,7 +100,7 @@ export const LocalAISettings = () => {
       await localAIService.removeModelFromLibrary(removeModelId);
       // Wait for it to drop, also let's just do a tiny local state cleanup so it vanishes instantly
       setInstalledModels(prev => {
-        const next = {...prev};
+        const next = { ...prev };
         delete next[removeModelId];
         return next;
       });
@@ -136,6 +137,7 @@ export const LocalAISettings = () => {
 
   const handleAddCustom = async () => {
     if (!customUrl.trim()) return;
+    setIsAdding(true);
     try {
       // Basic check
       let finalUrl = customUrl.trim();
@@ -146,9 +148,44 @@ export const LocalAISettings = () => {
         finalUrl = finalUrl.replace("/blob/", "/resolve/");
       }
 
+      // Check format
+      const urlObj = new URL(finalUrl);
+      if (!urlObj.pathname.toLowerCase().endsWith(".gguf")) {
+        toast.error("URL must point to a .gguf file.");
+        setIsAdding(false);
+        return;
+      }
+
+      // Validate URL and get size from HEAD request
+      let sizeBytes = 0;
+      try {
+        const headRes = await fetch(finalUrl, { method: "HEAD" });
+        if (!headRes.ok) {
+          toast.error("Could not verify file URL. It may be broken or private.");
+          setIsAdding(false);
+          return;
+        }
+        const contentLength = headRes.headers.get("content-length");
+        if (contentLength) {
+          sizeBytes = parseInt(contentLength, 10);
+        }
+
+        // Very basic validation: a GGUF should be at least a few MBs. Wait, if sizeBytes is 0, HEAD could be missing Content-Length header in CORS
+        if (sizeBytes > 0 && sizeBytes < 1024 * 1024) {
+          toast.error("File appears too small to be a valid GGUF model.");
+          setIsAdding(false);
+          return;
+        }
+      } catch (headErr) {
+        console.warn("Failed to ping URL", headErr);
+        toast.error("Could not verify file URL. Please check your internet or URL.");
+        setIsAdding(false);
+        return;
+      }
+
       // Extract a reasonable filename
       const urlParts = finalUrl.split("/");
-      const customFilename = urlParts[urlParts.length - 1] || "custom_model.gguf";
+      const customFilename = urlParts[urlParts.length - 1].split('?')[0] || "custom_model.gguf";
       const customName = customFilename.replace(".gguf", "").replace(/[-_]/g, " ") || "Custom Model";
 
       const newModel: LocalAIModel = {
@@ -157,17 +194,18 @@ export const LocalAISettings = () => {
         description: "User added GGUF model",
         hfUrl: finalUrl,
         filename: customFilename,
-        sizeBytes: 0, // Unknown
+        sizeBytes: sizeBytes, // Using fetched size
       };
 
       await localAIService.addModelToLibrary(newModel);
       setCustomUrl("");
       // Refresh to show newly added model
-      setInstalledModels(prev => ({...prev, [newModel.id]: false}));
+      setInstalledModels(prev => ({ ...prev, [newModel.id]: false }));
       toast.success("Custom model added to your library.");
     } catch {
       toast.error("Please enter a valid direct GGUF URL.");
     }
+    setIsAdding(false);
   };
 
   const formatBytes = (bytes: number) => {
@@ -261,19 +299,19 @@ export const LocalAISettings = () => {
           </button>
         </div>
       </div>
-      
+
       {isDownloading && downloadInfo && (
         <div style={{ marginBottom: "20px", padding: "16px", background: colors.background.secondary, borderRadius: "8px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", fontSize: "14px", color: colors.text.secondary }}>
             <span>Downloading {allModels.find(m => m.id === downloadInfo.activeModelId)?.name || "Model"}...</span>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-               <span>{downloadProgress}%</span>
-               <button 
-                 onClick={() => localAIService.abortDownload()}
-                 style={{ padding: "2px 6px", background: "transparent", border: `1px solid #ef4444`, color: "#ef4444", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
-               >
-                 Cancel
-               </button>
+              <span>{downloadProgress}%</span>
+              <button
+                onClick={() => localAIService.abortDownload()}
+                style={{ padding: "2px 6px", background: "transparent", border: `1px solid #ef4444`, color: "#ef4444", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
             </div>
           </div>
           <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden" }}>
@@ -291,26 +329,26 @@ export const LocalAISettings = () => {
           const isActive = activeModelId === model.id && installed;
           const isCustom = !RECOMMENDED_MODELS.find(r => r.id === model.id);
           const isEditing = editingParams?.id === model.id;
-          
+
           return (
             <div key={model.id} style={{ padding: "16px", background: colors.surface.primary, borderRadius: "8px", border: `1px solid ${isActive ? colors.primary.main : colors.border.subtle}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
                 <div style={{ flex: 1, marginRight: "12px" }}>
                   {isEditing ? (
-                     <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
-                        <input 
-                           type="text" 
-                           value={editingParams.name} 
-                           onChange={e => setEditingParams({...editingParams, name: e.target.value})}
-                           style={{ padding: "6px", background: colors.background.primary, border: `1px solid ${colors.border.subtle}`, color: colors.text.primary, borderRadius: "4px", fontSize: "14px" }}
-                        />
-                     </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                      <input
+                        type="text"
+                        value={editingParams.name}
+                        onChange={e => setEditingParams({ ...editingParams, name: e.target.value })}
+                        style={{ padding: "6px", background: colors.background.primary, border: `1px solid ${colors.border.subtle}`, color: colors.text.primary, borderRadius: "4px", fontSize: "14px" }}
+                      />
+                    </div>
                   ) : (
                     <>
-                      <h4 style={{ margin: 0, color: colors.text.primary, display: "flex", alignItems: "center", gap: "8px" }}>
-                        {model.name}
-                        {isActive && <span style={{ fontSize: "11px", padding: "2px 6px", background: colors.primary.main, color: "#fff", borderRadius: "100px" }}>Active</span>}
-                        {isCustom && <span style={{ fontSize: "11px", padding: "2px 6px", background: colors.border.subtle, color: colors.text.secondary, borderRadius: "100px" }}>Custom</span>}
+                      <h4 style={{ margin: 0, color: colors.text.primary, display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <span style={{ wordBreak: "break-all" }}>{model.name}</span>
+                        {isActive && <span style={{ fontSize: "11px", padding: "2px 6px", background: colors.primary.main, color: "#fff", borderRadius: "100px", whiteSpace: "nowrap" }}>Active</span>}
+                        {isCustom && <span style={{ fontSize: "11px", padding: "2px 6px", background: colors.border.subtle, color: colors.text.secondary, borderRadius: "100px", whiteSpace: "nowrap" }}>Custom</span>}
                       </h4>
                       <div style={{ fontSize: "12px", color: colors.text.tertiary, marginTop: "4px" }}>
                         Size: {formatBytes(model.sizeBytes)}{isCustom && model.sizeBytes === 0 && " (Unknown until downloaded)"}
@@ -321,67 +359,67 @@ export const LocalAISettings = () => {
                 <div>
                   <div style={{ display: "flex", gap: "8px" }}>
                     {isEditing ? (
-                       <>
-                         <button onClick={handleSaveEdit} style={{ padding: "6px 12px", background: colors.primary.main, color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}>Save</button>
-                         <button onClick={() => setEditingParams(null)} style={{ padding: "6px 12px", background: "transparent", color: colors.text.primary, border: `1px solid ${colors.border.subtle}`, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
-                       </>
+                      <>
+                        <button onClick={handleSaveEdit} style={{ padding: "6px 12px", background: colors.primary.main, color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}>Save</button>
+                        <button onClick={() => setEditingParams(null)} style={{ padding: "6px 12px", background: "transparent", color: colors.text.primary, border: `1px solid ${colors.border.subtle}`, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
+                      </>
                     ) : (
-                       <>
-                         {isCustom && !isDownloading && (
-                           <button 
-                             onClick={() => setEditingParams({ id: model.id, name: model.name, description: model.description || "" })}
-                             style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${colors.border.subtle}`, color: colors.text.secondary, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
-                           >
-                             Edit
-                           </button>
-                         )}
-                         {installed && !isActive && (
-                           <button 
-                             onClick={() => handleSetActive(model.id)}
-                             style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${colors.primary.main}`, color: colors.primary.main, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
-                           >
-                             Use
-                           </button>
-                         )}
-                         {installed && (
-                           <button 
-                              onClick={() => handleDelete(model.id)}
-                              style={{ padding: "6px 12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", color: "#ef4444", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
-                           >
-                              Delete File
-                           </button>
-                         )}
-                         {!installed && (
-                           <button 
-                             onClick={() => handleDownload(model)}
-                             disabled={isDownloading}
-                             style={{ padding: "6px 16px", background: colors.primary.main, color: "#fff", border: "none", borderRadius: "4px", cursor: isDownloading ? "not-allowed" : "pointer", fontSize: "13px", opacity: isDownloading ? 0.5 : 1 }}
-                           >
-                             Download
-                           </button>
-                         )}
-                         {isCustom && (
-                           <button 
-                              onClick={() => handleRemoveCustom(model.id)}
-                              style={{ padding: "6px 12px", background: "transparent", border: `1px solid #ef4444`, color: "#ef4444", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
-                              title="Remove completely from library"
-                           >
-                              Remove
-                           </button>
-                         )}
-                       </>
+                      <>
+                        {isCustom && !isDownloading && (
+                          <button
+                            onClick={() => setEditingParams({ id: model.id, name: model.name, description: model.description || "" })}
+                            style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${colors.border.subtle}`, color: colors.text.secondary, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {installed && !isActive && (
+                          <button
+                            onClick={() => handleSetActive(model.id)}
+                            style={{ padding: "6px 12px", background: "transparent", border: `1px solid ${colors.primary.main}`, color: colors.primary.main, borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                          >
+                            Use
+                          </button>
+                        )}
+                        {installed && (
+                          <button
+                            onClick={() => handleDelete(model.id)}
+                            style={{ padding: "6px 12px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", color: "#ef4444", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                          >
+                            Delete File
+                          </button>
+                        )}
+                        {!installed && (
+                          <button
+                            onClick={() => handleDownload(model)}
+                            disabled={isDownloading}
+                            style={{ padding: "6px 16px", background: colors.primary.main, color: "#fff", border: "none", borderRadius: "4px", cursor: isDownloading ? "not-allowed" : "pointer", fontSize: "13px", opacity: isDownloading ? 0.5 : 1 }}
+                          >
+                            Download
+                          </button>
+                        )}
+                        {isCustom && (
+                          <button
+                            onClick={() => handleRemoveCustom(model.id)}
+                            style={{ padding: "6px 12px", background: "transparent", border: `1px solid #ef4444`, color: "#ef4444", borderRadius: "4px", cursor: "pointer", fontSize: "13px" }}
+                            title="Remove completely from library"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
               </div>
-              
+
               {isEditing ? (
-                 <textarea 
-                    value={editingParams.description}
-                    onChange={e => setEditingParams({...editingParams, description: e.target.value})}
-                    placeholder="Model description..."
-                    style={{ width: "100%", padding: "6px", background: colors.background.primary, border: `1px solid ${colors.border.subtle}`, color: colors.text.primary, borderRadius: "4px", fontSize: "13px", minHeight: "60px", resize: "vertical" }}
-                 />
+                <textarea
+                  value={editingParams.description}
+                  onChange={e => setEditingParams({ ...editingParams, description: e.target.value })}
+                  placeholder="Model description..."
+                  style={{ width: "100%", padding: "6px", background: colors.background.primary, border: `1px solid ${colors.border.subtle}`, color: colors.text.primary, borderRadius: "4px", fontSize: "13px", minHeight: "60px", resize: "vertical" }}
+                />
               ) : (
                 <p style={{ margin: 0, fontSize: "13px", color: colors.text.secondary, lineHeight: "1.5" }}>
                   {model.description}
@@ -398,20 +436,20 @@ export const LocalAISettings = () => {
           Provide a direct URL to a GGUF format model on HuggingFace or another source.
         </p>
         <div style={{ display: "flex", gap: "8px" }}>
-           <input 
-             type="url" 
-             value={customUrl}
-             onChange={e => setCustomUrl(e.target.value)}
-             placeholder="https://huggingface.co/.../model.gguf"
-             style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: `1px solid ${colors.border.subtle}`, background: colors.background.primary, color: colors.text.primary }}
-           />
-           <button 
-             onClick={handleAddCustom}
-             disabled={!customUrl || isDownloading}
-             style={{ padding: "8px 16px", background: colors.primary.main, border: "none", borderRadius: "4px", color: "#fff", cursor: (!customUrl || isDownloading) ? "not-allowed" : "pointer", opacity: (!customUrl || isDownloading) ? 0.5 : 1 }}
-           >
-             Add
-           </button>
+          <input
+            type="url"
+            value={customUrl}
+            onChange={e => setCustomUrl(e.target.value)}
+            placeholder="https://huggingface.co/.../model.gguf"
+            style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: `1px solid ${colors.border.subtle}`, background: colors.background.primary, color: colors.text.primary }}
+          />
+          <button
+            onClick={handleAddCustom}
+            disabled={!customUrl || isDownloading || isAdding}
+            style={{ padding: "8px 16px", background: colors.primary.main, border: "none", borderRadius: "4px", color: "#fff", cursor: (!customUrl || isDownloading || isAdding) ? "not-allowed" : "pointer", opacity: (!customUrl || isDownloading || isAdding) ? 0.5 : 1 }}
+          >
+            {isAdding ? "Adding..." : "Add"}
+          </button>
         </div>
       </div>
       <ConfirmDialog

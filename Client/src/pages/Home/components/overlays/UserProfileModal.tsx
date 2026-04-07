@@ -79,6 +79,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const formatDisplayDate = (isoString: string) => {
     if (!isoString || !isoString.includes("-")) return isoString;
     const [y, m, d] = isoString.split("-");

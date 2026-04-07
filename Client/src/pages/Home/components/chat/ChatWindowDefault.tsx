@@ -115,6 +115,20 @@ const ChatVirtuosoScroller = React.forwardRef<
 
 ChatVirtuosoScroller.displayName = "ChatVirtuosoScroller";
 
+const ChatVirtuosoHeader = ({ context }: { context?: { isLoadingHistory?: boolean } }) => {
+  if (!context?.isLoadingHistory) return null;
+  return (
+    <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
+      Loading older messages...
+    </div>
+  );
+};
+
+const virtuosoComponents = {
+  Scroller: ChatVirtuosoScroller,
+  Header: ChatVirtuosoHeader,
+};
+
 export const ChatWindowDefault = ({
   messages,
   onSend,
@@ -134,6 +148,8 @@ export const ChatWindowDefault = ({
   const { messageLayout } = useTheme();
   const isAndroidPlatform = Capacitor.getPlatform() === "android";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const { isInstalled: isAiInstalled } = useAIStatus();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [input, setInput] = useState("");
@@ -177,7 +193,7 @@ export const ChatWindowDefault = ({
   );
   const canCopySelected = canCopySelectedMessages(selectedMessageItems);
 
-  const handleToggleSelect = (msg: ChatMessage) => {
+  const handleToggleSelect = React.useCallback((msg: ChatMessage) => {
     if (!msg.id) return;
     const msgId = msg.id;
     setSelectedMessages(prev => {
@@ -186,7 +202,7 @@ export const ChatWindowDefault = ({
       else next.add(msgId);
       return next;
     });
-  };
+  }, []);
 
   const clearSelection = () => setSelectedMessages(new Set());
 
@@ -239,6 +255,8 @@ export const ChatWindowDefault = ({
 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const pendingScrollTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -255,6 +273,34 @@ export const ChatWindowDefault = ({
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showOptionsMenu]);
+
+  useEffect(() => {
+    const handleClickOutsideMenu = (event: MouseEvent) => {
+      if (
+        attachmentMenuRef.current &&
+        !attachmentMenuRef.current.contains(event.target as Node) &&
+        attachmentButtonRef.current &&
+        !attachmentButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowMenu(false);
+      }
+    };
+    
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMenu(false);
+      }
+    };
+
+    if (showMenu) {
+      document.addEventListener("mousedown", handleClickOutsideMenu);
+      document.addEventListener("keydown", handleEscape);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideMenu);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showMenu]);
 
 
 
@@ -384,8 +430,6 @@ export const ChatWindowDefault = ({
     };
   }, []);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const createPendingAttachment = (file: File): PendingAttachment => {
     const previewType = getUploadPreviewType(file);
     return {
@@ -486,7 +530,7 @@ export const ChatWindowDefault = ({
       label: "Gallery",
       icon: <ImageIcon size={24} />,
       color: "#e53170",
-      onClick: () => fileInputRef.current?.click(),
+      onClick: () => galleryInputRef.current?.click(),
     },
 
   ];
@@ -550,7 +594,7 @@ export const ChatWindowDefault = ({
     }
   };
 
-  const handleMediaClick = (
+  const handleMediaClick = React.useCallback((
     url: string,
     type: "image" | "video",
     description?: string,
@@ -559,7 +603,7 @@ export const ChatWindowDefault = ({
   ) => {
     setSelectedMedia({ url, type, description, meta, mimeType });
     setMediaModalOpen(true);
-  };
+  }, []);
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
     setInput((prev) => prev + emojiData.emoji);
@@ -948,10 +992,19 @@ export const ChatWindowDefault = ({
         style={{ display: "none" }}
         onChange={handleFileSelect}
       />
+      <input
+        type="file"
+        ref={galleryInputRef}
+        multiple
+        accept="image/*,video/*,image/gif"
+        style={{ display: "none" }}
+        onChange={handleFileSelect}
+      />
 
       <MessageList>
         <Virtuoso
           ref={virtuosoRef}
+          context={{ isLoadingHistory }}
           style={{
             height: "100%",
             overflowX: "hidden",
@@ -970,14 +1023,7 @@ export const ChatWindowDefault = ({
           startReached={() => {
             if (onLoadMore && !isLoadingHistory) onLoadMore();
           }}
-          components={{
-            Scroller: ChatVirtuosoScroller,
-            Header: () => isLoadingHistory ? (
-              <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
-                Loading older messages...
-              </div>
-            ) : null,
-          }}
+          components={virtuosoComponents}
           itemContent={(index: number, msg: ChatMessage) => {
             const localIndex = Math.max(0, index - (firstItemIndex || 0));
             const prevMsg = localIndex > 0 ? filteredMessages[localIndex - 1] : null;
@@ -1115,7 +1161,7 @@ export const ChatWindowDefault = ({
       )}
 
       {showMenu && (
-        <AttachmentMenu>
+        <AttachmentMenu ref={attachmentMenuRef}>
           {attachments.map((item, i) => (
             <MenuItem key={i} onClick={item.onClick}>
               <MenuIcon color={item.color}>{item.icon}</MenuIcon>
@@ -1326,6 +1372,7 @@ export const ChatWindowDefault = ({
       ) : (
         <InputContainer>
           <AttachmentButton
+            ref={attachmentButtonRef}
             active={showMenu}
             onClick={() => setShowMenu(!showMenu)}
           >

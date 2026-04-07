@@ -10,22 +10,11 @@ import {
 export const AppContainer = styled.div`
   display: flex;
   height: 100vh;
-  padding: 14px;
-  gap: 14px;
-  background:
-    radial-gradient(circle at top left, ${colors.primary.subtle} 0%, transparent 28%),
-    radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.1) 0%, transparent 24%),
-    ${colors.background.primary};
+  background-color: ${colors.background.primary};
   color: ${colors.text.primary};
   overflow: hidden;
   font-family: ${typography.fontFamily.sans};
   transition: background-color 0.3s ease, color 0.3s ease;
-
-  @media (max-width: 768px) {
-    padding: 0;
-    gap: 0;
-    background: ${colors.background.primary};
-  }
 `;
 
 export const MainContent = styled.main`
@@ -35,18 +24,10 @@ export const MainContent = styled.main`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    radial-gradient(circle at top, ${colors.primary.subtle} 0%, transparent 38%),
-    linear-gradient(180deg, ${colors.background.secondary} 0%, ${colors.background.primary} 100%);
-  border: 1px solid ${colors.border.subtle};
-  border-radius: ${radii["3xl"]};
-  box-shadow: 0 32px 80px -44px rgba(15, 23, 42, 0.45);
+  background-color: ${colors.background.secondary};
 
   @media (max-width: 768px) {
     width: 100%;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
   }
 `;
 

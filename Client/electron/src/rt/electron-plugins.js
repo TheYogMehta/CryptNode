@@ -1,6 +1,19 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
-const CapacitorCommunitySqlite = require('../../../node_modules/@capacitor-community/sqlite/electron/dist/plugin.js');
+const path = require("path");
+
+const pluginRelativePath = path.posix.join(
+  "..",
+  "..",
+  "..",
+  "node_modules",
+  "@capacitor-community",
+  "sqlite",
+  "electron",
+  "dist",
+  "plugin.js",
+);
+
+const CapacitorCommunitySqlite = require(pluginRelativePath);
 
 module.exports = {
-  CapacitorCommunitySqlite,
-}
+  CapacitorCommunitySqlite: CapacitorCommunitySqlite.default,
+};

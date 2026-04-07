@@ -314,7 +314,24 @@
   gap: 10px;
 }
 
-.secure-chat-back-icon-btn,
+.secure-chat-back-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--sc-text-primary);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+}
+
+.secure-chat-back-icon-btn:hover {
+  background: var(--sc-bg-secondary);
+}
+
 .secure-chat-search-btn {
   background: transparent;
   border: 1px solid var(--sc-border-subtle);
@@ -330,7 +347,6 @@
   transition: all 0.2s;
 }
 
-.secure-chat-back-icon-btn:hover,
 .secure-chat-search-btn:hover {
   background: var(--sc-bg-secondary);
   color: var(--sc-text-primary);

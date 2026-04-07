@@ -62,19 +62,19 @@ export const ChatHeader = styled.div`
 export const BackButton = styled.button`
   background: none;
   border: none;
-  color: ${colors.text.secondary};
+  color: ${colors.text.primary};
   padding: ${spacing[2]};
   margin-left: -${spacing[2]};
-  margin-right: ${spacing[2]};
+  margin-right: ${spacing[4]};
   cursor: pointer;
-  border-radius: ${radii.full};
+  border-radius: ${radii.md};
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.2s;
 
   &:hover {
     background-color: ${colors.background.tertiary};
-    color: ${colors.text.primary};
   }
 `;
 

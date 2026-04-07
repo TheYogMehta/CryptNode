@@ -2,9 +2,8 @@ import React from "react";
 import { SidebarItem } from "./SidebarItem";
 import { SessionData } from "../../types";
 import {
-  Settings,
   Sparkles,
-  UserPlus,
+  LogOut,
 } from "lucide-react";
 import {
   SidebarContainer,
@@ -19,8 +18,8 @@ import {
   EmptyText,
   SidebarFooter,
 } from "./Sidebar.styles";
+import { Button } from "../../../../components/ui/Button";
 import { IconButton } from "../../../../components/ui/IconButton";
-import { HomeActionButton } from "../HomeActionButton";
 
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { Capacitor } from "@capacitor/core";
@@ -38,6 +37,7 @@ export const Sidebar = React.memo(
     onSettings,
     onOpenVault,
     onGlobalSummary,
+    onLogout,
   }: {
     sessions: SessionData[];
     activeChat: string | null;
@@ -50,6 +50,7 @@ export const Sidebar = React.memo(
     onSettings: () => void;
     onOpenVault: () => void;
     onGlobalSummary: () => void;
+    onLogout: () => void;
   }) => {
     const { isInstalled } = useAIStatus();
     const isAndroid = Capacitor.getPlatform() === "android";
@@ -94,8 +95,8 @@ export const Sidebar = React.memo(
                 peer_name: "Secure Vault",
                 peer_avatar: "",
                 peerEmail: "vault@local",
-                lastMsg: "Encrypted Storage",
-                lastMsgType: "text",
+                lastMsg: "",
+                lastMsgType: "",
                 lastTs: undefined,
                 unread: 0,
                 online: false,
@@ -109,13 +110,13 @@ export const Sidebar = React.memo(
                 key="local-llm"
                 data={{
                   sid: "local-llm",
-                  alias_name: "Local AI Agent",
+                  alias_name: "Local AI",
                   alias_avatar: "",
-                  peer_name: "Local AI Agent",
+                  peer_name: "Local AI",
                   peer_avatar: "",
                   peerEmail: "llm@local",
-                  lastMsg: "Offline Assistant",
-                  lastMsgType: "text",
+                  lastMsg: "",
+                  lastMsgType: "",
                   lastTs: undefined,
                   unread: 0,
                   online: false,
@@ -145,14 +146,15 @@ export const Sidebar = React.memo(
           </SessionList>
 
           <SidebarFooter>
-            <HomeActionButton onClick={onAddPeer} fullWidth variant="primary">
-              <UserPlus />
-              Add Friend
-            </HomeActionButton>
-            <HomeActionButton onClick={onSettings} fullWidth variant="secondary">
-              <Settings />
-              Settings
-            </HomeActionButton>
+            <Button onClick={onAddPeer} fullWidth variant="secondary">
+              + Connect
+            </Button>
+            <Button onClick={onSettings} fullWidth variant="secondary">
+              ⚙ Settings
+            </Button>
+            <Button onClick={onLogout} fullWidth variant="secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <LogOut size={16} /> Logout
+            </Button>
           </SidebarFooter>
         </SidebarContainer>
       </>

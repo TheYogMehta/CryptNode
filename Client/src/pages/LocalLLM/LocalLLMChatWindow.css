@@ -38,7 +38,24 @@
   gap: 8px;
 }
 
-.local-llm-back-icon-btn,
+.local-llm-back-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--sc-text-primary);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.2s;
+}
+
+.local-llm-back-icon-btn:hover {
+  background: var(--sc-bg-tertiary);
+}
+
 .local-llm-action-btn {
   background: transparent;
   border: 1px solid var(--sc-border-subtle);

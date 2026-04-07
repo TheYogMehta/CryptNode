@@ -937,7 +937,7 @@ export const MessageBubble = React.memo(
               boxShadow: "none",
               borderRadius: "0",
               padding: "2px 0",
-              color: "#d1d5db",
+              color: colors.text.primary,
               maxWidth: "100%",
               fontSize: "0.95rem",
               lineHeight: "1.5",

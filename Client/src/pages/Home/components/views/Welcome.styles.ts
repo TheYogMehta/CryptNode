@@ -1,6 +1,5 @@
 import styled from "@emotion/styled";
 import { colors, spacing, radii, typography } from "../../../../theme/design-system";
-import { HomeActionButton } from "../HomeActionButton";
 
 export const WelcomeContainer = styled.div`
   flex: 1;
@@ -13,7 +12,7 @@ export const WelcomeContainer = styled.div`
   height: 100%;
   width: 100%;
   overflow: hidden;
-  padding: clamp(20px, 3.5vh, 40px) 0;
+  padding: clamp(80px, 10vh, 120px) 0 clamp(20px, 3.5vh, 40px) 0;
   background: radial-gradient(
     circle at 50% 10%,
     ${colors.primary.subtle} 0%,
@@ -81,19 +80,9 @@ export const IconWrapper = styled.div`
 `;
 
 export const GreetingTitle = styled.h1`
-  margin: 0;
   margin-bottom: ${spacing[2]};
   font-size: ${typography.fontSize["3xl"]};
-  font-weight: ${typography.fontWeight.bold};
-  line-height: 1.05;
   color: ${colors.text.primary};
-  background: linear-gradient(
-    135deg,
-    ${colors.text.primary} 0%,
-    ${colors.primary.DEFAULT} 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 `;
 
 export const WelcomeMessage = styled.p`
@@ -116,8 +105,45 @@ export const ActionButtons = styled.div`
   justify-content: center;
 `;
 
-export const WelcomeActionButton = styled(HomeActionButton)`
-  min-width: 164px;
+export const AddFriendButton = styled.button`
+  padding: ${spacing[4]} ${spacing[8]};
+  border-radius: ${radii.xl};
+  border: 1px solid ${colors.border.subtle};
+  background: ${colors.surface.primary};
+  color: ${colors.text.primary};
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: ${spacing[2]};
+  transition: transform 0.2s;
+
+  &:hover {
+    background: ${colors.background.tertiary};
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+`;
+
+export const SecondaryActionButton = styled.button`
+  padding: ${spacing[4]} ${spacing[6]};
+  border-radius: ${radii.xl};
+  border: 1px solid ${colors.border.subtle};
+  background: ${colors.surface.primary};
+  color: ${colors.text.primary};
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: ${spacing[2]};
+
+  &:hover {
+    background: ${colors.background.tertiary};
+  }
 `;
 
 export const HighlightsSection = styled.div`

@@ -68,7 +68,8 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
 
     const getPreviewText = () => {
       if (!lastMsg && !lastMsgType) {
-        if (sid === "secure-vault" || data.isOwnDevice) return { text: "No messages yet", time: "" };
+        if (sid === "secure-vault" || sid === "local-llm") return { text: "", time: "" };
+        if (data.isOwnDevice) return { text: "No messages yet", time: "" };
         return { text: isOnline ? "Online" : "Offline", time: "" };
       }
 

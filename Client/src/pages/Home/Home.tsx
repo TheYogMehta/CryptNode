@@ -14,6 +14,7 @@ import { AppLockScreen } from "./components/overlays/AppLockScreen";
 import { ConnectionBanner } from "./components/overlays/ConnectionBanner";
 import { BlockingProgressOverlay } from "./components/overlays/BlockingProgressOverlay";
 import { AccountService } from "../../services/auth/AccountService";
+import { getKeyFromSecureStorage } from "../../services/storage/SafeStorage";
 import ChatClient from "../../services/core/ChatClient";
 import { SidebarSkeleton } from "../../components/ui/Skeleton";
 import {
@@ -139,9 +140,24 @@ const Home = () => {
     setIsCreatingAccount(true);
     try {
       await actions.login(idToken);
-      setIsLocked(false);
-      setShowSettings(false);
-      setShowProfileSetup(true);
+      
+      let hasPin = false;
+      const email = ChatClient.userEmail;
+      if (email) {
+        const key = await AccountService.getStorageKey(email, "app_lock_pin");
+        const storedPin = await getKeyFromSecureStorage(key);
+        if (storedPin) {
+          hasPin = true;
+        }
+      }
+
+      if (hasPin) {
+        setIsLocked(true);
+      } else {
+        setIsLocked(false);
+        setShowSettings(false);
+        setShowProfileSetup(true);
+      }
     } finally {
       setIsCreatingAccount(false);
     }
@@ -709,6 +725,15 @@ const Home = () => {
           onSettings={onOpenSettings}
           onOpenVault={onOpenVault}
           onGlobalSummary={generateGlobalSummary}
+          onLogout={async () => {
+            if (state.userEmail || ChatClient.userEmail) {
+              await ChatClient.logout();
+              setShowSettings(false);
+              setIsLocked(true);
+            } else {
+              handleGoogleSignIn();
+            }
+          }}
         />
 
         <MainContent>

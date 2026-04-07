@@ -13,7 +13,8 @@ import {
   GreetingTitle,
   WelcomeMessage,
   ActionButtons,
-  WelcomeActionButton,
+  AddFriendButton,
+  SecondaryActionButton,
   HighlightsSection,
   HighlightsHeader,
   HighlightsEyebrow,
@@ -130,20 +131,20 @@ export const WelcomeView = ({
           </StatsGrid>
 
           <ActionButtons>
-            <WelcomeActionButton variant="primary" onClick={onAddFriend}>
-              <UserPlus size={18} />
+            <AddFriendButton onClick={onAddFriend}>
+              <UserPlus size={20} />
               <span>Add Friend</span>
-            </WelcomeActionButton>
+            </AddFriendButton>
 
-            <WelcomeActionButton variant="secondary" onClick={onOpenVault}>
+            <SecondaryActionButton onClick={onOpenVault}>
               <Lock size={18} />
               <span>Open Vault</span>
-            </WelcomeActionButton>
+            </SecondaryActionButton>
 
-            <WelcomeActionButton variant="secondary" onClick={onOpenSettings}>
+            <SecondaryActionButton onClick={onOpenSettings}>
               <Settings size={18} />
               <span>Settings</span>
-            </WelcomeActionButton>
+            </SecondaryActionButton>
           </ActionButtons>
         </WelcomeHero>
 

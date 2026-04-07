@@ -61,15 +61,15 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   }, [userEmail, accounts, mode]);
 
   const handleKeyPress = async (val: string) => {
-    const newPin = pin + val;
-    if (newPin.length <= 6) {
-      setPin(newPin);
-      setError("");
-    }
+    setPin(prev => {
+      const newPin = prev + val;
+      return newPin.length <= 6 ? newPin : prev;
+    });
+    setError("");
   };
 
   const handleBackspace = () => {
-    setPin(pin.slice(0, -1));
+    setPin(prev => prev.slice(0, -1));
     setError("");
   };
 
@@ -112,6 +112,22 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
       handleSubmit();
     }
   }, [pin]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (mode === "lock_screen" && !selectedAccount) return;
+
+      const key = e.key;
+      if (/^[0-9]$/.test(key)) {
+        handleKeyPress(key);
+      } else if (key === "Backspace" || key === "Delete") {
+        handleBackspace();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mode, selectedAccount]);
 
   const resolvedTitle =
     title ||
@@ -156,36 +172,36 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   }
 
   const panelContent = (
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          padding: useFullscreenCenteredStack
-            ? isMinimalFullscreenLock
-              ? "clamp(88px, 12vh, 124px) 24px 48px"
-              : "0 24px 48px"
-            : fullscreen
-              ? "40px"
-              : "30px",
-          color: colors.text.primary,
-          display: useFullscreenCenteredStack ? "flex" : "block",
-          flexDirection: useFullscreenCenteredStack ? "column" : undefined,
-          alignItems: useFullscreenCenteredStack ? "center" : undefined,
-          justifyContent: isFullscreenInput ? "center" : "flex-start",
-          minHeight: useFullscreenCenteredStack
-            ? "min(calc(100vh - 48px), 840px)"
-            : undefined,
-        }}
-      >
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        padding: useFullscreenCenteredStack
+          ? isMinimalFullscreenLock
+            ? "clamp(88px, 12vh, 124px) 24px 48px"
+            : "0 24px 48px"
+          : fullscreen
+            ? "40px"
+            : "30px",
+        color: colors.text.primary,
+        display: useFullscreenCenteredStack ? "flex" : "block",
+        flexDirection: useFullscreenCenteredStack ? "column" : undefined,
+        alignItems: useFullscreenCenteredStack ? "center" : undefined,
+        justifyContent: isFullscreenInput ? "center" : "flex-start",
+        minHeight: useFullscreenCenteredStack
+          ? "min(calc(100vh - 48px), 840px)"
+          : undefined,
+      }}
+    >
       {(onCancel || (mode === "lock_screen" && selectedAccount)) && (
         <button
           onClick={
             mode === "lock_screen" && selectedAccount
               ? () => {
-                  setSelectedAccount(null);
-                  setPin("");
-                  setError("");
-                }
+                setSelectedAccount(null);
+                setPin("");
+                setError("");
+              }
               : onCancel
           }
           style={{
@@ -340,9 +356,8 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
               borderRadius: "50%",
               backgroundColor:
                 i < pin.length ? colors.primary.main : colors.background.tertiary,
-              border: `2px solid ${
-                i < pin.length ? colors.primary.main : colors.border.subtle
-              }`,
+              border: `2px solid ${i < pin.length ? colors.primary.main : colors.border.subtle
+                }`,
               transition: "all 0.16s ease",
             }}
           />
