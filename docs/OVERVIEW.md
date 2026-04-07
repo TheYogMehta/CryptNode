@@ -32,22 +32,25 @@ The Secure Chat Application is an **end-to-end encrypted, privacy-first messagin
 
 - **End-to-end encrypted** text messages using AES-GCM-256
 - **Offline message queue**: Unsent messages are stored locally and sent when peer comes online
-- **Message status tracking**: Pending, Delivered, Read indicators
+- **Message status tracking**: Pending, Delivered indicators
 - **Reply threading**: Quote and respond to specific messages in conversations
 
 ### 2. Encrypted File Sharing
 
-- **Chunked file transfer**: Large files split into 64KB encrypted chunks for efficient transfer
+- **Chunked file transfer**: Large files split into 250KB encrypted chunks for efficient transfer
 - **Progress tracking**: Real-time upload/download progress indicators
 - **Media preview**: Thumbnail generation for images and videos
 - **Automatic encryption**: All files encrypted before transmission using session keys
 
-### 3. Voice Calls
+### 3. Voice & Video Calls
 
-- **End-to-end encrypted audio**: Custom implementation using MediaRecorder + WebSocket relay
-- **No WebRTC dependencies**: Simplified architecture without STUN/TURN servers
+- **End-to-end encrypted**: WebRTC with DTLS-SRTP for media streams
+- **Encrypted signaling**: SDP + ICE candidates encrypted with session AES-GCM key before relay
+- **TURN support**: Ephemeral TURN credentials for NAT traversal
+- **Audio & Video modes**: Toggle between audio-only and video calls
 - **Call status tracking**: Incoming, Outgoing, Connected, Busy states
 - **Call duration logging**: Track call history with timestamps
+- **Multi-device awareness**: Accepting/ending a call on one device notifies own linked devices
 
 ### 4. Secure Vault
 
@@ -58,11 +61,10 @@ The Secure Chat Application is an **end-to-end encrypted, privacy-first messagin
 
 ### 5. Multi-Account Support
 
-(Client)
-
 - **Multiple identities**: Switch between different accounts seamlessly
-- **Isolated databases**: Each account has a separate encrypted database
-- **Account lock screen**: PIN protection for account switching
+- **Isolated databases**: Each account has a separate encrypted SQLite database
+- **Session Lock**: Lock the app and return to the account selector without losing your session token
+- **Two-phase switch**: UI unlocks immediately from local DB; server authentication runs in background
 - **Profile management**: Custom display names and avatars per account
 
 ### 6. Cross-Platform Deployment
@@ -93,7 +95,7 @@ The Secure Chat Application is an **end-to-end encrypted, privacy-first messagin
 ### Cryptography
 
 - **Web Crypto API**: Browser-native cryptographic primitives
-- **ECDH P-256**: Elliptic curve key exchange
+- *z**: Elliptic curve key exchange
 - **AES-GCM-256**: Symmetric encryption for messages and files
 - **HMAC-SHA256**: Server session token validation
 
@@ -208,7 +210,8 @@ This design ensures:
 
 **Key Limitations**:
 
-- **Limited Forward Secrecy**: Device-bound identity keys (stored in native keystore/keychain) provide strong security against server breaches and network eavesdropping. However, if a device is physically compromised and the identity key is extracted (extremely difficult), past messages stored on that device could theoretically be decrypted. This is acceptable for most threat models where device security is maintained. For nation-state level threats requiring perfect forward secrecy (PFS), a Double Ratchet implementation (like Signal Protocol) would be needed.
-- **No Cross-Device Message Synchronization**: Each device maintains its own encrypted message database
-- **Single Relay Server**: No federation or distributed architecture (can be self-hosted)
+- **No Perfect Forward Secrecy**: Session keys are long-lived (device-bound identity keys). If an identity private key were ever extracted from the OS keystore (extremely difficult on modern hardware), stored messages could be decrypted. A Double Ratchet (Signal Protocol) implementation would be needed for PFS.
+- **Best-Effort Cross-Device Sync**: Messages are synchronized via the MANIFEST protocol when both devices are online simultaneously. Very long offline gaps may result in incomplete history on a new/reinstalled device — use Backup & Restore for guaranteed migration.
+- **Single Relay Server**: No federation or distributed relay architecture (can be self-hosted)
 - **Google OAuth Dependency**: No alternative authentication methods currently supported
+

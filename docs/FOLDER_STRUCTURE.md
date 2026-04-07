@@ -26,7 +26,7 @@ This document describes the complete organization of the project, explaining the
     ├── android/                   # Android platform (Capacitor)
     │   ├── app/
     │   │   ├── build.gradle       # Android build configuration
-    │   │   ├── google-services.json  # Firebase/Google services (KEEP SECRET!)
+    │   │   ├── google-services.json # Firebase/Google services
     │   │   ├── proguard-rules.pro # Code obfuscation rules
     │   │   └── src/               # Android native code
     │   ├── gradle/                # Gradle wrapper
@@ -103,30 +103,33 @@ This document describes the complete organization of the project, explaining the
     │   │   ├── AccountService.ts      # Account lifecycle (add, switch, remove)
     │   │   └── AuthService.ts         # Google OAuth token management
     │   ├── core/
-    │   │   ├── ChatClient.ts          # WebSocket client, encryption, message routing
-    │   │   ├── SocketManager.ts       # Raw WebSocket connection management
-    │   │   ├── WorkerManager.ts       # Crypto Web Worker pool
-    │   │   ├── interfaces.ts          # Core TypeScript interfaces
+    │   │   ├── ChatClient.ts          # Singleton orchestrator: WS, encryption, event dispatch
+    │   │   ├── LoggerService.ts       # Structured logging service
+    │   │   ├── SocketManager.ts       # Raw WebSocket connection & auto-reconnect
+    │   │   ├── WorkerManager.ts       # Crypto Web Worker pool with priority queue
+    │   │   ├── interfaces.ts          # Core TypeScript interfaces (IChatClient)
     │   │   └── protocolLimits.ts      # Frame size / rate-limit constants
     │   ├── media/
     │   │   ├── CallService.ts         # WebRTC voice & video call management
     │   │   ├── CompressionService.ts  # Image/file compression before upload
     │   │   ├── FileTransferService.ts # Chunked encrypted file send/receive
-    │   │   └── audioWorkletProcessor.js  # Audio processing worklet
+    │   │   └── VideoTranscoder.ts     # Video transcoding helper for Android
     │   ├── messaging/
-    │   │   ├── MessageService.ts      # Message send, receive, deletion, reactions, sync
-    │   │   └── SessionService.ts      # Session creation, listing, reattachment
+    │   │   ├── MessageService.ts      # Message send/receive, edit, delete, reactions, MANIFEST sync
+    │   │   └── SessionService.ts      # Session lifecycle, key derivation, presence, friend requests
     │   ├── mfa/
     │   │   ├── mfa.service.ts              # TOTP generation & verification
     │   │   ├── platform-launch.service.ts  # Platform-specific deep link launcher
     │   │   ├── qr.service.ts               # QR code generation for MFA setup
     │   │   └── secure-storage.adapter.ts   # MFA secret storage adapter
     │   └── storage/
+    │       ├── AvatarCacheService.ts  # In-memory LRU cache for peer avatar data URIs
     │       ├── BackupService.ts       # Encrypted ZIP backup & restore
     │       ├── PlatformStorage.ts     # Platform-aware storage abstraction
     │       ├── SafeStorage.ts         # Secure key storage (Keychain/Keystore)
-    │       ├── StorageService.ts      # General app settings & preferences
+    │       ├── StorageService.ts      # File storage (vault media, avatars, profile images)
     │       ├── StorageUtils.ts        # Storage path/key constants
+    │       ├── VaultCrypto.ts         # Vault-specific AES-GCM encryption helpers
     │       └── sqliteService.ts       # SQLite database wrapper & schema
     ├── theme/                     # CSS design tokens
     │   └── variables.css          # Color schemes, spacing, typography
@@ -139,22 +142,20 @@ This document describes the complete organization of the project, explaining the
     │   └── trustedDomains.ts      # Allowlist for link previews
     └── workers/                   # Web Workers (off-main-thread processing)
         ├── crypto.worker.ts       # Parallel encryption/decryption worker
-        └── qwen.worker.ts         # Qwen WASM inference worker
     ```
 
 ## Server Directory (`/Server`)
 
     ```
     Server/
-    ├── main.go              # Entry point – bootstraps server and DB
+    ├── main.go              # Entry point – bootstraps server, DB, and HTTP server
     ├── server.go            # WebSocket upgrade, connection registry, hub
     ├── handlers.go          # Frame handler dispatch for all message types
-    ├── auth.go              # Session token validation & Google OAuth verify
+    ├── auth.go              # Session token generation/validation & Google OAuth verify
     ├── db.go                # SQLite schema init & query helpers
-    ├── types.go             # Shared Go structs (Frame, Client, etc.)
-    ├── utils.go             # Utility helpers (ID generation, etc.)
-    ├── bench_test.go        # Benchmark tests
-    ├── relay_check_test.go  # Integration tests for relay correctness
+    ├── fcm.go               # Firebase Cloud Messaging (push notifications)
+    ├── types.go             # Shared Go structs (Frame, Client, Session, etc.)
+    ├── utils.go             # Utility helpers (ID generation, hashing, etc.)
     ├── go.mod               # Go module definition
     ├── go.sum               # Go dependency checksums
     ├── .env                 # Server environment variables (KEEP SECRET!)
@@ -211,15 +212,15 @@ This document describes the complete organization of the project, explaining the
 
 Services are organized into domain-specific subdirectories. All services exist outside the React component tree and communicate via events or direct calls.
 
-| Subdirectory   | Responsibility                                                  |
-| -------------- | --------------------------------------------------------------- |
-| `ai/`          | On-device LLM inference (Qwen via WASM or native Llama)        |
-| `auth/`        | Google OAuth, account lifecycle, token management               |
-| `core/`        | WebSocket hub, encryption routing, worker pool                  |
-| `media/`       | WebRTC calls, file transfer, image compression                  |
-| `messaging/`   | Message sending/receiving, sessions, sync, reactions            |
-| `mfa/`         | TOTP generation/verification, QR codes, secure secret storage   |
-| `storage/`     | SQLite, secure key storage, backup/restore, app preferences     |
+| Subdirectory   | Responsibility                                                         |
+| -------------- | ---------------------------------------------------------------------- |
+| `ai/`          | On-device LLM inference (Qwen via WASM or native Llama capacitor plugin) |
+| `auth/`        | Google OAuth, account lifecycle, two-phase account switching, token management |
+| `core/`        | WebSocket hub, event orchestration, encryption worker pool             |
+| `media/`       | WebRTC calls, chunked file transfer, image/video compression           |
+| `messaging/`   | Message send/receive/edit/delete, session key derivation, MANIFEST sync, reactions |
+| `mfa/`         | TOTP generation/verification, QR codes, secure secret storage          |
+| `storage/`     | SQLite, secure key storage, file system, backup/restore, avatar cache  |
 
 **Design Pattern**: Services are singletons, communicate via custom event emitters.
 
@@ -238,7 +239,7 @@ React components organized by functionality:
 Web Workers offload heavy CPU-bound operations from the main thread:
 
 - **`crypto.worker.ts`**: Parallel encryption/decryption for message payloads
-- **`qwen.worker.ts`**: Qwen 3.5 0.8B WASM inference for Web/Desktop platforms
+- **`qwen.worker.ts`**: Legacy worker stub — inference is handled natively via `window.llama` in the Electron main process
 
 ### Hook Layer (`/Client/src/hooks` and page-level `hooks/`)
 

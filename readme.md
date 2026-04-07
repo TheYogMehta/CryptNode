@@ -137,7 +137,8 @@ See the [LICENSE](LICENSE) file for details.
 
 ## 🐛 Known Limitations
 
-- No perfect forward secrecy (static session keys)
+- No perfect forward secrecy (long-lived device-bound session keys)
+- Cross-device sync is best-effort MANIFEST-based (use backup for guaranteed migration)
 - Single relay server (no federation)
 - Google OAuth dependency (no alternative auth methods)
 

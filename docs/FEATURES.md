@@ -31,7 +31,7 @@ Enable users to send and receive end-to-end encrypted text messages in real-time
 2. User types message in input field
 3. User presses Send or Enter
 4. Message appears immediately in chat (optimistic UI)
-5. Status changes from "sending" → "delivered" → "read"
+5. Status changes from "sending" → "delivered"
 
 ### Text Messaging Backend Flow
 
@@ -83,7 +83,7 @@ interface ChatMessage {
   sender: "me" | "other";
   text: string;
   timestamp: number;
-  status: 1 | 2 | 3; // Pending | Delivered | Read
+  status: 1 | 2; // Pending | Delivered
 }
 ```
 
@@ -212,24 +212,27 @@ VALUES ('vault_abc123', 'vacation.jpg', 2048576, 'image/jpeg', 'uuid-5678', 'pen
 
 ## 3. Voice Calls
 
-### Voice Calls Purpose
+### Voice & Video Calls Purpose
 
 Enable real-time, end-to-end encrypted voice and video communication between peers using WebRTC.
 
 ### Voice Calls User Flow
 
-1. User clicks phone icon in chat
-2. Peer receives incoming call notification
-3. Peer accepts call
-4. Both users connected (bidirectional audio)
-5. Either user hangs up
-6. Call duration logged
+1. User clicks phone/video icon in chat header
+2. App requests TURN credentials from server
+3. Peer receives incoming call notification overlay
+4. Peer accepts call → both establish WebRTC RTCPeerConnection
+5. SDP offer/answer + ICE candidates exchanged (encrypted via session AES key)
+6. WebRTC connection established via TURN relay; media streams through TURN server
+7. Either user hangs up → call duration logged
+8. Own linked devices notified of call end via SYNC_CALL_END
 
 ### Voice & Video Calls Backend Flow
 
-1. **Signaling**: Peers exchange SDP offers/answers and ICE candidates via the WebSocket server (encrypted).
-2. **P2P Connection**: Browsers establish a direct P2P connection (or relay via TURN if NAT traversal fails).
-3. **Media Stream**: Audio and Video flow directly between peers (DTLS-SRTP encrypted).
+1. **TURN Credentials**: Client sends `GET_TURN_CREDS` to server; receives ephemeral HMAC-signed credentials
+2. **Signaling (E2E encrypted)**: All SDP offers/answers and ICE candidates are encrypted with the session's AES-GCM key before being sent as `RTC_OFFER`, `RTC_ANSWER`, `RTC_ICE` frames. The relay server cannot read signaling data.
+3. **Media via TURN**: Media streams are relayed through the TURN server (no direct P2P connection)
+4. **Media Encryption**: Audio/video streams use mandatory DTLS-SRTP (WebRTC standard)
 
 ### Voice & Video Calls API Interactions
 
@@ -437,17 +440,19 @@ Manage active peer connections, online/offline status, and reconnection.
 
 **Session Creation**:
 
-- Triggered by `CONNECT_REQ` + `JOIN_ACCEPT`
-- Session ID generated: `timestamp_random`
-- ECDH key exchange completes
-- Session row inserted into SQLite
+- Triggered by `FRIEND_REQUEST` + `FRIEND_ACCEPT` handshake
+- Session ID = `SHA-256(sortedEmail1 + ":" + sortedEmail2)` — deterministic, same on both devices
+- ECDH key exchange completes; per-device AES-GCM keys derived and stored in SQLite
+- Session row inserted into `sessions` table
+- Emit `session_created` → triggers MANIFEST broadcast to own devices
 
-**Reconnection**:
+**Reconnection (on app restart or network recovery)**:
 
-- On app restart, load all sessions from DB
-- Send `REATTACH` frame for each session
-- Server associates client with sessions
-- Receive `PEER_ONLINE` if peer is connected
+- On `WS_CONNECTED`, load all sessions from SQLite
+- Send `AUTH { token, publicKey }` to server
+- Server responds with `SESSION_LIST` showing which sessions have online peers
+- `SessionService.handleSessionList()` updates presence and re-derives keys if peers rotated their keys (e.g., after reinstall)
+- `coordinateSync(sid)` pushes missed messages via MANIFEST to any online peers
 
 ### Session Management Data Models
 
@@ -474,23 +479,13 @@ Allow users to sign in with multiple Google accounts and switch between them.
 ### Multi-Account Backend Flow
 
 ```typescript
-async function switchAccount(email: string) {
-  // 1. Close current WebSocket
-  await ChatClient.disconnect();
+// Phase 1: Unlock local DB immediately (no network)
+const { pubKey, token } = await ChatClient.switchAccountLocal(email);
+// → UI is interactive immediately
 
-  // 2. Switch database
-  const dbName = await getDbName(email);
-  await switchDatabase(dbName);
-
-  // 3. Load account credentials
-  const token = await getKeyFromSecureStorage(`${email}_auth_token`);
-
-  // 4. Reconnect WebSocket
-  await ChatClient.login(token);
-
-  // 5. Reload UI
-  emit("account_switched");
-}
+// Phase 2: Connect WebSocket in background
+ChatClient.switchAccountConnect(email, pubKey, token).catch(() => {});
+// → Server authenticates silently; SESSION_LIST + PENDING_REQUESTS arrive
 ```
 
 ### Multi-Account Data Models
@@ -528,10 +523,9 @@ Provide privacy-preserving, on-device AI capabilities using the **Qwen3.5 0.8B**
 2. **Quick Replies**: Generates contextually relevant short replies (Positive, Negative, Interrogative) based on recent chat history.
 3. **Summarize**: Provides concise, bulleted summaries of a chat conversation.
 
-### Local AI Execution Environments
+### Local AI Execution Environment
 
-- **Web/Desktop**: Uses WebAssembly (WASM) via Web Workers (`qwen.worker.ts`) for non-blocking inference.
-- **Native (Android/iOS)**: Uses `@cantoo/capacitor-llama` to map to native C++ implementations, offering significantly better performance and lower memory usage on mobile devices.
+- **Electron (Windows/Linux) only**: The service requires `window.llama` — a llama.cpp backend exposed via Electron's preload script. Inference will throw if run outside Electron. Capacitor `Filesystem` APIs are used for model file download and storage.
 
 ### Local AI Error Handling
 
@@ -598,7 +592,7 @@ Enable users to access their account securely across multiple authenticated devi
 
 ### Chat Sync Purpose
 
-Seamlessly synchronize app state — messages, block list, contact aliases, pending requests, and profile — across a user's own linked devices using a single encrypted **MANIFEST** frame. The `SYNC_STATE_BROADCAST` / `SYNC_INFO_REQ` / `SYNC_REQ` / `SYNC_ACK` protocol and the `SyncManager` class have been replaced by this simpler, more comprehensive approach.
+Seamlessly synchronize app state — messages, block list, contact aliases, pending requests, and profile — across a user's own linked devices using a single encrypted **MANIFEST** frame. When a peer contact comes online, both sides also push any missed messages to each other via the same MANIFEST mechanism.
 
 ### Two MANIFEST Sync Paths
 

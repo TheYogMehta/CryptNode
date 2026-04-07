@@ -1,492 +1,533 @@
 # Application Flow Specifications
 
-This document describes the complete user journeys through the Secure Chat Application, from first-time installation to advanced features.
+This document describes the complete user journeys through the Secure Chat Application (CryptNode), from first-time installation to advanced features.
 
-## 1. Onboarding Flow
+## Table of Contents
 
-### Onboarding Flow Diagram
+1. [Onboarding & First Login](#1-onboarding--first-login)
+2. [App Lock & Session Lock](#2-app-lock--session-lock)
+3. [Account Switching (Multi-Account)](#3-account-switching-multi-account)
+4. [Peer Session Establishment (Friend Request Flow)](#4-peer-session-establishment-friend-request-flow)
+5. [Encrypted Message Transmission](#5-encrypted-message-transmission)
+6. [Message Editing & Deletion](#6-message-editing--deletion)
+7. [Encrypted File Transfer](#7-encrypted-file-transfer)
+8. [Encrypted Voice & Video Calls (WebRTC)](#8-encrypted-voice--video-calls-webrtc)
+9. [Cross-Device Sync (MANIFEST Protocol)](#9-cross-device-sync-manifest-protocol)
+10. [Fault Handling & Recovery](#10-fault-handling--recovery)
+11. [Block & Unfriend Flows](#11-block--unfriend-flows)
+
+---
+
+## 1. Onboarding & First Login
+
+### Flow Diagram
 
 ```mermaid
 flowchart TD
-    START([User Opens App]) --> CHECK{Has Account?}
-    CHECK -->|No| GOOGLE[Click Google Sign-In]
-    CHECK -->|Yes| LOCK[App Lock Screen]
+    START([User Opens App]) --> CHECK{Has stored accounts?}
+    CHECK -->|No| GOOGLE[Google Sign-In Button]
+    CHECK -->|Yes| ACCOUNTS[Account Selector Screen]
 
     GOOGLE --> OAUTH[Google OAuth Consent]
-    OAUTH --> TOKEN[Receive ID Token]
-    TOKEN --> SERVER[Send AUTH to Server]
-    SERVER --> VERIFY[Server Verifies with Google]
+    OAUTH --> TOKEN[Receive id_token]
+    TOKEN --> SETUP[AuthService.login - Setup Device Keys]
+    SETUP --> DBINIT["Open/Create Encrypted SQLite DB\n(keyed by BIP39 mnemonic)"]
+    DBINIT --> WSCONN[Connect WebSocket]
+    WSCONN --> AUTH["Send AUTH {token, publicKey}"]
+    AUTH --> VERIFY[Server Validates Token]
     VERIFY --> SUCCESS{Valid?}
 
-    SUCCESS -->|Yes| SAVE[Save Session Token]
+    SUCCESS -->|Yes| AUTHSUCCESS["AUTH_SUCCESS {email, sessionToken}"]
     SUCCESS -->|No| ERROR[Show Error]
     ERROR --> GOOGLE
 
-    SAVE --> DBINIT[Initialize SQLite DB]
-    DBINIT --> GENKEYS[Generate ECDH Identity Keys]
-    GENKEYS --> PROFILE[Profile Setup Screen]
-   PROFILE --> WELCOME[Welcome Screen]
+    AUTHSUCCESS --> SAVETOKEN[Save session token to SafeStorage]
+    SAVETOKEN --> SESSLIST[Receive SESSION_LIST]
+    SESSLIST --> PENDINGREQ[Receive PENDING_REQUESTS]
+    PENDINGREQ --> HOME([Home Screen])
 
-    LOCK --> UNLOCK{Biometric/PIN}
-    UNLOCK -->|Success| LOADDB[Load User's DB]
-    UNLOCK -->|Fail| LOCK
-    LOADDB --> WELCOME
+    ACCOUNTS --> LOCK[App Lock PIN Screen]
+    LOCK -->|Correct PIN| PHASE1["switchAccountLocal - Unlock DB"]
+    PHASE1 --> HOME2([Home Screen - Immediately Visible])
+    HOME2 --> BGCONN["switchAccountConnect - Connect WS in background"]
 
-    WELCOME --> END([Home Screen])
-
-    style START fill:#4CAF50
-    style END fill:#4CAF50
-    style ERROR fill:#f44336
+    style START fill:#4CAF50,color:#fff
+    style HOME fill:#4CAF50,color:#fff
+    style HOME2 fill:#4CAF50,color:#fff
+    style ERROR fill:#f44336,color:#fff
 ```
 
-### Execution Sequence (Onboarding)
+### Execution Sequence (First-Time Login)
 
-1. **App Launch**: User opens the app for the first time
-2. **Authentication Check**: App checks `SafeStorage` for existing accounts
-3. **Google Sign-In**: User clicks "Sign in with Google"
-4. **OAuth Flow**: Google OAuth consent screen appears
-5. **Token Exchange**: App receives `id_token` from Google
-6. **Server Authentication**: App sends `AUTH` frame to relay server
-7. **Token Validation**: Server validates token with Google's API
-8. **Session Token**: Server issues HMAC-signed session token
-9. **Local Setup**:
-   - Create encrypted SQLite database
-   - Generate ECDH identity key pair
-   - Store keys in secure storage
-10. **Profile Setup**: User sets display name and avatar
-11. **Welcome Screen**: User sees the main interface
+1. App checks `SafeStorage` for existing accounts
+2. User taps "Sign in with Google" → Google OAuth consent screen
+3. App receives `id_token` from Google
+4. `AuthService.login(id_token)`:
+   - Generates a new ECDH P-256 identity key pair (or loads existing)
+   - Generates a 12-word BIP39 mnemonic as SQLite encryption key
+   - Opens the user's encrypted SQLite database
+   - Connects WebSocket to relay server
+5. On `WS_CONNECTED`: loads sessions from SQLite, sends `AUTH { token, publicKey }`
+6. Server validates token, issues HMAC-signed session token
+7. Client receives `AUTH_SUCCESS`, saves new session token
+8. Server pushes `SESSION_LIST` (ongoing sessions) and `PENDING_REQUESTS` (stored friend requests)
+9. Home screen renders with session list
 
-## 2. Peer Session Establishment
+### Returning User (Account Selector)
 
-### Peer Session Establishment Flow
+1. User opens app → Account Selector shows all saved accounts
+2. User taps an account → App Lock PIN screen appears
+3. User enters PIN → `switchAccountLocal(email)` (Phase 1):
+   - Validates session token from `SafeStorage`
+   - Loads identity keys
+   - Opens SQLite database
+   - UI becomes interactive **immediately**
+4. `switchAccountConnect(email, ...)` runs in background (Phase 2):
+   - Connects WebSocket
+   - Authenticates with server
+   - Loads sessions and pending requests
 
-```mermaid
-sequenceDiagram
-    participant U1 as User A
-    participant UI as App UI
-    participant CL as ChatClient
-    participant S as Server
-    participant U2 as User B
+---
 
-    U1->>UI: Click "Add Peer"
-    UI->>UI: Show connection form
-    U1->>UI: Enter peer email
-    UI->>CL: connectToPeer(email)
-    CL->>CL: Export public key
-    CL->>S: CONNECT_REQ{target, pubKeyA}
-    S->>S: Lookup target client
-    S->>U2: JOIN_REQUEST{from, pubKeyA}
+## 2. App Lock & Session Lock
 
-    U2->>U2: Show incoming request
-    U2->>UI: Click "Accept"
-    UI->>CL: acceptFriend(sid, pubKeyA)
-    CL->>CL: Generate ECDH key pair
-    CL->>CL: Derive shared secret
-    CL->>S: JOIN_ACCEPT{pubKeyB}
-    S->>U1: JOIN_ACCEPT{pubKeyB}
+### App Lock vs. Logout Distinction
 
-    U1->>CL: Receive JOIN_ACCEPT
-    CL->>CL: Derive shared secret
-    CL->>CL: Save session to SQLite
-    CL->>UI: Emit 'joined_success'
-    UI->>U1: Show "Connected" + open chat
-```
+| Action | Clears Session Token | Disconnects WS | Returns to Login |
+|--------|---------------------|----------------|-----------------|
+| **Lock Session** | ❌ No | ✅ Yes | ✅ Yes (Account Selector) |
+| **Logout** | ✅ Yes | ✅ Yes | ✅ Yes (Login Screen) |
+| **Delete Account** | ✅ Yes | ✅ Yes | ✅ Yes (Login Screen) |
 
-### Handshake Execution Sequence
-
-1. **Initiate Connection**:
-   - User A clicks "Add Peer" button
-   - Connection setup form appears
-   - User A enters User B's email address
-
-2. **Request Transmission**:
-   - App requests User B's public keys from server (`GET_PUBLIC_KEY`)
-   - Retrieves array of public keys (one for each of User B's linked devices)
-   - Generates a `FRIEND_REQUEST` containing a payload encrypted separately for *each* of User B's public keys.
-   - Sends `FRIEND_REQUEST` frame to server
-
-3. **Server Routing & Storage**:
-   - Server identifies all active WebSocket connections for User B.
-   - Forwards the correct encrypted payload variant to each online device.
-   - Saves payloads in SQLite `requests` table (indexed by `target_public_key`) for offline devices to retrieve on next login (`AUTH_SUCCESS`).
-
-4. **Peer Notification**:
-   - User B's device(s) receive `FRIEND_REQUEST` or `PENDING_REQUESTS` frames.
-   - Client iterates through payloads, finds the one matching its own public key, and decrypts it.
-   - Caches request locally in `pending_requests` SQLite table.
-   - Modal appears showing incoming request: "<user-a@gmail.com> wants to connect"
-
-5. **Accept/Deny Decision**:
-   - User B clicks "Accept" or "Deny"
-   - If denied, server sends `FRIEND_DENY` to User A (and syncs to User B's other devices).
-
-6. **Key Exchange (on Accept)**:
-   - User B's acting device generates `FRIEND_ACCEPT` frame containing its public key.
-   - Encrypts accept payload for User A's devices.
-   - Derives shared secret using User A's public key(s).
-   - Sends `FRIEND_ACCEPT` to server.
-
-7. **Session Establishment**:
-   - Both users receive peer's public keys and derive identical AES-GCM session keys for every device pair.
-
-8. **Local Storage**:
-   - Keys are stored in SQLite `sessions` table (with `peer_pub_keys` array).
-   - Session marked as `online: true`
-   - Chat window opens automatically
-
-## 3. Encrypted Message Transmission
-
-### Message Transmission Flow
+### Session Lock Flow
 
 ```mermaid
 flowchart TD
-    START([User Types Message]) --> INPUT[Message inInput Field]
-    INPUT --> PRESS[Press Send Button]
-    PRESS --> CHECK{Has Session Key?}
+    USER[User Clicks Lock] --> LOCK["ChatClient.lockSession()"]
+    LOCK --> CLEAR["Clear: authToken, userEmail,\nidentityKeyPair in memory"]
+    CLEAR --> DISC[Disconnect WebSocket]
+    DISC --> EMIT["emit('auth_error', {isManualLogout: true})"]
+    EMIT --> SELECTOR[Account Selector / Login Screen]
+    SELECTOR --> RESUME[User selects account]
+    RESUME --> PHASE1["switchAccountLocal - Instant DB unlock"]
+    PHASE1 --> HOME[Home Screen visible]
+    HOME --> PHASE2["switchAccountConnect - Background WS auth"]
 
-    CHECK -->|No| ERROR[Show Error]
-    CHECK -->|Yes| MSGID[Generate Message ID]
-
-    MSGID --> ENCRYPT[Encrypt with AES-GCM]
-    ENCRYPT --> SAVE[Save to Local SQLite]
-    SAVE --> SEND[Send MSG Frame]
-
-    SEND --> SRVRELAY{Server Relays}
-    SRVRELAY -->|Peer Online| DELIVER[Deliver to Peer]
-    SRVRELAY -->|Peer Offline| QUEUE[Queue Locally]
-
-    DELIVER --> PEER[Peer Receives]
-    PEER --> DECRYPT[Peer Decrypts]
-    DECRYPT --> PEERSAVE[Peer Saves to SQLite]
-    PEERSAVE --> ACK[Peer Sends DELIVERED]
-
-    ACK --> UPDATE[Update Status to Delivered]
-    UPDATE --> END([Message Shown])
-
-    QUEUE --> WAIT[Wait for PEER_ONLINE]
-    WAIT --> RESEND[Auto-Resend]
-    RESEND --> DELIVER
-
-    style START fill:#4CAF50
-    style END fill:#4CAF50
+    style USER fill:#2196F3,color:#fff
+    style HOME fill:#4CAF50,color:#fff
 ```
 
-### Message Delivery Execution Sequence
+**Key behavior**: `lockSession()` does **not** wipe the stored session token. The user can unlock instantly with their PIN without re-authenticating with Google.
 
-1. **Message Composition**:
-   - User types text in input field
-   - App shows typing indicator (local only)
+### App Lock PIN Screen
 
-2. **Send Trigger**:
-   - User presses Enter or clicks Send button
-   - UI calls `ChatClient.sendMessage(sid, text)`
+The App Lock screen is shown when:
+- The user manually clicks "Lock" from the sidebar
+- The user selects a different account from the account selector
+- The app detects it was backgrounded (optional, platform-dependent)
 
-3. **Message Preparation**:
-   - Generate UUID for message ID
-   - Get current timestamp
-   - Create message object: `{t: "MSG", data: {text, id, timestamp}}`
+The PIN is verified locally (no network call). On success, Phase 1 local unlock runs immediately.
 
-4. **Encryption**:
-   - Retrieve session key from memory
-   - Generate random 12-byte IV
-   - Encrypt message with AES-GCM
-   - Prepend IV to ciphertext
-   - Base64 encode result
+---
 
-5. **Local Storage**:
-   - Insert into SQLite `messages` table
-   - Set status = 1 (pending)
-   - Set sender = 'me'
+## 3. Account Switching (Multi-Account)
 
-6. **Transmission**:
-   - Send `MSG` frame to server
-   - Frame structure: `{t: "MSG", sid, data: {payload}}`
+### Flow
 
-7. **Server Relay**:
-   - Server identifies all clients in session
-   - Forwards encrypted payload to peer(s)
-   - Server cannot decrypt content
+```mermaid
+flowchart TD
+    SIDEBAR[User opens sidebar] --> SWITCH[Clicks 'Switch Account']
+    SWITCH --> SELECTOR[Account List Overlay]
+    SELECTOR --> SELECT[Select target account]
+    SELECT --> LOCK[App Lock PIN Screen for target account]
+    LOCK -->|PIN Correct| PHASE1["switchAccountLocal(email)\nClose WS, open new DB, load keys"]
+    PHASE1 --> UI[UI refreshes with new account's data]
+    UI --> PHASE2["switchAccountConnect() in background\nNew WS connection + AUTH"]
+    PHASE2 --> SYNC[Receive SESSION_LIST + PENDING_REQUESTS]
+```
 
-8. **Peer Reception**:
-   - Peer receives `MSG` frame
-   - Retrieves session key from local storage
-   - Decrypts payload
-   - Parses JSON
+**Key Design**: The two-phase switch pattern (`switchAccountLocal` then `switchAccountConnect`) ensures the user sees their data instantly without waiting for network authentication.
 
-9. **Peer Storage**:
-   - Inserts into local SQLite
-   - Set sender = 'other'
-   - Set status = 2 (delivered)
+---
 
-10. **Delivery Confirmation**:
-    - Peer sends `DELIVERED` frame back
-    - Sender updates message status in SQLite
-    - UI shows checkmark indicator
+## 4. Peer Session Establishment (Friend Request Flow)
 
-## 4. Encrypted File Transfer
+### Handshake Sequence
+
+```mermaid
+sequenceDiagram
+    participant UA as User A (Initiator)
+    participant S as Relay Server
+    participant UB as User B (Target)
+
+    UA->>S: GET_PUBLIC_KEY {targetEmail}
+    S-->>UA: PUBLIC_KEY {publicKeys: [pubB64A, pubB64B, ...], targetEmail}
+
+    note over UA: For each of User B's device keys,<br/>encrypt profile using derived ECDH shared key
+
+    UA->>S: FRIEND_REQUEST {targetEmail, payloads: [{publicKey, encryptedPacket}, ...]}
+    S->>S: Store in pending_requests table
+    S-->>UA: REQUEST_SENT
+    S-->>UB: FRIEND_REQUEST (forwarded if online)
+
+    note over UB: Iterate payloads, find the one<br/>matching own public key, decrypt
+
+    UB->>UB: Show incoming request UI
+    UB->>S: FRIEND_ACCEPT {targetEmail, payloads: [...]}
+    S->>S: Register friends record with SID
+    S-->>UB: FRIEND_ACCEPTED_ACK
+    S-->>UA: FRIEND_ACCEPTED {payloads: [...]}
+
+    note over UA,UB: Both derive AES-GCM-256 session key<br/>from ECDH shared secret.<br/>Key stored in SQLite. Session active.
+```
+
+### Detailed Handshake Steps
+
+1. **Initiate**: User A enters User B's email → `SessionService.connectToPeer(email)` → sends `GET_PUBLIC_KEY`
+2. **Key Retrieval**: Server returns all of User B's registered device public keys
+3. **Friend Request**: For each remote public key, User A:
+   - Derives a temporary AES-GCM key via ECDH
+   - Encrypts their own profile `{ email, name, avatar, nameVersion, avatarVersion, timestamp }`
+   - Packages `{ publicKey, encryptedPacket }` into a `payloads` array
+4. **Offline Delivery**: If User B is offline, the server stores the payloads in SQLite for delivery on next login
+5. **Request Receipt**: User B's device finds its payload (by matching its public key), decrypts the profile, stores in `pending_requests` table, shows modal
+6. **Accept Decision**:
+   - **Accept**: User B sends `FRIEND_ACCEPT` with their own encrypted profile payloads for each of User A's device keys
+   - **Deny**: User B sends `FRIEND_DENY`. Server queues `FRIEND_DENIED` notification for User A
+7. **Session Finalization** (`finalizeSession`):
+   - For each new public key, derive AES-GCM-256 session key from ECDH shared secret
+   - Store keys as JWK in SQLite `sessions` table
+   - Initialize `WorkerManager` with the keys
+   - Emit `session_created`
+8. **SID Derivation**: Session ID = `SHA-256(lowerEmail1 + ":" + lowerEmail2)` (sorted alphabetically), ensuring determinism across both devices
+
+### Dynamic Key Rotation
+
+If a peer reinstalls the app (changing their public key), the server sends updated keys via `SESSION_LIST`. `SessionService.handleSessionList()` detects the key change and automatically re-derives all session keys — no manual reconnection needed.
+
+---
+
+## 5. Encrypted Message Transmission
+
+### Message Flow
+
+```mermaid
+flowchart TD
+    SEND[User presses Send] --> GENID[Generate UUID message ID]
+    GENID --> SAVE["Save to SQLite (status=1 pending)"]
+    SAVE --> ENCRYPT["Encrypt for each peer device key\nAES-GCM + random 12-byte IV"]
+    ENCRYPT --> TRANSMIT["Send MSG {sid, data.payloads: {pubKey: blob}}"]
+
+    TRANSMIT --> RELAY{Server relays}
+    RELAY -->|Peer Online| DELIVER["Deliver to correct device by pubKey"]
+    RELAY -->|Peer Offline| DFAILED[DELIVERED_FAILED]
+
+    DELIVER --> PDECRYPT[Peer decrypts with local session key]
+    PDECRYPT --> PSAVE["Peer saves to SQLite (status=2 delivered)"]
+    PSAVE --> ACK["Peer sends DELIVERED back"]
+
+    ACK --> UPDATE["Update status to 2 in SQLite"]
+    UPDATE --> UI[Checkmark shown in UI]
+
+    DFAILED --> QUEUE["Message stays status=1"]
+    QUEUE --> WAIT[Wait for PEER_ONLINE event]
+    WAIT --> RETRY["syncPendingMessages() re-sends"]
+    RETRY --> DELIVER
+
+    style SEND fill:#4CAF50,color:#fff
+    style UI fill:#4CAF50,color:#fff
+```
+
+### Inner Message Payload Format
+
+The encrypted payload, when decrypted, contains an inner JSON object:
+
+```json
+{
+  "t": "MSG",
+  "data": {
+    "text": "Hello, world!",
+    "id": "uuid-1234",
+    "timestamp": 1704067200000,
+    "replyTo": { "id": "...", "text": "..." }
+  }
+}
+```
+
+The `t` field inside the decrypted payload is the **inner message type** and can be: `MSG`, `FILE_INFO`, `FILE_REQ_CHUNK`, `FILE_CHUNK`, `CALL_START`, `CALL_ACCEPT`, `CALL_END`, `CALL_BUSY`, `DELETE`, `EDIT`, `REACTION`, `MANIFEST`, `PROFILE_VERSION`, `GET_PROFILE`, `PROFILE_DATA`, `SYNC_CALL_ACCEPT`, `SYNC_CALL_END`.
+
+---
+
+## 6. Message Editing & Deletion
+
+### Edit Message Flow
+
+1. User right-clicks (desktop) or long-presses (mobile) a message they sent → taps "Edit"
+2. Input field is pre-filled with original text
+3. User modifies text and confirms
+4. `MessageService.editMessage(sid, messageId, newText)`:
+   - Updates text in local SQLite
+   - Encrypts `{ t: "EDIT", data: { id, text, timestamp } }` and sends to peer
+5. Peer receives `EDIT` inner packet, updates their local SQLite
+6. UI updates message bubble (may show "(edited)" label)
+
+### Delete Message Flow
+
+```mermaid
+flowchart TD
+    LONGPRESS[Long-press message] --> CHECK{Whose message?}
+
+    CHECK -->|My message| MYDELETE["Hard delete from local SQLite\n+ Send DELETE packet to peer"]
+    MYDELETE --> UPDATE["Update UI - remove bubble"]
+    MYDELETE --> PEERRECV[Peer receives DELETE packet]
+    PEERRECV --> PEERDELETE[Peer hard deletes locally]
+
+    CHECK -->|Peer's message| LOCALONLY["Hard delete from local SQLite only\n(no network packet)"]
+    LOCALONLY --> UPDATE
+```
+
+**Important**: Both delete paths are **hard deletes** — no "message deleted" placeholder is shown.
+
+### Delete Chat Flow
+
+- User opens a session → options menu → "Delete Chat"
+- `ChatClient.deleteChat(sid)` → `MessageService.deleteChatLocally(sid)` → `DELETE FROM messages WHERE sid = ?`
+- Session entry in SQLite is preserved, so the contact remains in the list without messages
+- No network packet is sent; this is purely local
+
+---
+
+## 7. Encrypted File Transfer
 
 ### File Transfer Flow
 
 ```mermaid
 flowchart TD
-    START([User Selects File]) --> PICKER[File Picker]
-    PICKER --> FILE{File Selected?}
+    START([User attaches file]) --> PICKER[File picker opens]
+    PICKER --> READ[Read file as Blob]
+    READ --> COMPRESS[Optional: compress image/video]
+    COMPRESS --> VAULT[Save encrypted Base64 to Vault storage]
+    VAULT --> THUMB[Generate thumbnail if image/video]
+    THUMB --> MSGDB[Create message record in SQLite]
+    MSGDB --> META["Encrypt FILE_INFO\n{name, size, type, thumbnail, messageId}"]
+    META --> SEND["Send as MSG frame to peer"]
+    SEND --> PEER[Peer receives FILE_INFO]
+    PEER --> PREVIEW[Peer shows preview + Download button]
 
-    FILE -->|No| END([Cancel])
-    FILE -->|Yes| READ[Read File to Memory]
+    PREVIEW --> WAIT{User clicks Download}
+    WAIT --> REQ["Send FILE_REQ_CHUNK {messageId, index=0}"]
 
-    READ --> B64[Convert to Base64]
-    B64 --> VAULT[Save to Vault Storage]
-    VAULT --> THUMB[Generate Thumbnail]
-    THUMB --> MSGDB[Create Message Record]
+    REQ --> READCHUNK["Sender reads 250KB chunk from Vault"]
+    READCHUNK --> ENCCHUNK[Encrypt chunk with session key]
+    ENCCHUNK --> SENDCHUNK["Send FILE_CHUNK {messageId, index, payload, isLast}"]
+    SENDCHUNK --> DECODE[Peer decodes + decrypts chunk]
+    DECODE --> APPEND[Append to local file buffer]
+    APPEND --> MORE{More chunks?}
+    MORE -->|Yes| REQ
+    MORE -->|No| COMPLETE["Mark as 'downloaded' in SQLite"]
 
-    MSGDB --> METADATA[Encrypt File Metadata]
-    METADATA --> SEND[Send FILE_INFO]
-    SEND --> PEER[Peer Receives]
-
-    PEER --> SHOWPREV[Show Preview + Download Button]
-
-    SHOWPREV --> WAIT{User Clicks Download}
-    WAIT -->|Yes| REQ[Send FILE_REQ_CHUNK]
-
-    REQ --> CHUNK1[Read Chunk from Vault]
-    CHUNK1 --> ENCCHUNK[Encrypt Chunk]
-    ENCCHUNK --> SENDCHUNK[Send FILE_CHUNK]
-
-    SENDCHUNK --> DECODE[Peer Decodes Chunk]
-    DECODE --> APPEND[Append to Local File]
-    APPEND --> MORECHUNKS{More Chunks?}
-
-    MORECHUNKS -->|Yes| REQ
-    MORECHUNKS -->|No| COMPLETE[Mark as Downloaded]
-
-    style START fill:#4CAF50
-    style COMPLETE fill:#4CAF50
+    style START fill:#4CAF50,color:#fff
+    style COMPLETE fill:#4CAF50,color:#fff
 ```
 
-### File Transfer Execution Sequence
+**Chunk size**: 250KB per chunk (~256,000 bytes). Files are never fully loaded into RAM on the sender side — streamed from Vault → encrypt → send.
 
-**Sender Flow**:
+---
 
-1. **File Selection**:
-   - User clicks attach button
-   - Native file picker opens
-   - User selects image/video/document
+## 8. Encrypted Voice & Video Calls (WebRTC)
 
-2. **File Processing**:
-   - Read file as Blob
-   - Convert to Base64
-   - Generate thumbnail (if image/video)
-
-3. **Vault Storage**:
-   - Save encrypted Base64 to vault
-   - Receive vault filename
-
-4. **Message Creation**:
-   - Insert message record into SQLite
-   - Type = 'image', 'video', 'audio', or 'file'
-   - Create media entry with metadata
-
-5. **Metadata Transmission**:
-   - Encrypt file info (name, size, type, thumbnail)
-   - Send `FILE_INFO` frame to peer
-   - Display in sender's chat immediately
-
-**Receiver Flow**:
-
-1. **Metadata Reception**:
-   - Receive `FILE_INFO` frame
-   - Decrypt metadata
-   - Show preview with thumbnail
-   - Display download button
-
-2. **Download Initiation**:
-   - User clicks download
-   - Send `FILE_REQ_CHUNK` (index=0)
-
-3. **Chunked Transfer**:
-   - Sender reads 64KB chunk from vault
-   - Encrypts chunk with session key
-   - Sends `FILE_CHUNK` frame
-   - Receiver appends to local file
-
-4. **Progress Tracking**:
-   - Update progress in SQLite
-   - Show progress bar in UI
-   - Request next chunk
-
-5. **Completion**:
-   - Last chunk marked with `isLast: true`
-   - Update status to 'downloaded'
-   - File ready for viewing/saving
-
-## 5. Encrypted Voice Session
-
-### Voice Session Establishment & Streaming Flow
+### Call Flow
 
 ```mermaid
 sequenceDiagram
-    participant U1 as Caller
-    participant UI1 as Caller UI
-    participant CL1 as Caller Client
-    participant S as Server
-    participant CL2 as Receiver Client
-    participant UI2 as Receiver UI
-    participant U2 as Receiver
+    participant Caller
+    participant Server as Relay Server
+    participant Receiver
 
-    U1->>UI1: Click Call Button
-    UI1->>CL1: startCall(sid)
-    CL1->>CL1: Request microphone
-    CL1->>CL1: Encrypt CALL_START
-    CL1->>S: MSG{CALL_START}
-    S->>CL2: MSG{CALL_START}
-    CL2->>CL2: Decrypt
-    CL2->>UI2: Show incoming call overlay
+    Caller->>Server: GET_TURN_CREDS
+    Server-->>Caller: TURN_CREDS {urls, username, credential}
 
-    U2->>UI2: Click Accept
-    UI2->>CL2: acceptCall(sid)
-    CL2->>CL2: Request microphone
-    CL2->>CL2: Start MediaRecorder
-    CL2->>CL2: Encrypt CALL_ACCEPT
-    CL2->>S: MSG{CALL_ACCEPT}
+    Caller->>Caller: Request mic/camera permission
+    Caller->>Caller: Create RTCPeerConnection with ICE config
+    Caller->>Caller: Encrypt CALL_START {type: "Audio"|"Video"}
+    Caller->>Server: MSG {CALL_START} (encrypted in session key)
+    Server-->>Receiver: MSG {CALL_START}
 
-    S->>CL1: MSG{CALL_ACCEPT}
-    CL1->>CL1: Decrypt
-    CL1->>CL1: Start MediaRecorder
-    CL1->>UI1: Update to "Connected"
+    Receiver->>Receiver: Show incoming call UI
+    Receiver-->>Caller: (Accept action)
+    Receiver->>Receiver: Request mic/camera permission
+    Receiver->>Receiver: Create RTCPeerConnection
+    Receiver->>Receiver: Encrypt CALL_ACCEPT
+    Receiver->>Server: MSG {CALL_ACCEPT}
+    Server-->>Caller: MSG {CALL_ACCEPT}
 
-    loop Audio Streaming
-        CL1->>CL1: Capture audio chunk
-        CL1->>CL1: Encrypt chunk
-        CL1->>S: STREAM frame
-        S->>CL2: STREAM frame
-        CL2->>CL2: Decrypt
-        CL2->>CL2: Play via SourceBuffer
+    Caller->>Caller: Create SDP Offer
+    Caller->>Caller: Encrypt SDP Offer
+    Caller->>Server: RTC_OFFER {payload: encryptedSDP}
+    Server-->>Receiver: RTC_OFFER
 
-        CL2->>CL2: Capture audio chunk
-        CL2->>CL2: Encrypt chunk
-        CL2->>S: STREAM frame
-        S->>CL1: STREAM frame
-        CL1->>CL1: Decrypt
-        CL1->>CL1: Play via SourceBuffer
+    Receiver->>Receiver: Decrypt + set Remote Description
+    Receiver->>Receiver: Create SDP Answer
+    Receiver->>Receiver: Encrypt SDP Answer
+    Receiver->>Server: RTC_ANSWER {payload: encryptedSDP}
+    Server-->>Caller: RTC_ANSWER
+
+    loop ICE Candidates
+        Caller->>Server: RTC_ICE {payload: encryptedCandidate}
+        Server-->>Receiver: RTC_ICE
+        Receiver->>Server: RTC_ICE {payload: encryptedCandidate}
+        Server-->>Caller: RTC_ICE
     end
 
-    U1->>UI1: Click End Call
-    UI1->>CL1: endCall(sid)
-    CL1->>CL1: Stop MediaRecorder
-    CL1->>CL1: Encrypt CALL_END
-    CL1->>S: MSG{CALL_END}
-    S->>CL2: MSG{CALL_END}
-    CL2->>CL2: Cleanup
-    CL2->>UI2: Show call ended
+    note over Caller,Receiver: WebRTC connection established via TURN relay.<br/>Audio/Video streams use DTLS-SRTP encryption.<br/>Server sees only opaque WebSocket frames.
+
+    Caller->>Server: MSG {CALL_END} (to end call)
+    Server-->>Receiver: MSG {CALL_END}
+    note over Caller,Receiver: Both sides clean up RTCPeerConnection.<br/>Call duration logged in messages table.
 ```
 
-### Voice Streaming Execution Sequence
+### Multi-Device Call Awareness
 
-1. **Call Initiation**:
-   - Caller clicks phone icon
-   - App requests microphone permission
-   - Encrypt `CALL_START` message
-   - Send to peer via server
+When a call is accepted or ended on one device, the `MessageService.broadcastSyncCallAction()` sends a `SYNC_CALL_ACCEPT` or `SYNC_CALL_END` inner packet to the user's **own linked devices** so they can dismiss incoming call notifications.
 
-2. **Incoming Call**:
-   - Receiver's app decrypts `CALL_START`
-   - Show full-screen call overlay
-   - Play ringtone (local)
+---
 
-3. **Call Accept**:
-   - Receiver clicks "Accept"
-   - Request microphone access
-   - Initialize MediaRecorder (Opus codec)
-   - Send `CALL_ACCEPT` back
+## 9. Cross-Device Sync (MANIFEST Protocol)
 
-4. **Bidirectional Setup**:
-   - Both sides start MediaRecorder
-   - Set up MediaSource with SourceBuffer
-   - Initialize audio playback element
+### MANIFEST Sync Overview
 
-5. **Audio Streaming**:
-   - MediaRecorder emits 50ms chunks
-   - Each chunk encrypted with AES-GCM
-   - Sent as `STREAM` frame
-   - Peer decrypts and appends toSourceBuffer
-   - SourceBuffer plays audio continuously
+```mermaid
+flowchart LR
+    subgraph "Own Device Sync"
+        D1[Device A] -->|MANIFEST: blocks+requests+aliases+profile+messages| D2[Device B]
+        D2 -->|MANIFEST: ...| D1
+    end
+    subgraph "Peer Message Push"
+        D1 -->|MANIFEST: messages only| PeerDevice[Peer's Device]
+        PeerDevice -->|MANIFEST: messages only| D1
+    end
+```
 
-6. **End Call**:
-   - Either party clicks "End"
-   - Stop MediaRecorder
-   - Send `CALL_END` message
-   - Clean up audio resources
-   - Log call duration
+### When MANIFEST Is Triggered
 
-## 6. Account Switching
+| Trigger | Recipients | Sections Sent |
+|---------|-----------|---------------|
+| `SESSION_LIST` received on login | Own devices + all online peers | Full (own) + messages (peers) |
+| `PEER_ONLINE` event | Own devices + that peer | Full (own) + messages (peer) |
+| Message sent/received | Own devices | Full |
+| Block / unblock action | Own devices | Full |
+| Profile updated | Own devices | Full |
+| New session created | New peer | Messages only |
 
-### Flow
+### MANIFEST Payload Structure
 
-1. User clicks profile icon → "Switch Account"
-2. App Lock Screen appears with account list
-3. User selects different account
-4. App calls `ChatClient.switchAccount(email)`
-5. Close current WebSocket connection
-6. Load new account's database and keys
-7. Re-establish WebSocket with new session token
-8. Load sessions and UI refreshes
+```json
+{
+  "t": "MSG",
+  "data": {
+    "type": "MANIFEST",
+    "manifest": {
+      "blocks": [
+        { "email": "blocked@example.com", "action": "block", "timestamp": 1704067200000 },
+        { "email": "unblocked@example.com", "action": "unblock", "timestamp": 1704067300000 }
+      ],
+      "requests": [
+        { "email": "peer@example.com", "name": "...", "avatar": "...", "publicKey": "...", "senderHash": "...", "action": "pending", "timestamp": 1704067200000 }
+      ],
+      "aliases": [
+        { "sid": "...", "aliasName": "Work Friend", "aliasAvatar": "", "timestamp": 1704067200000 }
+      ],
+      "profile": {
+        "name": "Yog Mehta", "avatar": "data:image/...", "nameVersion": 2, "avatarVersion": 1
+      },
+      "messages": [
+        { "id": "...", "sid": "...", "sender": "me", "text": "...", "timestamp": ... }
+      ]
+    }
+  }
+}
+```
 
-## 7. Fault Handling & Recovery Flows
+### Merge Strategy
 
-### Network Failure & Reconnection
+Each section is merged independently:
+
+| Section | Merge Logic |
+|---------|-------------|
+| `blocks` | Compare `timestamp` — newer wins (supports both block AND unblock tombstones) |
+| `requests` | Compare `timestamp` — newer wins |
+| `aliases` | `alias_timestamp` column guards against applying older updates |
+| `profile` | Highest `nameVersion` / `avatarVersion` wins |
+| `messages` | `INSERT OR IGNORE` by message ID — safe to receive duplicates |
+
+---
+
+## 10. Fault Handling & Recovery
+
+### Network Disconnect & Reconnection
 
 ```mermaid
 flowchart TD
-    CONNECTED[Connected State] --> DISCONNECT[Network Lost]
-    DISCONNECT --> DETECT[WebSocket onclose]
-    DETECT --> RETRY[Auto-Reconnect Loop]
-    RETRY --> WAIT[Wait 1-5 seconds]
-    WAIT --> ATTEMPT{Reconnect}
-
-    ATTEMPT -->|Success| REAUTH[Re-send AUTH]
-    ATTEMPT -->|Fail| RETRY
-
-    REAUTH --> REATTACH[Send REATTACH for all sessions]
-    REATTACH --> SYNC[Sync pending messages]
+    CONNECTED[Connected State] --> DISC[Network Lost / WS Closed]
+    DISC --> DETECT["SocketManager: onclose fired"]
+    DETECT --> RETRY[Auto-reconnect with backoff]
+    RETRY --> ATTEMPT{Reconnect attempt}
+    ATTEMPT -->|Fail| WAIT[Wait 1-30 seconds]
+    WAIT --> RETRY
+    ATTEMPT -->|Success| WS_CONN["WS_CONNECTED event"]
+    WS_CONN --> LOADS[Load sessions from SQLite]
+    LOADS --> REAUTH["Send AUTH {token, publicKey}"]
+    REAUTH --> SESSLIST[Receive SESSION_LIST]
+    SESSLIST --> SYNC[Trigger MANIFEST sync + pending messages]
     SYNC --> CONNECTED
 ```
 
-### Peer Offline
+### Session Token Expiry
 
-- Message queued in local SQLite (status = pending)
-- UI shows "grey checkmark" or clock icon
-- When `PEER_ONLINE` event received, auto-retry sending
-- Update status when delivered
+- Server responds with `ERROR { message: "Auth failed" }` or `"Authentication required"`
+- `ChatClient.handleFrame` catches auth errors and calls `authService.logout()`
+- User is returned to login screen with a notification
 
-### Invalid Session
+### Peer Offline Message Queuing
 
-- Server responds with `ERROR: "Authentication required"`
-- App triggers logout flow
-- Clear session token
-- Clear session token
-- Return to login screen
+- Message sent while peer is offline receives `DELIVERED_FAILED` from server
+- Message stays `status = 1` (pending) in SQLite
+- When `PEER_ONLINE` event fires, `syncPendingMessages()` re-queries all `status=1` messages and retries
+- Also on `SESSION_LIST` receipt: `coordinateSync(sid)` pushes missed messages via MANIFEST
 
-## 8. Message Deletion
+---
 
-### Flow
+## 11. Block & Unfriend Flows
 
-1. User right-clicks (desktop) or long-presses (mobile) on a message bubble.
-2. User selects **Delete**.
-3. **Condition Check**:
-   - **If My Message**:
-     - App constructs `DELETE` payload.
-     - Encrypts and sends to peer via `MSG` frame.
-     - Performs **hard delete** locally (DELETE FROM messages).
-     - UI removes bubble instantly.
-   - **If Peer's Message**:
-     - No network action taken.
-     - Performs **hard delete** locally.
-     - UI removes bubble instantly.
+### Block Flow
 
-### Backend/Peer Flow (Unsend)
+1. User opens contact profile → taps "Block"
+2. `SessionService.blockUser(email)`:
+   - Sends `BLOCK_USER { targetEmail }` to server
+   - Inserts email and hash into local `blocked_users` table
+   - Clears any pending requests from that user
+   - Emits `block_list_changed`
+3. `MessageService.broadcastManifestToOwnDevices()` propagates the block to own linked devices via the `blocks` section with `action: "block"`
+4. Server sends `USER_BLOCKED_EVENT` to the peer (or stores for offline delivery)
 
-1. Peer receives `DELETE` frame.
-2. Basic validation (sender must be message owner).
-3. Peer performs **hard delete** locally.
-4. UI removes bubble instantly.
+### Unblock Flow
+
+- Unblocking is **local-only** — no network packet is sent to the server
+- `SessionService.unblockUser(email)` removes entries from local `blocked_users`
+- `broadcastManifestToOwnDevices()` propagates an `action: "unblock"` tombstone to own devices
+
+### Unfriend Flow
+
+1. User opens contact profile → taps "Remove Connection"
+2. `ChatClient.removeConnection(targetHash, sid)`:
+   - Sends `UNFRIEND { targetHash }` to server
+   - Marks session as offline and not connected in memory
+   - Server relays `UNFRIENDED { senderHash }` to the peer
+3. The session record remains in SQLite (for chat history) but is marked inactive
+4. If an active call is in progress, it ends automatically
+
+### Inbound Unfriend / Block
+
+- `UNFRIENDED { senderHash }` frame: Client identifies all sessions matching that peer hash and calls `removeConnection` for each
+- `SYNC_UNFRIEND { targetHash, sid }`: Relayed from own devices to sync the unfriend action
+- `SYNC_BLOCK { targetHash }`: Own-device sync for block actions from another device

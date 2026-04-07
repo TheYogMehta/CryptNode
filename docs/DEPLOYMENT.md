@@ -37,7 +37,7 @@ npm run build
 
 ```bash
 cd electron
-npm run electron:make
+npm run electron:pack
 ```
 
 Output: `Client/electron/dist/chatapp.AppImage`
@@ -101,7 +101,7 @@ cd chatapp/Server
 **3. Build Server**:
 
 ```bash
-go build -o chatapp-server socket.go
+go build -o socket.go
 ```
 
 **4. Create Systemd Service**:

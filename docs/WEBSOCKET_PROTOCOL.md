@@ -7,70 +7,74 @@ This document defines the complete WebSocket protocol used for communication bet
 - **Transport**: WebSocket (RFC 6455)
 - **Encoding**: JSON
 - **Encryption**: Payload-level AES-GCM (E2E), TLS for transport (production)
-- **Frame Structure**: All messages follow a standardized frame format
+- **Frame Structure**: All messages follow a standardized outer frame format
 
-## Frame Structure
+## Outer Frame Structure
 
 All WebSocket messages use this JSON structure:
 
 ```typescript
 interface Frame {
-  t: string; // Frame type (e.g., "AUTH", "MSG", "FRIEND_REQUEST")
-  sid?: string; // Session ID (optional, used for session-specific frames)
-  c?: boolean; // Confirmation flag (optional, if true server sends DELIVERED or DELIVERED_FAILED)
-  sh?: string; // Sender hash (optional, injected by server on relaying MSG frames)
-  targetPubKey?: string; // Target public key (optional, for routing RTC frames to specific devices)
-  data?: any; // Frame-specific payload
+  t: string;          // Frame type (e.g., "AUTH", "MSG", "FRIEND_REQUEST")
+  sid?: string;       // Session ID (used for session-specific frames)
+  c?: boolean;        // Confirmation flag: if true, server sends DELIVERED or DELIVERED_FAILED
+  sh?: string;        // Sender hash (injected by server on relaying MSG frames)
+  p?: number;         // Priority level (0 = high/sync, 1 = normal messages)
+  targetPubKey?: string; // Used by server to route RTC frames to a specific device
+  data?: any;         // Frame-specific payload
 }
 ```
 
-**Example**:
-
-```json
-{
-  "t": "MSG",
-  "sid": "1704067200000_a3f7d2e1",
-  "data": {
-    "payload": "YWJjZGVmZ2hpams..." // Base64 encrypted content
-  }
-}
-```
+**Priority Field (`p`)**: Used by the client-side `WorkerManager` to process high-priority crypto operations (e.g., sync manifests with `p=0`) before lower-priority ones (e.g., bulk message decryption with `p=1`).
 
 ## Frame Types Reference Table
 
-| Frame Type             | Direction       | Purpose                         | Requires Auth | Requires SID |
-| ---------------------- | --------------- | ------------------------------- | ------------- | ------------ |
-| `AUTH`                 | Client → Server | Authenticate with Google token  | No            | No           |
-| `AUTH_SUCCESS`         | Server → Client | Confirm authentication          | N/A           | No           |
-| `FRIEND_REQUEST`       | Bidirectional   | Encrypted friend request        | Yes           | No           |
-| `REQUEST_SENT`         | Server → Client | Confirm request successfully    | Yes           | No           |
-| `FRIEND_ACCEPT`        | Client → Server | Accept friend request           | Yes           | No           |
-| `FRIEND_ACCEPTED`      | Server → Client | Peer accepted your request      | N/A           | No           |
-| `FRIEND_ACCEPTED_ACK`  | Server → Client | Confirm you accepted request    | N/A           | No           |
-| `FRIEND_DENY`          | Client → Server | Deny friend request             | Yes           | No           |
-| `FRIEND_DENIED`        | Server → Client | Peer denied your request        | N/A           | No           |
-| `BLOCK_USER`           | Client → Server | Block user                      | Yes           | No           |
-| `USER_BLOCKED`         | Server → Client | Block acknowledged by server    | N/A           | No           |
-| `USER_BLOCKED_EVENT`   | Server → Client | Peer blocked you                | N/A           | No           |
-| `PENDING_REQUESTS`     | Server → Client | Received stored offline reqs    | N/A           | No           |
-| `GET_DEVICES`          | Client → Server | Fetch all registered devices    | Yes           | No           |
-| `DEVICE_LIST`          | Server → Client | List of registered devices      | N/A           | No           |
-| `UPDATE_PUBKEY`        | Client → Server | Update active device public key | Yes           | No           |
-| `GET_PUBLIC_KEY`       | Client → Server | Look up public key by email     | Yes           | No           |
-| `PUBLIC_KEY`           | Server → Client | Respond with peer's public key  | N/A           | No           |
-| `DELETE_ACCOUNT`       | Client → Server | Delete account & wipe memory    | Yes           | No           |
-| `SESSION_LIST`         | Server → Client | Provide user's active sessions  | N/A           | No           |
-| `REATTACH`             | Client → Server | Reconnect to existing session   | Yes           | Yes          |
-| `MSG`                  | Bidirectional   | Encrypted message/command       | Yes           | Yes          |
-| `RTC_OFFER`            | Bidirectional   | WebRTC SDP Offer                | Yes           | Yes          |
-| `RTC_ANSWER`           | Bidirectional   | WebRTC SDP Answer               | Yes           | Yes          |
-| `RTC_ICE`              | Bidirectional   | WebRTC ICE Candidate            | Yes           | Yes          |
-| `PEER_ONLINE`          | Server → Client | Notify peer came online         | N/A           | Yes          |
-| `PEER_OFFLINE`         | Server → Client | Notify peer went offline        | N/A           | Yes          |
-| `DELIVERED`            | Server → Client | Confirm message delivery        | N/A           | Yes          |
-| `DELIVERED_FAILED`     | Server → Client | Message delivery failed         | N/A           | Yes          |
-| `ERROR`                | Server → Client | Error notification              | N/A           | No           |
-| `PING`                 | Server → Client | Heartbeat                       | N/A           | No           |
+| Frame Type             | Direction           | Purpose                                       | Requires Auth | Requires SID |
+| ---------------------- | ------------------- | --------------------------------------------- | ------------- | ------------ |
+| `AUTH`                 | Client → Server     | Authenticate with token + device public key   | No            | No           |
+| `AUTH_SUCCESS`         | Server → Client     | Confirm authentication + issue session token  | N/A           | No           |
+| `FRIEND_REQUEST`       | Bidirectional       | Encrypted friend request with profile payloads | Yes           | No           |
+| `REQUEST_SENT`         | Server → Client     | Confirm request was received and queued       | N/A           | No           |
+| `FRIEND_ACCEPT`        | Client → Server     | Accept friend request                         | Yes           | No           |
+| `FRIEND_ACCEPTED`      | Server → Client     | Peer accepted your request                    | N/A           | No           |
+| `FRIEND_ACCEPTED_ACK`  | Server → Client     | Confirm that you successfully accepted        | N/A           | No           |
+| `FRIEND_DENY`          | Client → Server     | Deny friend request                           | Yes           | No           |
+| `FRIEND_DENIED`        | Server → Client     | Peer denied your request                      | N/A           | No           |
+| `BLOCK_USER`           | Client → Server     | Block a user                                  | Yes           | No           |
+| `USER_BLOCKED`         | Server → Client     | Block acknowledged by server                  | N/A           | No           |
+| `USER_BLOCKED_EVENT`   | Server → Client     | Peer blocked you                              | N/A           | No           |
+| `UNFRIEND`             | Client → Server     | Remove a connection                           | Yes           | No           |
+| `UNFRIENDED`           | Server → Client     | Peer removed you as connection                | N/A           | No           |
+| `PENDING_REQUESTS`     | Server → Client     | Deliver stored offline friend requests        | N/A           | No           |
+| `GET_DEVICES`          | Client → Server     | Fetch all registered devices for the account  | Yes           | No           |
+| `DEVICE_LIST`          | Server → Client     | List of registered devices                    | N/A           | No           |
+| `UPDATE_PUBKEY`        | Client → Server     | Register/update active device public key      | Yes           | No           |
+| `GET_PUBLIC_KEY`       | Client → Server     | Look up public key(s) by target email         | Yes           | No           |
+| `PUBLIC_KEY`           | Server → Client     | Respond with peer's public key(s)             | N/A           | No           |
+| `DELETE_ACCOUNT`       | Client → Server     | Delete account and wipe server memory         | Yes           | No           |
+| `DELETE_ACCOUNT_SUCCESS` | Server → Client   | Confirm account deletion                      | N/A           | No           |
+| `DEVICE_NUCLEAR_SUCCESS` | Server → Client   | Confirm device wipe succeeded                 | N/A           | No           |
+| `SESSION_LIST`         | Server → Client     | All active sessions pushed after AUTH_SUCCESS  | N/A           | No           |
+| `MSG`                  | Bidirectional       | Encrypted message or inner command            | Yes           | Yes          |
+| `RTC_OFFER`            | Bidirectional       | WebRTC SDP Offer (relayed, opaque blob)       | Yes           | Yes          |
+| `RTC_ANSWER`           | Bidirectional       | WebRTC SDP Answer (relayed, opaque blob)      | Yes           | Yes          |
+| `RTC_ICE`              | Bidirectional       | WebRTC ICE Candidate (relayed, opaque blob)   | Yes           | Yes          |
+| `GET_TURN_CREDS`       | Client → Server     | Request ephemeral TURN credentials            | Yes           | No           |
+| `TURN_CREDS`           | Server → Client     | Return TURN server credentials                | N/A           | No           |
+| `PEER_ONLINE`          | Server → Client     | Peer came online in this session              | N/A           | Yes          |
+| `PEER_OFFLINE`         | Server → Client     | Peer disconnected in this session             | N/A           | Yes          |
+| `PROFILE_UPDATE`       | Server → Client     | Peer sent a profile change notification       | N/A           | Yes          |
+| `SYNC_ACCEPT`          | Server → Client     | Own device accepted a friend request          | N/A           | No           |
+| `SYNC_DENY`            | Server → Client     | Own device denied a friend request            | N/A           | No           |
+| `SYNC_UNFRIEND`        | Server → Client     | Own device removed a connection               | N/A           | No           |
+| `SYNC_BLOCK`           | Server → Client     | Own device blocked a user                     | N/A           | No           |
+| `INVITE_CODE`          | Server → Client     | Server-generated invite code                  | N/A           | No           |
+| `DELIVERED`            | Server → Client     | Message delivery confirmed                    | N/A           | Yes          |
+| `DELIVERED_FAILED`     | Server → Client     | Message delivery failed (no online peers)     | N/A           | Yes          |
+| `ERROR`                | Server → Client     | Error notification                            | N/A           | No           |
+| `PING`                 | Server → Client     | Heartbeat to keep connection alive            | N/A           | No           |
+
+---
 
 ## Frame Type Specifications
 
@@ -78,7 +82,7 @@ interface Frame {
 
 #### `AUTH` (Client → Server)
 
-**Purpose**: Authenticate with the relay server using Google ID token or session token.
+**Purpose**: Authenticate with the relay server using Google ID token or HMAC session token, and register the device's public key.
 
 **Request**:
 
@@ -86,24 +90,23 @@ interface Frame {
 {
   "t": "AUTH",
   "data": {
-    "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ij...", // Google ID token or session token
-    "publicKey": "YjY3ZDlmOWUyZmQ0..." // Base64-encoded Device Identity Key
+    "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ij...",
+    "publicKey": "YjY3ZDlmOWUyZmQ0..."
   }
 }
 ```
 
 **Server Logic**:
 
-1. Check if token starts with `"sess:"` (session token) or is Google ID token
-2. Validate token (HMAC for session, Google API for ID token)
-3. Extract email from token
-4. Check if email is already connected on another client
-5. If yes, reject new client
-6. If no, register client and respond with `AUTH_SUCCESS`
+1. Determine token type: `sess:` prefix → HMAC session token; otherwise → Google ID token
+2. Validate token (HMAC for session tokens, Google's `tokeninfo` API for ID tokens)
+3. Extract and verify email
+4. Register client with their public key (for multi-device routing)
+5. If valid, respond with `AUTH_SUCCESS`, then immediately push `SESSION_LIST` and `PENDING_REQUESTS`
 
 #### `AUTH_SUCCESS` (Server → Client)
 
-**Purpose**: Confirm successful authentication and provide session token.
+**Purpose**: Confirm successful authentication and provide a refreshed session token.
 
 **Response**:
 
@@ -112,62 +115,68 @@ interface Frame {
   "t": "AUTH_SUCCESS",
   "data": {
     "email": "user@example.com",
-    "token": "sess:1735689600:user@example.com:a3d5f7e9..." // HMAC session token
+    "token": "sess:1735689600:user@example.com:a3d5f7e9..."
   }
 }
 ```
 
 **Client Action**:
+- Save new session token to `SafeStorage`
+- Emit `auth_success` event
+- Server will immediately follow with `SESSION_LIST` and `PENDING_REQUESTS`
 
-- Save session token to SecureStorage
-- Initialize/switch SQLite database
-- Load identity keys
-- Emit `auth_success` event to UI
-- Receive `SESSION_LIST` and automated `PENDING_REQUESTS` push immediately afterwards
+---
 
 ### 2. Connection Establishment Frames
 
 #### `FRIEND_REQUEST` (Client → Server → Target Client)
 
-**Purpose**: Request to connect with another user by email, establishing a persistent contact and sharing device keys.
+**Purpose**: Request to connect with another user. The profile info is encrypted separately per target device key, so no device can decrypt another device's payload.
 
-**Client Request**:
+**Client → Server**:
 
 ```json
 {
   "t": "FRIEND_REQUEST",
   "data": {
     "targetEmail": "peer@example.com",
-    "encryptedPacket": "ivb64.cipherb64" // Profile info encrypted with shared derived key
+    "payloads": [
+      { "publicKey": "device1_pubkey_b64", "encryptedPacket": "ivb64.cipherb64" },
+      { "publicKey": "device2_pubkey_b64", "encryptedPacket": "ivb64.cipherb64" }
+    ]
   }
 }
 ```
 
-**Server Logic**:
+**Encrypted Packet Content** (after decryption):
 
-1. Validate payload. Lookup `targetEmail`.
-2. Save request to `requests` SQLite table for offline delivery.
-3. If target sockets are online, forward the `FRIEND_REQUEST` payload along with sender pub keys.
-4. If delivered successfully online, delete from `requests` table.
-5. Send `REQUEST_SENT` back to client.
+```json
+{
+  "email": "requester@example.com",
+  "name": "Display Name",
+  "avatar": "data:image/png;base64,...",
+  "nameVersion": 1,
+  "avatarVersion": 1,
+  "timestamp": 1704067200000
+}
+```
 
-**Server Forwarding**:
+**Server → Target Client** (when target is online):
 
 ```json
 {
   "t": "FRIEND_REQUEST",
   "data": {
-    "senderHash": "a3f...",
-    "encryptedPacket": "ivb64.cipherb64",
-    "publicKeys": ["YjY3ZDlmOWUyZmQ0..."],
-    "publicKey": "YjY3ZDlmOWUyZmQ0..."
+    "senderHash": "sha256_of_sender_email",
+    "payloads": [{ "publicKey": "...", "encryptedPacket": "..." }],
+    "publicKeys": ["device1_pub", "device2_pub"]
   }
 }
 ```
 
 #### `FRIEND_ACCEPT` (Client → Server → Requester)
 
-**Purpose**: Accept incoming connection and complete key exchange.
+**Purpose**: Accept incoming connection and complete the key exchange.
 
 **Request**:
 
@@ -176,21 +185,20 @@ interface Frame {
   "t": "FRIEND_ACCEPT",
   "data": {
     "targetEmail": "requester@example.com",
-    "encryptedPacket": "ivb64.cipherb64" // Acceptor's encrypted profile info
+    "payloads": [
+      { "publicKey": "requester_device1_pub", "encryptedPacket": "ivb64.cipherb64" }
+    ]
   }
 }
 ```
 
 **Server Logic**:
+1. Insert friend record into `friends` table with the deterministic SID
+2. Remove from `pending_requests` table
+3. Relay as `FRIEND_ACCEPTED` to all online devices of the requester
+4. Send `FRIEND_ACCEPTED_ACK` to acceptor
 
-1. Insert relationship into `friends` table including the deterministic Session ID.
-2. Remove from `requests` table.
-3. Relay payload as `FRIEND_ACCEPTED` to online peers of the requester.
-4. Acknowledge with `FRIEND_ACCEPTED_ACK` to acceptor.
-
-#### `FRIEND_DENY` (Client → Server → Target Client)
-
-**Purpose**: Reject incoming connection request.
+#### `FRIEND_DENY` (Client → Server)
 
 **Request**:
 
@@ -201,436 +209,256 @@ interface Frame {
 }
 ```
 
-**Server Logic**:
+**Or by hash (when email is unknown)**:
 
-- Deletes the stored request.
-- Forwards `FRIEND_DENIED` to target socket, or queues in `offline_notifications` table.
+```json
+{
+  "t": "FRIEND_DENY",
+  "data": { "targetHash": "sha256_of_email" }
+}
+```
 
-#### `BLOCK_USER` (Client → Server → Target Client)
+**Server**: Deletes the stored request and forwards `FRIEND_DENIED` (with `reason` if applicable) to the requester's online devices, or queues for offline delivery.
 
-**Purpose**: Blacklist a user. The server does NOT mutate the friendship DB; it simply relays the event so the target client can handle it. **Unblocking is now a local-only operation** — it updates the local `blocked_users` table and propagates the change to own linked devices via the `MANIFEST` frame (see below); no `UNBLOCK_USER` frame is sent to the server.
+#### `BLOCK_USER` (Client → Server)
 
-**Request**:
+**Purpose**: Notify the server to alert the target user they've been blocked. The server does not modify the friends relationship; the client manages its own `blocked_users` table.
 
 ```json
 {
   "t": "BLOCK_USER",
-  "data": { "targetEmail": "requester@example.com" }
+  "data": { "targetEmail": "target@example.com" }
 }
 ```
 
-**Server Logic**:
+**Or by hash**:
 
-- Emits `USER_BLOCKED_EVENT` to the peer (queues if offline).
-- Acknowledges with `USER_BLOCKED` to the initiator.
+```json
+{
+  "t": "BLOCK_USER",
+  "data": { "targetHash": "sha256_of_email" }
+}
+```
+
+**Server**: Emits `USER_BLOCKED_EVENT` to the target (queued if offline). Acknowledges with `USER_BLOCKED` to the initiator.
+
+> [!NOTE]
+> **Unblocking is local-only** — no `UNBLOCK_USER` frame exists. The unblock is propagated to the user's own linked devices via the `MANIFEST` frame's `blocks` section with `action: "unblock"`.
+
+#### `UNFRIEND` (Client → Server)
+
+**Purpose**: Remove a peer connection on the server.
+
+```json
+{
+  "t": "UNFRIEND",
+  "data": { "targetHash": "sha256_of_peer_email" }
+}
+```
+
+**Server**: Removes the friend record; relays `UNFRIENDED { senderHash }` to the peer's online devices. Also sends `SYNC_UNFRIEND` to the initiator's other linked devices.
+
+---
 
 ### 3. Session & Sync Management Frames
 
 #### `SESSION_LIST` (Server → Client)
 
-**Purpose**: Lists active connections and status upon login. Sent immediately after `AUTH_SUCCESS`.
-
-**Notification**:
+**Purpose**: Snapshot of all active sessions and peer presence pushed immediately after `AUTH_SUCCESS`.
 
 ```json
 {
   "t": "SESSION_LIST",
   "data": [
     {
-      "sid": "a3f...",
+      "sid": "sha256_hash",
       "online": true,
-      "peerHash": "b6a...",
-      "peerPubKeys": ["..."],
-      "ownPubKeys": ["..."]
+      "peerHash": "sha256_of_peer_email",
+      "peerPubKeys": ["device1_pub_b64", "device2_pub_b64"],
+      "ownPubKeys": ["my_other_device_pub_b64"]
     }
   ]
 }
 ```
 
-#### `REATTACH` (Client → Server)
-
-**Purpose**: Reconnect to an existing session after disconnect/restart.
-
-**Request**:
-
-```json
-{
-  "t": "REATTACH",
-  "sid": "1704067200000_a3f7d2e1"
-}
-```
-
-**Server Logic**:
-
-1. Check if session exists in memory
-2. If not, create new session with this client
-3. Add client to session
-4. Notify other clients via `PEER_ONLINE`
-
-**Use Case**: App restart, network reconnection
+**Client Action**: `SessionService.handleSessionList(data)`:
+- Updates in-memory `online` and `isConnected` flags for all sessions
+- Detects key changes and re-derives session keys if peer's public keys differ from stored
+- Reconstructs sessions that exist server-side but not locally (e.g. after a restore or reinstall)
 
 #### `PEER_ONLINE` (Server → Client)
-
-**Purpose**: Notify that a peer in the session came online.
-
-**Notification**:
 
 ```json
 {
   "t": "PEER_ONLINE",
-  "sid": "1704067200000_a3f7d2e1"
+  "sid": "session_id",
+  "data": { "peerPubKeys": ["..."] }
 }
 ```
 
 **Client Action**:
-
-- Update UI (show "online" indicator)
-- Trigger pending message sync
-- Send `MANIFEST` to sync own-device state if applicable
+- Update presence to online
+- If `peerPubKeys` changed, re-derive session keys
+- Trigger `broadcastManifestToOwnDevices()` + `sendManifestToPeer(sid)`
+- Retry pending messages
 
 #### `PEER_OFFLINE` (Server → Client)
-
-**Purpose**: Notify that a peer disconnected.
-
-**Notification**:
 
 ```json
 {
   "t": "PEER_OFFLINE",
-  "sid": "1704067200000_a3f7d2e1"
+  "sid": "session_id",
+  "data": { "peerPubKeys": ["still_online_device_pub"] }
 }
 ```
 
-**Client Action**:
+**Client Action**: If `peerPubKeys` is non-empty, the peer still has other devices online — keep status online. If empty, mark offline.
 
-- Update UI (show "offline" indicator)
-- Stop auto-retry for pending messages
+#### Own-Device Sync Frames (Server → Client)
+
+| Frame | Description | Client Action |
+|-------|-------------|---------------|
+| `SYNC_ACCEPT` | Another owned device accepted a friend request | `finalizeSession`, emit `pending_requests_changed` |
+| `SYNC_DENY` | Another owned device denied a request | Delete from local `pending_requests` |
+| `SYNC_UNFRIEND` | Another owned device unfriended someone | `removeConnection` locally |
+| `SYNC_BLOCK` | Another owned device blocked someone | Insert into local `blocked_users` |
+
+---
 
 ### 4. Messaging Frames
 
 #### `MSG` (Bidirectional)
 
-**Purpose**: Send encrypted message or command.
+**Purpose**: Carrier frame for all encrypted application-level communication.
 
-**Client → Server**:
+**Client → Server (multi-device)**:
 
 ```json
 {
   "t": "MSG",
-  "sid": "1704067200000_a3f7d2e1",
+  "sid": "session_id",
+  "c": true,
+  "p": 1,
   "data": {
-    "payload": "iv+ciphertext in Base64" // Encrypted with session AES key
-  }
-}
-```
-
-**Server Logic**:
-
-1. Ensure session exists (create if needed)
-2. Add sender to session if not already present
-3. Relay `payload` to all other clients in session
-4. If delivery successful, respond with `DELIVERED`
-5. If no recipients, respond with `DELIVERED_FAILED`
-
-**Decrypted Payload Types**:
-
-The payload, when decrypted, contains a JSON object with its own type:
-
-```typescript
-// Text message
-{
-  "t": "MSG",
-  "data": {
-    "text": "Hello, world!",
-    "id": "uuid-1234",
-    "timestamp": 1704067200000,
-    "replyTo": {...}  // Optional
-  }
-}
-
-// File metadata
-{
-  "t": "FILE_INFO",
-  "data": {
-    "name": "document.pdf",
-    "size": 1048576,
-    "type": "application/pdf",
-    "thumbnail": "data:image/png;base64,...",
-    "messageId": "uuid-5678"
-  }
-}
-
-// File chunk request
-{
-  "t": "FILE_REQ_CHUNK",
-  "data": {
-    "messageId": "uuid-5678",
-    "chunkIndex": 0
-  }
-}
-
-// File chunk response
-{
-  "t": "FILE_CHUNK",
-  "data": {
-    "messageId": "uuid-5678",
-    "chunkIndex": 0,
-    "payload": "base64-encoded-data",
-    "isLast": false
-  }
-}
-
-// Call signaling
-{
-  "t": "CALL_START",
-  "data": {
-    "type": "Audio"
-  }
-}
-
-{
-  "t": "CALL_ACCEPT"
-}
-
-{
-  "t": "CALL_END"
-}
-
-{
-  "t": "CALL_BUSY"
-}
-
-// Profile sync
-{
-  "t": "PROFILE_VERSION",
-  "data": {
-    "name_version": 2,
-    "avatar_version": 1
-  }
-}
-
-{
-  "t": "GET_PROFILE"
-}
-
-{
-  "t": "PROFILE_DATA",
-  "data": {
-    "name": "Yog Mehta",
-    "avatar": "data:image/png;base64,...",
-    "name_version": 2,
-    "avatar_version": 1
-  }
-}
-
-// Message Deletion
-{
-  "t": "MSG",
-  "data": {
-    "type": "DELETE",
-    "id": "uuid-1234",
-    "timestamp": 1704067200000
-  }
-}
-
-// Cross-Device State Sync (MANIFEST)
-// Sent encrypted to own linked devices whenever local state changes.
-// Each section is merged independently (last-write-wins by timestamp).
-{
-  "t": "MSG",
-  "data": {
-    "type": "MANIFEST",
-    "manifest": {
-      "blocks": [
-        { "email": "blocked@example.com", "action": "block", "timestamp": 1704067200000 },
-        { "email": "unblocked@example.com", "action": "unblock", "timestamp": 1704067300000 }
-      ],
-      "requests": [
-        {
-          "email": "peer@example.com",
-          "name": "Peer Name",
-          "avatar": "data:image/png;base64,...",
-          "publicKey": "YjY3ZD...",
-          "senderHash": "a3f...",
-          "action": "pending",
-          "timestamp": 1704067200000
-        }
-      ],
-      "aliases": [
-        { "sid": "session_id", "aliasName": "Work Friend", "aliasAvatar": "", "timestamp": 1704067200000 }
-      ],
-      "profile": {
-        "name": "Yog Mehta",
-        "avatar": "data:image/png;base64,...",
-        "nameVersion": 2,
-        "avatarVersion": 1
-      },
-      "messages": [
-        // Recent ChatMessage objects for new-device bootstrap
-      ]
+    "payloads": {
+      "device1_pub_b64": "iv+ciphertext_base64",
+      "device2_pub_b64": "iv+ciphertext_base64"
     }
   }
 }
 ```
 
-#### `DELIVERED` (Server → Client)
+**Server Action**: Routes each payload blob to the matching connected device by its `publicKey` in the `payloads` map.
 
-**Purpose**: Confirm message was delivered to peer.
-
-**Notification**:
+**Server → Client** (after routing):
 
 ```json
 {
-  "t": "DELIVERED",
-  "sid": "1704067200000_a3f7d2e1"
+  "t": "MSG",
+  "sid": "session_id",
+  "sh": "sha256_of_sender_email",
+  "data": {
+    "payload": "iv+ciphertext_base64"
+  }
 }
 ```
 
-**Client Action**:
+The server injects `sh` (sender hash) and provides only the specific payload for that device.
 
-- Update message status in SQLite (status = 2)
-- Show checkmark in UI
+**Inner Message Types** (after AES-GCM decryption):
 
-#### `DELIVERED_FAILED` (Server → Client)
+```typescript
+// Text message
+{ "t": "MSG", "data": { "text": "Hello!", "id": "uuid", "timestamp": 1704067200000, "replyTo": null } }
 
-**Purpose**: Notify that message could not be delivered (no online peers).
+// Edit message
+{ "t": "EDIT", "data": { "id": "uuid", "text": "Edited hello!", "timestamp": 1704067200000 } }
 
-**Notification**:
+// Delete message
+{ "t": "DELETE", "data": { "id": "uuid", "timestamp": 1704067200000 } }
+
+// Message reaction
+{ "t": "REACTION", "data": { "messageId": "uuid", "emoji": "👍", "action": "add" | "remove" } }
+
+// File metadata
+{ "t": "FILE_INFO", "data": { "name": "photo.jpg", "size": 2048576, "type": "image/jpeg", "thumbnail": "data:...", "messageId": "uuid" } }
+
+// File chunk request
+{ "t": "FILE_REQ_CHUNK", "data": { "messageId": "uuid", "chunkIndex": 0 } }
+
+// File chunk data
+{ "t": "FILE_CHUNK", "data": { "messageId": "uuid", "chunkIndex": 0, "payload": "base64_data", "isLast": false } }
+
+// Call signaling
+{ "t": "CALL_START", "data": { "type": "Audio" | "Video" } }
+{ "t": "CALL_ACCEPT" }
+{ "t": "CALL_END" }
+{ "t": "CALL_BUSY" }
+
+// Profile sync
+{ "t": "PROFILE_VERSION", "data": { "name_version": 2, "avatar_version": 1 } }
+{ "t": "GET_PROFILE" }
+{ "t": "PROFILE_DATA", "data": { "name": "...", "avatar": "data:...", "name_version": 2, "avatar_version": 1 } }
+
+// Cross-device state sync
+{ "t": "MANIFEST", "manifest": { "blocks": [...], "requests": [...], "aliases": [...], "profile": {...}, "messages": [...] } }
+
+// Cross-device call awareness
+{ "t": "SYNC_CALL_ACCEPT", "data": { "callSid": "..." } }
+{ "t": "SYNC_CALL_END", "data": { "callSid": "..." } }
+```
+
+#### `DELIVERED` / `DELIVERED_FAILED` (Server → Client)
 
 ```json
-{
-  "t": "DELIVERED_FAILED",
-  "sid": "1704067200000_a3f7d2e1"
-}
+{ "t": "DELIVERED", "sid": "session_id" }
+{ "t": "DELIVERED_FAILED", "sid": "session_id" }
 ```
 
-**Client Action**:
+- **DELIVERED**: Server successfully forwarded the frame to at least one peer device. Client updates `messages.status = 2`.
+- **DELIVERED_FAILED**: No peer devices were online. Client keeps `status = 1` (pending) and retries on `PEER_ONLINE`.
 
-- Keep message in pending state
-- Retry when `PEER_ONLINE` received
+---
 
 ### 5. WebRTC Signaling Frames
 
+These three frames carry encrypted SDP/ICE data for WebRTC call establishment. The relay server relays them opaquely — it cannot read the SDP.
+
 #### `RTC_OFFER` (Bidirectional)
-
-**Purpose**: Send WebRTC Session Description Protocol (SDP) offer.
-
-**Frame**:
 
 ```json
 {
   "t": "RTC_OFFER",
-  "sid": "1704067200000_a3f7d2e1",
-  "data": {
-    "payload": "encrypted_sdp_offer_json"
-  }
+  "sid": "session_id",
+  "data": { "payload": "aes_gcm_encrypted_sdp_offer_json" }
 }
 ```
 
 #### `RTC_ANSWER` (Bidirectional)
 
-**Purpose**: Send WebRTC SDP answer.
-
-**Frame**:
-
 ```json
 {
   "t": "RTC_ANSWER",
-  "sid": "1704067200000_a3f7d2e1",
-  "data": {
-    "payload": "encrypted_sdp_answer_json"
-  }
+  "sid": "session_id",
+  "data": { "payload": "aes_gcm_encrypted_sdp_answer_json" }
 }
 ```
 
 #### `RTC_ICE` (Bidirectional)
 
-**Purpose**: Send WebRTC ICE candidate.
-
-**Frame**:
-
 ```json
 {
   "t": "RTC_ICE",
-  "sid": "1704067200000_a3f7d2e1",
-  "data": {
-    "payload": "encrypted_ice_candidate_json"
-  }
+  "sid": "session_id",
+  "data": { "payload": "aes_gcm_encrypted_ice_candidate_json" }
 }
 ```
 
-**Server Logic**:
-
-- Relay payload to the peer in the session.
-- No inspection of the encrypted payload.
-
-**Client Logic**:
-
-- Decrypt payload.
-- Pass SDP/Candidate to `RTCPeerConnection`.
-
-### 6. Error & Control Frames
-
-#### `ERROR` (Server → Client)
-
-**Purpose**: Notify client of errors.
-
-**Notification**:
+#### `GET_TURN_CREDS` / `TURN_CREDS`
 
 ```json
-{
-  "t": "ERROR",
-  "data": {
-    "message": "Authentication required"
-  }
-}
+{ "t": "GET_TURN_CREDS" }
 ```
-
-**Common Error Messages**:
-
-- `"Auth failed"`: Invalid token
-- `"Authentication required"`: Tried to use protected endpoint without auth
-- `"User not online"`: Target user not connected
-- `"Already logged in on another device"`: Email in use
-
-**Client Action**:
-
-- If auth error, trigger logout
-- Show notification to user
-
-#### `PING` (Server → Client)
-
-**Purpose**: Heartbeat to keep connection alive.
-
-**Frame**:
-
-```json
-{
-  "t": "PING"
-}
-```
-
-**Frequency**: Every 10 seconds
-
-**Client Action**: None (WebSocket layer handles it)
-
-#### `GET_TURN_CREDS` (Client → Server)
-
-**Purpose**: Request ephemeral TURN credentials for media relay (Voice Calls).
-
-**Request**:
-
-```json
-{
-  "t": "GET_TURN_CREDS"
-}
-```
-
-#### `TURN_CREDS` (Server → Client)
-
-**Purpose**: Return TURN credentials.
-
-**Response**:
 
 ```json
 {
@@ -638,65 +466,117 @@ The payload, when decrypted, contains a JSON object with its own type:
   "data": {
     "urls": ["turn:turn.example.com:3478?transport=udp"],
     "username": "1704999999:user",
-    "credential": "base64_password",
+    "credential": "base64_hmac_password",
     "ttl": 600
   }
 }
 ```
 
+---
+
+### 6. Device Management Frames
+
+#### `GET_DEVICES` / `DEVICE_LIST`
+
+```json
+{ "t": "GET_DEVICES" }
+```
+
+```json
+{
+  "t": "DEVICE_LIST",
+  "data": [
+    { "publicKey": "...", "lastSeen": 1704067200000 }
+  ]
+}
+```
+
+#### `UPDATE_PUBKEY`
+
+**Purpose**: Update the device's public key on the server (e.g., after an app reinstall that generated a new identity key).
+
+```json
+{
+  "t": "UPDATE_PUBKEY",
+  "data": { "publicKey": "new_pub_b64" }
+}
+```
+
+---
+
+### 7. Error & Control Frames
+
+#### `ERROR` (Server → Client)
+
+```json
+{
+  "t": "ERROR",
+  "data": { "message": "Authentication required" }
+}
+```
+
+**Common Error Messages**:
+
+| Message | Meaning | Client Action |
+|---------|---------|---------------|
+| `"Auth failed"` | Invalid or expired token | `logout()` |
+| `"Authentication required"` | Used protected endpoint without auth | `logout()` |
+| `"User not online"` | Target user not connected | Show notification |
+| `"User not found"` | Target user has no public key registered | Emit `request_failed` |
+| `"User blocked"` | Target user blocked the sender | Emit `request_failed` |
+| `"Rate limit exceeded"` | Too many messages sent | Emit `rate_limit_exceeded` |
+| `"Already logged in on another device"` | Email already connected (no multi-device support on this deployment) | `logout()` |
+
+#### `PING` (Server → Client)
+
+```json
+{ "t": "PING" }
+```
+
+Sent every ~30 seconds. No client action required.
+
+---
+
 ## Connection Lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Connecting: Client Opens WS
-    Connecting --> Connected: WS Open
-    Connected --> Authenticating: Send AUTH
-    Authenticating --> Failed: Invalid Token
-    Authenticating --> Authenticated: AUTH_SUCCESS
-    Authenticated --> Authenticated: SESSION_LIST Data Restores Local Cache
+    [*] --> Connecting: Client opens WebSocket
+    Connecting --> Connected: WS handshake OK
+    Connected --> Authenticating: Load sessions, send AUTH
+    Authenticating --> Failed: Invalid token
+    Authenticating --> Authenticated: AUTH_SUCCESS received
 
-    Failed --> Connecting: Retry
+    Failed --> Connecting: Auto-retry with backoff
 
-    Authenticated --> SessionActive: FRIEND_REQUEST / FRIEND_ACCEPT
-    SessionActive --> SessionActive: MSG, STREAM
+    Authenticated --> Ready: SESSION_LIST + PENDING_REQUESTS processed
+    Ready --> SessionActive: MSG / FRIEND_ACCEPT flows
+
+    SessionActive --> SessionActive: MSG, RTC_*, MANIFEST
     SessionActive --> PeerOffline: PEER_OFFLINE
     PeerOffline --> SessionActive: PEER_ONLINE
 
-    SessionActive --> Disconnected: WS Close
-    Authenticated --> Disconnected: WS Close
-    Disconnected --> Connecting: Auto-Reconnect
+    SessionActive --> Disconnected: WS closed
+    Ready --> Disconnected: WS closed
+    Authenticated --> Disconnected: WS closed
 
-    Disconnected --> [*]: Manual Close
+    Disconnected --> Connecting: Auto-reconnect
+    Disconnected --> [*]: Manual close / logout
 ```
 
-## Error Handling
-
-### Connection Errors
-
-| Error Condition    | Server Behavior                    | Client Behavior     |
-| ------------------ | ---------------------------------- | ------------------- |
-| Invalid JSON       | Close connection                   | Show error, retry   |
-| Unknown frame type | Ignore frame                       | N/A                 |
-| Missing SID        | Ignore frame                       | N/A                 |
-| Session not found  | Create session (for MSG) or ignore | Retry or show error |
-| Unauthorized       | Send ERROR frame                   | Logout              |
-
-### Message Delivery Guarantees
-
-- **At-most-once**: Server relays each MSG frame exactly once
-- **No persistence**: Messages not queued if peer offline
-- **Client responsibility**: Client queues messages locally and resends
+---
 
 ## Rate Limiting
 
-**Implemented Limits**:
+| Frame Type | Limit | Burst Behavior |
+|------------|-------|----------------|
+| `MSG` | 100 frames/second per client | Excess dropped; `ERROR { "Rate limit exceeded" }` sent |
+| `FRIEND_REQUEST` | 1 per 5 seconds per client | Rejected with error |
+| `AUTH` | 3 attempts/minute per IP | Temporary IP block (1 minute) |
 
-- **MSG Frames**: Max 100 messages/second per client (burst protection)
-- **CONNECT_REQ**: Max 1 request per 5 seconds per client
-- **AUTH Attempts**: Max 3 attempts per minute per IP address
+## Message Delivery Guarantees
 
-**Action on Limit Exceeded**:
-
-- Server sends `ERROR` frame with specific message
-- Excess messages are dropped/ignored
-- Repeated Auth violations result in temporary IP block (1 minute)
+- **At-most-once delivery**: The server relays each `MSG` frame exactly once to online peers
+- **No server persistence**: Messages are never stored on the server
+- **Client-side queuing**: Clients queue `status=1` messages locally and re-send via `syncPendingMessages()` when the peer comes back online
+- **MANIFEST sync**: Covers missed messages during offline periods via `sendManifestToPeer()`

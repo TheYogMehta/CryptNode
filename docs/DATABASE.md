@@ -45,7 +45,7 @@ erDiagram
         text text "Message content"
         text type "'text', 'image', 'file', etc."
         int timestamp "Unix timestamp"
-        int status "1=pending, 2=delivered, 3=read"
+        int status "1=pending, 2=delivered"
         int is_read "0 or 1"
         int _ver "Schema version"
         text reply_to "Reply message ID"
@@ -180,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_msg_sid ON messages(sid);
 | `text`      | TEXT    | Decrypted message content (or file metadata JSON)   |
 | `type`      | TEXT    | `'text'`, `'image'`, `'video'`, `'audio'`, `'file'` |
 | `timestamp` | INTEGER | Unix timestamp (milliseconds)                       |
-| `status`    | INTEGER | 1=Pending, 2=Delivered, 3=Read                      |
+| `status`    | INTEGER | 1=Pending, 2=Delivered                              |
 | `is_read`   | INTEGER | 0=Unread, 1=Read                                    |
 | `_ver`      | INTEGER | Schema version (currently 2)                        |
 | `reply_to`  | TEXT    | Message ID of replied message (optional)            |
