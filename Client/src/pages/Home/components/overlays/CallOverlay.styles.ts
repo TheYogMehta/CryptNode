@@ -8,9 +8,7 @@ export const OverlayContainer = styled.div<{ isMobile?: boolean }>`
   right: 0;
   bottom: 0;
   z-index: 12000;
-  background:
-    linear-gradient(rgba(2, 6, 23, 0.94), rgba(2, 6, 23, 0.96)),
-    ${colors.background.primary};
+  background: ${colors.background.primary};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -118,16 +116,17 @@ export const MaximizeButton = styled.button`
   position: absolute;
   top: ${spacing[2]};
   right: ${spacing[2]};
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
-  color: white;
-  border-radius: ${radii.sm};
+  background: ${colors.surface.primary};
+  border: 1px solid ${colors.border.subtle};
+  color: ${colors.text.primary};
+  border-radius: ${radii.md};
   padding: ${spacing[1]};
   cursor: pointer;
   z-index: 10;
+  box-shadow: ${shadows.md};
 
   &:hover {
-    background: rgba(0, 0, 0, 0.7);
+    background: ${colors.background.secondary};
   }
 `;
 
@@ -176,12 +175,18 @@ export const MinimizeButton = styled.div`
   top: ${spacing[10]};
   left: ${spacing[10]};
   cursor: pointer;
-  color: white;
-  opacity: 0.7;
+  color: ${colors.text.primary};
+  background: ${colors.surface.primary};
+  border: 1px solid ${colors.border.subtle};
+  border-radius: ${radii.lg};
+  padding: ${spacing[2]};
+  box-shadow: ${shadows.lg};
+  opacity: 0.92;
   z-index: 10;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, background-color 0.2s;
 
   &:hover {
     opacity: 1;
+    background: ${colors.background.secondary};
   }
 `;

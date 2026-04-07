@@ -39,6 +39,8 @@ export const ChatContainer = styled.div`
   position: relative;
   background-color: ${colors.background.primary};
   overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 `;
 
 export const ChatHeader = styled.div`
@@ -122,6 +124,8 @@ export const MessageList = styled.div`
   min-width: 0;
   position: relative;
   overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
@@ -136,6 +140,7 @@ export const MessageListInner = styled.div`
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  overflow-x: hidden;
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};

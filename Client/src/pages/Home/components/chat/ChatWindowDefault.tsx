@@ -99,6 +99,26 @@ interface PendingAttachment {
   mediaType: "image" | "video" | "file";
 }
 
+const ChatVirtuosoScroller = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentPropsWithoutRef<"div">
+>(({ style, ...props }, ref) => {
+  return (
+    <div
+      {...props}
+      ref={ref}
+      style={{
+        ...style,
+        overflowX: "hidden",
+        overscrollBehaviorX: "none",
+        scrollbarWidth: "none",
+      }}
+    />
+  );
+});
+
+ChatVirtuosoScroller.displayName = "ChatVirtuosoScroller";
+
 export const ChatWindowDefault = ({
   messages,
   onSend,
@@ -917,7 +937,12 @@ export const ChatWindowDefault = ({
       <MessageList>
         <Virtuoso
           ref={virtuosoRef}
-          style={{ height: "100%", scrollbarWidth: "none" as const }}
+          style={{
+            height: "100%",
+            overflowX: "hidden",
+            overscrollBehaviorX: "none",
+            scrollbarWidth: "none" as const,
+          }}
           data={filteredMessages}
           firstItemIndex={firstItemIndex}
           initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
@@ -931,6 +956,7 @@ export const ChatWindowDefault = ({
             if (onLoadMore && !isLoadingHistory) onLoadMore();
           }}
           components={{
+            Scroller: ChatVirtuosoScroller,
             Header: () => isLoadingHistory ? (
               <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
                  Loading older messages...

@@ -173,6 +173,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     }
   }, [isMinimized, client]);
 
+  useEffect(() => {
+    if (callState?.type === "Video") return;
+    setHasRemoteVideo(false);
+  }, [callState?.type]);
+
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -215,7 +220,8 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const activeMode =
     isVideoEnabled || callState?.type === "Video" ? "Video Call" : "Voice Call";
 
-  const shouldShowRemoteVideo = hasRemoteVideo;
+  const shouldShowRemoteVideo =
+    callState?.type === "Video" && hasRemoteVideo;
   const avatarImageStyle = {
     width: "100%",
     height: "100%",
@@ -402,15 +408,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
           </IconButton>
 
-          {(isVideoEnabled || callState.type === "Video") && (
-            <IconButton
-              variant={isVideoEnabled ? "primary" : neutralCallButtonVariant}
-              size="sm"
-              onClick={toggleVideo}
-            >
-              {isVideoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
-            </IconButton>
-          )}
+          <IconButton
+            variant={isVideoEnabled ? "primary" : neutralCallButtonVariant}
+            size="sm"
+            onClick={toggleVideo}
+          >
+            {isVideoEnabled ? <Video size={16} /> : <VideoOff size={16} />}
+          </IconButton>
 
 
 
