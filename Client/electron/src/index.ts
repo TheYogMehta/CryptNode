@@ -175,6 +175,25 @@ ipcMain.handle("open-external-url", async (_event, url: string) => {
   }
 });
 
+ipcMain.handle("open-path", async (_event, targetPath: string) => {
+  try {
+    if (!targetPath || typeof targetPath !== "string") {
+      return false;
+    }
+
+    const normalizedPath = path.normalize(targetPath);
+    if (!fs.existsSync(normalizedPath)) {
+      return false;
+    }
+
+    const result = await shell.openPath(normalizedPath);
+    return result === "";
+  } catch (e) {
+    console.error("[Main] Failed to open path:", e);
+    return false;
+  }
+});
+
 ipcMain.handle(
   "save-to-downloads",
   async (

@@ -729,13 +729,9 @@ const Home = () => {
 
               {state.view === "chat" && state.activeChat === "secure-vault" ? (
               <SecureChatWindow
-                onBack={() => {
-                  actions.setActiveChat(null);
-                  actions.setView("welcome");
-                  if (isMobile) {
-                    actions.setIsSidebarOpen(true);
-                  }
-                }}
+                onBack={
+                  isMobile ? () => actions.setIsSidebarOpen(true) : undefined
+                }
               />
               ) : state.view === "chat" && state.activeChat === "local-llm" ? (
               <LocalLLMChatWindow
@@ -743,13 +739,9 @@ const Home = () => {
                 setMessages={setLocalAiMessages}
                 draft={localAiDraft}
                 setDraft={setLocalAiDraft}
-                onBack={() => {
-                  actions.setActiveChat(null);
-                  actions.setView("welcome");
-                  if (isMobile) {
-                    actions.setIsSidebarOpen(true);
-                  }
-                }}
+                onBack={
+                  isMobile ? () => actions.setIsSidebarOpen(true) : undefined
+                }
                 onOpenSettings={() => {
                   setSettingsTab("Local AI");
                   setShowSettings(true);

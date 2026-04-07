@@ -93,7 +93,7 @@ export const useSecureChat = () => {
           } else {
             setMfaOnboarding(null);
           }
-          setError("Enter your authenticator code to unlock.");
+          setError(null);
           return { ok: false, requiresMfa: true };
         }
 
@@ -194,7 +194,7 @@ export const useSecureChat = () => {
         const derivedKey = await deriveKey(mnemonic, hexToUint8Array(saltHex));
         setKey(null);
         setIsUnlocked(false);
-        setError("Set up authenticator and verify OTP to unlock vault.");
+        setError(null);
 
         const { content: encryptedVerifier, iv: verifierIv } = await encryptData(
           "VERIFIER_CHECK",

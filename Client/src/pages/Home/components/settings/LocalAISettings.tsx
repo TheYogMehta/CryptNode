@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import toast from "react-hot-toast";
+import { FolderOpen } from "lucide-react";
 import { colors } from "../../../../theme/design-system";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { RECOMMENDED_MODELS, LocalAIModel } from "../../../../services/ai/models";
@@ -15,7 +16,6 @@ export const LocalAISettings = () => {
   const [warningModel, setWarningModel] = useState<LocalAIModel | null>(null);
   const [editingParams, setEditingParams] = useState<{id: string, name: string, description: string} | null>(null);
   const [downloadFolder, setDownloadFolder] = useState<string>("");
-  const [copied, setCopied] = useState(false);
   const [deleteModelId, setDeleteModelId] = useState<string | null>(null);
   const [removeModelId, setRemoveModelId] = useState<string | null>(null);
   const [isDeletingModel, setIsDeletingModel] = useState(false);
@@ -175,16 +175,21 @@ export const LocalAISettings = () => {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
-  const handleCopyFolder = async () => {
+  const handleOpenFolder = async () => {
     if (!downloadFolder) return;
+    if (!window.electron?.openPath) {
+      toast.error("Opening the model folder is only supported in the desktop app.");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(downloadFolder);
-      setCopied(true);
-      toast.success("Download folder copied.");
-      setTimeout(() => setCopied(false), 2000);
+      const opened = await window.electron.openPath(downloadFolder);
+      if (!opened) {
+        toast.error("Failed to open the model folder.");
+      }
     } catch (e) {
-      console.error("Failed to copy download folder", e);
-      toast.error("Failed to copy download folder.");
+      console.error("Failed to open download folder", e);
+      toast.error("Failed to open the model folder.");
     }
   };
 
@@ -234,31 +239,25 @@ export const LocalAISettings = () => {
             {folderDisplay}
           </span>
           <button
-            onClick={handleCopyFolder}
-            title="Copy path"
+            onClick={handleOpenFolder}
+            title="Open folder"
             style={{
-              background: "transparent",
-              border: "none",
+              background: colors.surface.primary,
+              border: `1px solid ${colors.border.subtle}`,
               cursor: "pointer",
-              padding: "4px",
+              padding: "6px 10px",
               display: "flex",
               alignItems: "center",
+              gap: "6px",
               justifyContent: "center",
-              borderRadius: "4px",
-              color: copied ? colors.status.success : colors.text.secondary,
+              borderRadius: "8px",
+              color: colors.text.secondary,
               transition: "all 0.2s ease",
+              flexShrink: 0,
             }}
           >
-            {copied ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-            )}
+            <FolderOpen size={14} />
+            <span style={{ fontSize: "12px", fontWeight: 500 }}>Open Folder</span>
           </button>
         </div>
       </div>

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("SafeStorage", {
 
 contextBridge.exposeInMainWorld("electron", {
   openExternal: (url: string) => ipcRenderer.invoke("open-external-url", url),
+  openPath: (targetPath: string) => ipcRenderer.invoke("open-path", targetPath),
   saveToDownloads: (base64Data: string, originalName: string) =>
     ipcRenderer.invoke("save-to-downloads", { base64Data, originalName }),
   deleteDatabaseFiles: (dbName: string) =>

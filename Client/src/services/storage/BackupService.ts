@@ -101,14 +101,18 @@ export class BackupService {
       const mediaFolder = zip.folder("media");
       for (const file of result.files) {
         if (file.type === "file") {
-          const contents = await Filesystem.readFile({
-            path: `${VAULT_DIR}/${file.name}`,
-            directory: Directory.Data,
-            encoding: Encoding.UTF8,
-          });
-          const contentStr = typeof contents.data === "string" ? contents.data : "";
-          if (mediaFolder && contentStr) {
-            mediaFolder.file(file.name, contentStr);
+          try {
+            const contents = await Filesystem.readFile({
+              path: `${VAULT_DIR}/${file.name}`,
+              directory: Directory.Data,
+              encoding: Encoding.UTF8,
+            });
+            const contentStr = typeof contents.data === "string" ? contents.data : "";
+            if (mediaFolder && contentStr !== undefined) {
+              mediaFolder.file(file.name, contentStr);
+            }
+          } catch (e) {
+            console.warn(`[BackupService] Skiping unreadable vault file: ${file.name}`);
           }
         }
       }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { IonIcon } from "@ionic/react";
 import {
-  arrowBackOutline,
+  menuOutline,
   hardwareChipOutline,
   trashOutline,
   paperPlaneOutline,
@@ -12,6 +12,7 @@ import {
 } from "ionicons/icons";
 import { localAIService } from "../../services/ai/localAI.service";
 import { colors } from "../../../src/theme/design-system";
+import { Avatar } from "../../components/ui/Avatar";
 import "./LocalLLMChatWindow.css";
 
 interface LocalLLMChatWindowProps {
@@ -88,12 +89,19 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
     return () => unsubscribe();
   }, [activeModel?.id]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const isInitialRender = useRef(true);
+
+  const scrollToBottom = (behavior: "smooth" | "auto" = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (isInitialRender.current && messages.length > 0) {
+      scrollToBottom("auto");
+      isInitialRender.current = false;
+    } else {
+      scrollToBottom("smooth");
+    }
   }, [messages, isGenerating]);
 
 
@@ -204,7 +212,9 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   const themeVars = {
     "--sc-bg-primary": colors.background.primary,
     "--sc-bg-secondary": colors.background.secondary,
+    "--sc-bg-tertiary": colors.background.tertiary,
     "--sc-surface-primary": colors.surface.primary,
+    "--sc-surface-secondary": colors.surface.secondary,
     "--sc-text-primary": colors.text.primary,
     "--sc-text-secondary": colors.text.secondary,
     "--sc-text-inverse": colors.text.inverse,
@@ -217,18 +227,18 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
     <div className="local-llm-root" style={themeVars}>
       <div className="local-llm-header">
         <div className="local-llm-header-left">
-          <button
-            onClick={onBack}
-            aria-label="Back"
-            className="local-llm-back-icon-btn"
-          >
-            <IonIcon icon={arrowBackOutline} className="icon-18" />
-          </button>
-          <div className="local-llm-icon-wrap">
-            <IonIcon
-              icon={hardwareChipOutline}
-              className="icon-20 icon-white"
-            />
+          {onBack && (
+            <button
+              onClick={onBack}
+              aria-label="Open sidebar"
+              title="Open sidebar"
+              className="local-llm-back-icon-btn"
+            >
+              <IonIcon icon={menuOutline} className="icon-18" />
+            </button>
+          )}
+          <div className="local-llm-icon-wrap" aria-hidden="true">
+            <Avatar name="Local AI" size="md" />
           </div>
           <div>
             <h2 className="local-llm-title">

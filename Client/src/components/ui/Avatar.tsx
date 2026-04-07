@@ -81,6 +81,12 @@ const StatusIndicator = styled.div<{ status: string }>`
 `;
 
 export const Avatar: React.FC<AvatarProps> = ({ src, name, size = "md", status }) => {
+    const [imageError, setImageError] = React.useState(false);
+
+    React.useEffect(() => {
+        setImageError(false);
+    }, [src]);
+
     const initials = name
         ? name
             .split(" ")
@@ -91,8 +97,12 @@ export const Avatar: React.FC<AvatarProps> = ({ src, name, size = "md", status }
 
     return (
         <Container size={size}>
-            {src ? (
-                <Image src={src} alt={name || "Avatar"} />
+            {src && !imageError ? (
+                <Image
+                    src={src}
+                    alt={name || "Avatar"}
+                    onError={() => setImageError(true)}
+                />
             ) : (
                 <Fallback size={size}>{initials}</Fallback>
             )}

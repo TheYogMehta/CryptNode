@@ -72,18 +72,27 @@ export class FileTransferService {
     }
 
     console.log(`[FileTransfer] Blob size ${blob.size}, type ${blob.type}`);
-    const base64Data = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const res = reader.result as string;
-        const base64 = res.includes(",") ? res.split(",")[1] : res;
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    console.log(`[FileTransfer] Base64 length: ${base64Data.length}`);
-    const vaultFilename = await StorageService.saveRawFile(base64Data);
+
+    let fullBase64 = "";
+    const CHUNK_SIZE_BYTES = 1024 * 1024 * 1.5;
+    for (let offset = 0; offset < blob.size; offset += CHUNK_SIZE_BYTES) {
+      const slice = blob.slice(offset, offset + CHUNK_SIZE_BYTES);
+      const base64Chunk = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          resolve(res.includes(",") ? res.split(",")[1] : res);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(slice);
+      });
+      fullBase64 += base64Chunk;
+
+      await new Promise(r => setTimeout(r, 10));
+    }
+
+    console.log(`[FileTransfer] Base64 length: ${fullBase64.length}`);
+    const vaultFilename = await StorageService.saveRawFile(fullBase64);
     console.log(`[FileTransfer] Saved to vault: ${vaultFilename}`);
 
     const thumbUri =

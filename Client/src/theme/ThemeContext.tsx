@@ -18,7 +18,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [messageLayout, setMessageLayoutState] =
-    useState<MessageLayout>("bubble");
+    useState<MessageLayout>("modern");
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("app-theme") as Theme;
@@ -29,9 +29,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const savedMessageLayoutRaw = localStorage.getItem("app-message-layout");
     const normalizedMessageLayout: MessageLayout =
-      savedMessageLayoutRaw === "modern" || savedMessageLayoutRaw === "discord"
+      savedMessageLayoutRaw === "bubble"
+        ? "bubble"
+        : savedMessageLayoutRaw === "modern" ||
+            savedMessageLayoutRaw === "discord"
         ? "modern"
-        : "bubble";
+        : "modern";
     setMessageLayoutState(normalizedMessageLayout);
     localStorage.setItem("app-message-layout", normalizedMessageLayout);
   }, []);

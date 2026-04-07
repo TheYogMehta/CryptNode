@@ -1,5 +1,6 @@
 import styled from "@emotion/styled";
 import { colors, spacing, radii, typography } from "../../../../theme/design-system";
+import { HomeActionButton } from "../HomeActionButton";
 
 export const WelcomeContainer = styled.div`
   flex: 1;
@@ -80,9 +81,17 @@ export const IconWrapper = styled.div`
 `;
 
 export const GreetingTitle = styled.h1`
+  margin: 0;
   margin-bottom: ${spacing[2]};
   font-size: ${typography.fontSize["3xl"]};
-  background: linear-gradient(to right, #fff, #818cf8);
+  font-weight: ${typography.fontWeight.bold};
+  line-height: 1.05;
+  color: ${colors.text.primary};
+  background: linear-gradient(
+    135deg,
+    ${colors.text.primary} 0%,
+    ${colors.primary.DEFAULT} 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 `;
@@ -107,42 +116,8 @@ export const ActionButtons = styled.div`
   justify-content: center;
 `;
 
-export const AddFriendButton = styled.button`
-  padding: ${spacing[4]} ${spacing[8]};
-  border-radius: ${radii.xl};
-  border: none;
-  background: ${colors.primary.DEFAULT};
-  color: white;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: ${spacing[2]};
-  box-shadow: 0 4px 12px ${colors.primary.subtle};
-  transition: transform 0.2s;
-
-  &:active {
-    transform: scale(0.96);
-  }
-`;
-
-export const SecondaryActionButton = styled.button`
-  padding: ${spacing[4]} ${spacing[6]};
-  border-radius: ${radii.xl};
-  border: 1px solid ${colors.border.subtle};
-  background: ${colors.surface.primary};
-  color: ${colors.text.primary};
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: ${spacing[2]};
-
-  &:hover {
-    background: ${colors.background.tertiary};
-  }
+export const WelcomeActionButton = styled(HomeActionButton)`
+  min-width: 164px;
 `;
 
 export const HighlightsSection = styled.div`

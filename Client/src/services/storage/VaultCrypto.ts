@@ -52,7 +52,8 @@ export const VaultCrypto = {
       );
 
       const ivBase64 = arrayBufferToBase64(iv.buffer);
-      const cipherBase64 = arrayBufferToBase64(cipherText);
+      // Use async chunked base64 conversion to prevent UI freezing on large payloads
+      const cipherBase64 = await arrayBufferToBase64Async(cipherText);
       
       // Pack into format VAULT_ENC_V1:[IV_BASE64]:[CIPHER_BASE64]
       return `${VAULT_ENC_PREFIX}${ivBase64}:${cipherBase64}`;
@@ -81,7 +82,8 @@ export const VaultCrypto = {
       const cipherBase64 = parts[2];
       
       const iv = base64ToArrayBuffer(ivBase64);
-      const cipherText = base64ToArrayBuffer(cipherBase64);
+      // Use async fetch conversion to prevent UI freezing on large payloads
+      const cipherText = await base64ToArrayBufferAsync(cipherBase64);
       const key = await getVaultKey(passphrase);
       
       const decrypted = await crypto.subtle.decrypt(
@@ -100,3 +102,32 @@ export const VaultCrypto = {
     }
   }
 };
+
+async function arrayBufferToBase64Async(buffer: ArrayBuffer): Promise<string> {
+  const blob = new Blob([buffer]);
+  if (blob.size === 0) return "";
+  const CHUNK_SIZE = 1024 * 1024 * 1.5; // 1.5MB chunks
+  let base64 = "";
+  for (let offset = 0; offset < blob.size; offset += CHUNK_SIZE) {
+    const slice = blob.slice(offset, offset + CHUNK_SIZE);
+    const chunkBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+         const res = reader.result as string;
+         resolve(res.includes(",") ? res.split(",")[1] : res);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(slice);
+    });
+    base64 += chunkBase64;
+    await new Promise(r => setTimeout(r, 4));
+  }
+  return base64;
+}
+
+async function base64ToArrayBufferAsync(base64: string): Promise<ArrayBuffer> {
+  if (!base64) return new ArrayBuffer(0);
+  const url = `data:application/octet-stream;base64,${base64}`;
+  const res = await fetch(url);
+  return res.arrayBuffer();
+}

@@ -1,9 +1,10 @@
 import React from "react";
 import { SidebarItem } from "./SidebarItem";
 import { SessionData } from "../../types";
-import ChatClient from "../../../../services/core/ChatClient";
 import {
+  Settings,
   Sparkles,
+  UserPlus,
 } from "lucide-react";
 import {
   SidebarContainer,
@@ -18,8 +19,8 @@ import {
   EmptyText,
   SidebarFooter,
 } from "./Sidebar.styles";
-import { Button } from "../../../../components/ui/Button";
 import { IconButton } from "../../../../components/ui/IconButton";
+import { HomeActionButton } from "../HomeActionButton";
 
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { Capacitor } from "@capacitor/core";
@@ -144,12 +145,14 @@ export const Sidebar = React.memo(
           </SessionList>
 
           <SidebarFooter>
-            <Button onClick={onAddPeer} fullWidth variant="primary">
-              + Connect
-            </Button>
-            <Button onClick={onSettings} fullWidth variant="secondary">
-              ⚙ Settings
-            </Button>
+            <HomeActionButton onClick={onAddPeer} fullWidth variant="primary">
+              <UserPlus />
+              Add Friend
+            </HomeActionButton>
+            <HomeActionButton onClick={onSettings} fullWidth variant="secondary">
+              <Settings />
+              Settings
+            </HomeActionButton>
           </SidebarFooter>
         </SidebarContainer>
       </>

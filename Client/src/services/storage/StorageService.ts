@@ -250,7 +250,7 @@ export const StorageService = {
 
       const rawData = typeof file.data === "string" ? file.data : "";
       if (!rawData) return "";
-      
+
       const dbKey = getCurrentDbKey();
       return dbKey ? await VaultCrypto.decrypt(rawData, dbKey) : rawData;
     } catch (e) {
@@ -273,7 +273,7 @@ export const StorageService = {
 
       const dbKey = getCurrentDbKey();
       if (!dbKey) return;
-      
+
       const encryptedData = await VaultCrypto.encrypt(data, dbKey);
       await Filesystem.writeFile({
         path,
@@ -323,32 +323,39 @@ export const StorageService = {
       let base64Data = await StorageService.readFile(fileName);
 
       if (!base64Data && isLocal) {
-          // Fallback for profile images which might be in a different directory
-          const raw = (fileName || "").split("/").pop() || fileName;
-          const profileCandidates = Array.from(
-            new Set([raw, raw.endsWith(".jpg") ? raw : `${raw}.jpg`]),
-          );
+        // Fallback for profile images which might be in a different directory
+        const raw = (fileName || "").split("/").pop() || fileName;
+        const profileCandidates = Array.from(
+          new Set([raw, raw.endsWith(".jpg") ? raw : `${raw}.jpg`]),
+        );
 
-          for (const profileName of profileCandidates) {
-            try {
-              const profileRead = await Filesystem.readFile({
-                path: `${PROFILE_DIR}/${profileName}`,
-                directory: Directory.Data,
-              });
-              if (typeof profileRead.data === "string") {
-                base64Data = profileRead.data;
-                break;
-              }
-            } catch (_e) {
-              // Try next candidate
+        for (const profileName of profileCandidates) {
+          try {
+            const profileRead = await Filesystem.readFile({
+              path: `${PROFILE_DIR}/${profileName}`,
+              directory: Directory.Data,
+            });
+            if (typeof profileRead.data === "string") {
+              base64Data = profileRead.data;
+              break;
             }
+          } catch (_e) {
+            // Try next candidate
           }
+        }
       }
 
       const mime = StorageUtils.getMimeType(fileName, mimeType);
 
       if (!base64Data) {
         console.error(`[Storage] Empty data for ${fileName}`);
+        if (!isLocal && fileName && !fileName.endsWith(".jpg")) {
+          try {
+            await executeDB("UPDATE media SET status = 'error' WHERE filename = ?", [fileName]);
+          } catch (e) {
+            // Ignore DB errors
+          }
+        }
         return "";
       }
 
@@ -359,7 +366,7 @@ export const StorageService = {
           const arrayBuffer = await resFetch.arrayBuffer();
           const { CompressionService } = await import("../media/CompressionService");
           const decompressedBuffer = await CompressionService.decompress(arrayBuffer, false) as ArrayBuffer;
-          
+
           base64Data = await new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -368,10 +375,10 @@ export const StorageService = {
             };
             reader.readAsDataURL(new Blob([decompressedBuffer]));
           });
-          
+
           await StorageService.saveRawFile(base64Data, fileName);
           // Only attempt to clear the flag in DB if it exists, errors silently if DB hasn't been initialized
-          await executeDB("UPDATE media SET is_compressed = 0 WHERE filename = ?", [fileName]).catch(() => {});
+          await executeDB("UPDATE media SET is_compressed = 0 WHERE filename = ?", [fileName]).catch(() => { });
         } catch (e) {
           console.error("[Storage] Auto-decompression failed:", e);
         }

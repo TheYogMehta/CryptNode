@@ -13,8 +13,7 @@ import {
   GreetingTitle,
   WelcomeMessage,
   ActionButtons,
-  AddFriendButton,
-  SecondaryActionButton,
+  WelcomeActionButton,
   HighlightsSection,
   HighlightsHeader,
   HighlightsEyebrow,
@@ -114,7 +113,7 @@ export const WelcomeView = ({
             </StatCard>
             <StatCard>
               <StatValue>{unreadCount}</StatValue>
-              <StatLabel>UNREAD ITEMS</StatLabel>
+              <StatLabel>UNREAD MESSAGES</StatLabel>
             </StatCard>
             {linkedDeviceCount > 1 && (
               <StatCard>
@@ -131,20 +130,20 @@ export const WelcomeView = ({
           </StatsGrid>
 
           <ActionButtons>
-            <AddFriendButton onClick={onAddFriend}>
-              <UserPlus size={20} />
+            <WelcomeActionButton variant="primary" onClick={onAddFriend}>
+              <UserPlus size={18} />
               <span>Add Friend</span>
-            </AddFriendButton>
+            </WelcomeActionButton>
 
-            <SecondaryActionButton onClick={onOpenVault}>
+            <WelcomeActionButton variant="secondary" onClick={onOpenVault}>
               <Lock size={18} />
               <span>Open Vault</span>
-            </SecondaryActionButton>
+            </WelcomeActionButton>
 
-            <SecondaryActionButton onClick={onOpenSettings}>
+            <WelcomeActionButton variant="secondary" onClick={onOpenSettings}>
               <Settings size={18} />
               <span>Settings</span>
-            </SecondaryActionButton>
+            </WelcomeActionButton>
           </ActionButtons>
         </WelcomeHero>
 

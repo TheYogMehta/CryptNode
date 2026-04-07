@@ -296,7 +296,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     {
       id: "Account",
       label: "Data & Storage",
-      description: "Sign out, delete account data, and storage controls.",
+      description: "Sign out or delete account data from this device.",
       icon: Database,
       keywords: ["sign out", "delete", "storage", "data"],
     },
@@ -424,12 +424,12 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         <Dialog open={true} onClose={onClose} fullScreen>
           <SettingsContainer>
             <MobileCategoryList>
-              <SidebarHeader style={{ padding: "16px", marginBottom: 0 }}>
+              <MobileHeader>
                 <BackButton disabled={isDeletingAccount} onClick={onClose}>
                   <ArrowLeft size={24} />
                 </BackButton>
-                <SidebarTitle>Settings</SidebarTitle>
-              </SidebarHeader>
+                <MobileTitle>Settings</MobileTitle>
+              </MobileHeader>
               <div style={{ padding: "16px" }}>
                 <SidebarSearch style={{ marginBottom: 0 }}>
                   <SearchInput

@@ -14,7 +14,7 @@ import {
 } from "@ionic/react";
 import {
   add,
-  arrowBackOutline,
+  menuOutline,
   documentTextOutline,
   keyOutline,
   lockClosedOutline,
@@ -77,21 +77,11 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
   const [canOpenOtpLink, setCanOpenOtpLink] = useState(false);
   const [autoOpenTriggered, setAutoOpenTriggered] = useState(false);
   const MFA_SETUP_SENTINEL = "__setup__";
-  const handleBack = () => onBack?.();
-
   const resetAccessFlow = () => {
     setPendingPin(null);
     setMfaToken("");
     setAutoOpenTriggered(false);
     clearMfaOnboarding();
-  };
-
-  const handleAccessBack = () => {
-    if (pendingPin) {
-      resetAccessFlow();
-      return;
-    }
-    handleBack();
   };
 
   const beginVaultAccess = () => {
@@ -381,12 +371,16 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
 
     return (
       <div className="secure-chat-access" style={themeVars}>
-        <button
-          onClick={handleAccessBack}
-          className="secure-chat-back-btn secure-chat-access-back"
-        >
-          Back
-        </button>
+        {onBack && (
+          <button
+            onClick={onBack}
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            className="secure-chat-back-icon-btn secure-chat-access-back"
+          >
+            <IonIcon icon={menuOutline} className="icon-18" />
+          </button>
+        )}
 
         <div className="secure-chat-access-panel">
           <div className="secure-chat-access-badge">
@@ -415,7 +409,8 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
             </div>
           ) : (
             <div className="secure-chat-access-verification">
-              {(Capacitor.getPlatform() === "android" || canOpenOtpLink) &&
+              {Capacitor.getPlatform() === "android" &&
+                canOpenOtpLink &&
                 mfaOnboarding?.otpAuthUri && (
                   <button
                     onClick={async () => {
@@ -499,13 +494,16 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
     <div className="secure-chat-root" style={themeVars}>
       <div className="secure-chat-header">
         <div className="secure-chat-header-left">
-          <button
-            onClick={handleBack}
-            aria-label="Back"
-            className="secure-chat-back-icon-btn"
-          >
-            <IonIcon icon={arrowBackOutline} className="icon-18" />
-          </button>
+          {onBack && (
+            <button
+              onClick={onBack}
+              aria-label="Open sidebar"
+              title="Open sidebar"
+              className="secure-chat-back-icon-btn"
+            >
+              <IonIcon icon={menuOutline} className="icon-18" />
+            </button>
+          )}
           <div className="secure-chat-shield">
             <IonIcon
               icon={shieldCheckmarkOutline}

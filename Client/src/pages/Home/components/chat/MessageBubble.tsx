@@ -1244,183 +1244,182 @@ export const MessageBubble = React.memo(
     return (
       <>
         <BubbleWrapper
-        isMe={isModernLayout ? false : isMe}
-        hasReactions={groupedReactions.length > 0}
-        onClickCapture={handleBubbleClickCapture}
-        onContextMenu={handleContextMenu}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          ...(isSelected
-            ? {
+          isMe={isModernLayout ? false : isMe}
+          hasReactions={groupedReactions.length > 0}
+          onClickCapture={handleBubbleClickCapture}
+          onContextMenu={handleContextMenu}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          style={{
+            ...(isSelected
+              ? {
                 backgroundColor: colors.primary.subtle,
                 borderRadius: "8px",
                 outline: `1px solid ${colors.primary.DEFAULT}`,
                 padding: "4px",
               }
-            : {}),
-        }}
-      >
-        {selectionMode && (
-          <div style={{ padding: "0 10px", display: "flex", alignItems: "center", cursor: "pointer" }}>
-            {isSelected ? (
-              <CheckCircle2 size={24} color={colors.primary.DEFAULT} />
-            ) : (
-              <Circle size={24} color={colors.text.tertiary} />
-            )}
-          </div>
-        )}
-        {!isModernLayout && (
-          <div
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: "60px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: Math.abs(swipeOffset) / 50,
-              transform: `translateX(${swipeOffset + 60}px)`,
-              color: "#6366f1",
-            }}
-          >
-            <Reply size={20} />
-          </div>
-        )}
-
-        {isModernLayout ? (
-          <div
-            style={{
-              display: "flex",
-              gap: "12px",
-              width: "100%",
-              minWidth: 0,
-              boxSizing: "border-box",
-              alignItems: "flex-start",
-              padding: "2px 12px 2px 16px",
-              borderRadius: "4px",
-              backgroundColor: isHovered ? colors.background.tertiary : "transparent",
-              transition: "background-color 0.1s",
-            }}
-          >
-            <div style={{ flexShrink: 0, marginTop: "2px" }}>
-              <Avatar
-                size="sm"
-                src={senderAvatar}
-                name={senderName || (isMe ? "You" : "User")}
-              />
+              : {}),
+          }}
+        >
+          {selectionMode && (
+            <div style={{ padding: "0 10px", display: "flex", alignItems: "center", cursor: "pointer" }}>
+              {isSelected ? (
+                <CheckCircle2 size={24} color={colors.primary.DEFAULT} />
+              ) : (
+                <Circle size={24} color={colors.text.tertiary} />
+              )}
             </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: "6px",
-                  marginBottom: "2px",
-                }}
-              >
-                <span style={{ fontWeight: 600, fontSize: "0.9rem", color: colors.text.primary, lineHeight: 1 }}>
-                  {senderName || (isMe ? "You" : "User")}
-                </span>
-                <span style={{ fontSize: "0.7rem", color: colors.text.tertiary, display: "flex", alignItems: "center", gap: "3px" }}>
-                  {timeString}
-                  {isMe && (
-                    <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.6 }}>
-                      {msg.status === 2 ? (
-                        <CheckCheck size={10} strokeWidth={2.5} color="#60a5fa" />
-                      ) : msg.status === 1 ? (
-                        <Check size={10} strokeWidth={2.5} />
-                      ) : (
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }}
-                        >
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <polyline points="12 6 12 12 16 14"></polyline>
-                        </svg>
-                      )}
-                    </span>
-                  )}
-                </span>
+          )}
+          {!isModernLayout && (
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: "60px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: Math.abs(swipeOffset) / 50,
+                transform: `translateX(${swipeOffset + 60}px)`,
+                color: "#6366f1",
+              }}
+            >
+              <Reply size={20} />
+            </div>
+          )}
+
+          {isModernLayout ? (
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                width: "100%",
+                minWidth: 0,
+                boxSizing: "border-box",
+                alignItems: "flex-start",
+                padding: "2px 12px 2px 16px",
+                borderRadius: "4px",
+                backgroundColor: isHovered ? colors.background.tertiary : "transparent",
+                transition: "background-color 0.1s",
+              }}
+            >
+              <div style={{ flexShrink: 0, marginTop: "2px" }}>
+                <Avatar
+                  size="sm"
+                  src={senderAvatar}
+                  name={senderName || (isMe ? "You" : "User")}
+                />
               </div>
-              {bubbleNode}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "6px",
+                    marginBottom: "2px",
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem", color: colors.text.primary, lineHeight: 1 }}>
+                    {senderName || (isMe ? "You" : "User")}
+                  </span>
+                  <span style={{ fontSize: "0.7rem", color: colors.text.tertiary, display: "flex", alignItems: "center", gap: "3px" }}>
+                    {timeString}
+                    {isMe && (
+                      <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.6 }}>
+                        {msg.status === 2 ? (
+                          <CheckCheck size={10} strokeWidth={2.5} color="#60a5fa" />
+                        ) : msg.status === 1 ? (
+                          <Check size={10} strokeWidth={2.5} />
+                        ) : (
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }}
+                          >
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                          </svg>
+                        )}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {bubbleNode}
+              </div>
             </div>
-          </div>
-        ) : (
-          bubbleNode
-        )}
+          ) : (
+            bubbleNode
+          )}
 
 
-        {groupedReactions.length > 0 && (
-          <ReactionBubble
-            isMe={isModernLayout ? false : isMe}
-            style={
-              isModernLayout
-                ? {
-                  left: "42px",
-                  right: "auto",
-                }
-                : undefined
-            }
-          >
-            {groupedReactions.map(([emoji, info]) => (
-              <span
-                key={emoji}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!msg.sid || !msg.id) return;
-                  if (info.mine) {
-                    // My reaction exists — remove it
-                    ChatClient.sendReaction(msg.sid, msg.id, emoji, "remove");
-                  } else {
-                    // No reaction from me — add it
-                    ChatClient.sendReaction(msg.sid, msg.id, emoji, "add");
-                    trackEmoji(emoji);
+          {groupedReactions.length > 0 && (
+            <ReactionBubble
+              isMe={isModernLayout ? false : isMe}
+              style={
+                isModernLayout
+                  ? {
+                    left: "42px",
+                    right: "auto",
                   }
-                  loadReactions();
-                }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "2px 8px",
-                  borderRadius: "999px",
-                  border: info.mine
-                    ? `1.5px solid ${colors.primary.DEFAULT}`
-                    : `1px solid ${colors.border.subtle}`,
-                  background: info.mine
-                    ? colors.primary.subtle
-                    : colors.background.tertiary,
-                  color: info.mine ? colors.primary.DEFAULT : colors.text.primary,
-                  fontSize: "12px",
-                  lineHeight: 1.2,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  userSelect: "none",
-                }}
-                title={info.mine ? "Click to remove your reaction" : "Click to react"}
-              >
-                <span style={{ fontSize: "14px" }}>{emoji}</span>
-                <span style={{ fontWeight: 500 }}>{info.count}</span>
-              </span>
-            ))}
-          </ReactionBubble>
-        )}
+                  : undefined
+              }
+            >
+              {groupedReactions.map(([emoji, info]) => (
+                <span
+                  key={emoji}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!msg.sid || !msg.id) return;
+                    if (info.mine) {
+                      // My reaction exists — remove it
+                      ChatClient.sendReaction(msg.sid, msg.id, emoji, "remove");
+                    } else {
+                      // No reaction from me — add it
+                      ChatClient.sendReaction(msg.sid, msg.id, emoji, "add");
+                      trackEmoji(emoji);
+                    }
+                    loadReactions();
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    border: info.mine
+                      ? `1.5px solid ${colors.primary.DEFAULT}`
+                      : `1px solid ${colors.border.subtle}`,
+                    background: info.mine
+                      ? colors.primary.subtle
+                      : colors.background.tertiary,
+                    color: info.mine ? colors.primary.DEFAULT : colors.text.primary,
+                    fontSize: "12px",
+                    lineHeight: 1.2,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    userSelect: "none",
+                  }}
+                  title={info.mine ? "Click to remove your reaction" : "Click to react"}
+                >
+                  <span style={{ fontSize: "14px" }}>{emoji}</span>
+                  <span style={{ fontWeight: 500 }}>{info.count}</span>
+                </span>
+              ))}
+            </ReactionBubble>
+          )}
 
 
-        {contextMenu !== null && (
           <Menu
             open={contextMenu !== null}
             onClose={(e: any) => {
@@ -1566,121 +1565,120 @@ export const MessageBubble = React.memo(
               </MenuItem>
             )}
           </Menu>
-        )}
 
-        {/* Per-message AI summary panel */}
-        {msgSummaryOpen && (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 3000,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(0,0,0,0.6)",
-              backdropFilter: "blur(4px)",
-            }}
-            onClick={() => setMsgSummaryOpen(false)}
-          >
+          {/* Per-message AI summary panel */}
+          {msgSummaryOpen && (
             <div
-              onClick={(e) => e.stopPropagation()}
               style={{
-                backgroundColor: "#1a1a2e",
-                border: "1px solid rgba(167,139,250,0.3)",
-                borderRadius: "16px",
-                padding: "20px",
-                width: "min(340px, 90vw)",
-                boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 3000,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(4px)",
+              }}
+              onClick={() => setMsgSummaryOpen(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  backgroundColor: "#1a1a2e",
+                  border: "1px solid rgba(167,139,250,0.3)",
+                  borderRadius: "16px",
+                  padding: "20px",
+                  width: "min(340px, 90vw)",
+                  boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <Sparkles size={16} color="#a78bfa" />
+                    <span style={{ color: "#fff", fontSize: "14px", fontWeight: 600 }}>Message Summary</span>
+                  </div>
+                  <button
+                    onClick={() => setMsgSummaryOpen(false)}
+                    style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: "2px" }}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* Body */}
+                {isInitializingForMsg ? (
+                  <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
+                    ⚙️ Initialising model...
+                  </p>
+                ) : isSummarizingMsg ? (
+                  <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
+                    ✨ Generating...
+                  </p>
+                ) : (
+                  <p style={{ color: "rgba(255,255,255,0.88)", fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
+                    {msgSummary}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showPicker && (
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 2000,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "rgba(0,0,0,0.5)",
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPicker(false);
               }}
             >
-              {/* Header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <Sparkles size={16} color="#a78bfa" />
-                  <span style={{ color: "#fff", fontSize: "14px", fontWeight: 600 }}>Message Summary</span>
-                </div>
-                <button
-                  onClick={() => setMsgSummaryOpen(false)}
-                  style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: "2px" }}
-                >
-                  <X size={16} />
-                </button>
+              <div onClick={(e) => e.stopPropagation()}>
+                <EmojiPicker
+                  onEmojiClick={(emoji: any) => {
+                    handleReaction(emoji);
+                    setShowPicker(false);
+                  }}
+                  onClose={() => setShowPicker(false)}
+                />
               </div>
-
-              {/* Body */}
-              {isInitializingForMsg ? (
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
-                  ⚙️ Initialising model...
-                </p>
-              ) : isSummarizingMsg ? (
-                <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", textAlign: "center", margin: 0 }}>
-                  ✨ Generating...
-                </p>
-              ) : (
-                <p style={{ color: "rgba(255,255,255,0.88)", fontSize: "13px", lineHeight: 1.6, margin: 0 }}>
-                  {msgSummary}
-                </p>
-              )}
             </div>
-          </div>
-        )}
+          )}
 
-        {showPicker && (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 2000,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: "rgba(0,0,0,0.5)",
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowPicker(false);
-            }}
-          >
-            <div onClick={(e) => e.stopPropagation()}>
-              <EmojiPicker
-                onEmojiClick={(emoji: any) => {
-                  handleReaction(emoji);
-                  setShowPicker(false);
-                }}
-                onClose={() => setShowPicker(false)}
-              />
-            </div>
-          </div>
-        )}
+          {pendingExternalUrl && (
+            <UnsafeLinkModal
+              url={pendingExternalUrl}
+              onCancel={() => setPendingExternalUrl(null)}
+              onConfirm={async () => {
+                await openExternalUrl(pendingExternalUrl);
+                setPendingExternalUrl(null);
+              }}
+            />
+          )}
+        </BubbleWrapper>
 
-        {pendingExternalUrl && (
-          <UnsafeLinkModal
-            url={pendingExternalUrl}
-            onCancel={() => setPendingExternalUrl(null)}
-            onConfirm={async () => {
-              await openExternalUrl(pendingExternalUrl);
-              setPendingExternalUrl(null);
-            }}
-          />
-        )}
-      </BubbleWrapper>
-
-      <FileViewerModal
-        isOpen={viewerOpen}
-        onClose={handleCloseViewer}
-        fileUrl={imageSrc}
-        fileName={msg.mediaOriginalName || msg.mediaFilename || msg.text || "File"}
-        mimeType={msg.mediaMime || "application/octet-stream"}
-        originalPath={msg.mediaFilename}
-      />
-    </>
+        <FileViewerModal
+          isOpen={viewerOpen}
+          onClose={handleCloseViewer}
+          fileUrl={imageSrc}
+          fileName={msg.mediaOriginalName || msg.mediaFilename || msg.text || "File"}
+          mimeType={msg.mediaMime || "application/octet-stream"}
+          originalPath={msg.mediaFilename}
+        />
+      </>
     );
   },
 );

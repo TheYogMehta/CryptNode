@@ -15,7 +15,7 @@ import {
   Camera as CameraIcon,
   FileText,
   Phone,
-  ArrowLeft,
+  Menu,
   X,
   Video,
   Smile,
@@ -148,6 +148,23 @@ export const ChatWindowDefault = ({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredMessages = useMemo(() => {
+    if (!normalizedSearch) return messages;
+
+    return messages.filter((msg) => {
+      const fields = [
+        msg.text || "",
+        msg.media?.name || "",
+        msg.mediaFilename || "",
+        msg.replyTo?.text || "",
+        msg.type || "",
+      ];
+      return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
+    });
+  }, [messages, normalizedSearch]);
+
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
@@ -298,32 +315,58 @@ export const ChatWindowDefault = ({
     pendingAttachmentsRef.current = pendingAttachments;
   }, [pendingAttachments]);
 
-  const prevLengthRef = useRef(messages.length);
+  const prevChatRef = useRef(activeChat);
+  const prevLengthRef = useRef(filteredMessages.length);
+
   useEffect(() => {
-    if (messages.length > prevLengthRef.current && virtuosoRef.current) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage?.sender === "me" || isAtBottom) {
-        const index = firstItemIndex + messages.length - 1;
-        if (pendingScrollTimeoutRef.current !== null) {
-          window.clearTimeout(pendingScrollTimeoutRef.current);
-        }
+    if (activeChat !== prevChatRef.current) {
+      if (virtuosoRef.current && filteredMessages.length > 0) {
+        const index = firstItemIndex + filteredMessages.length - 1;
         virtuosoRef.current.scrollToIndex({
           index,
           align: "end",
-          behavior: "smooth",
+          behavior: "auto",
         });
-        pendingScrollTimeoutRef.current = window.setTimeout(() => {
-          virtuosoRef.current?.scrollToIndex({
+      }
+      prevChatRef.current = activeChat;
+      prevLengthRef.current = filteredMessages.length;
+      return;
+    }
+
+    if (filteredMessages.length > prevLengthRef.current && virtuosoRef.current) {
+      const lastMessage = filteredMessages[filteredMessages.length - 1];
+      if (lastMessage?.sender === "me" || isAtBottom) {
+        const index = firstItemIndex + filteredMessages.length - 1;
+        const isBulkLoad = prevLengthRef.current === 0 && filteredMessages.length > 1;
+        
+        if (isBulkLoad) {
+          virtuosoRef.current.scrollToIndex({
             index,
             align: "end",
             behavior: "auto",
           });
-          pendingScrollTimeoutRef.current = null;
-        }, 100);
+        } else {
+          if (pendingScrollTimeoutRef.current !== null) {
+            window.clearTimeout(pendingScrollTimeoutRef.current);
+          }
+          virtuosoRef.current.scrollToIndex({
+            index,
+            align: "end",
+            behavior: "smooth",
+          });
+          pendingScrollTimeoutRef.current = window.setTimeout(() => {
+            virtuosoRef.current?.scrollToIndex({
+              index,
+              align: "end",
+              behavior: "auto",
+            });
+            pendingScrollTimeoutRef.current = null;
+          }, 100);
+        }
       }
     }
-    prevLengthRef.current = messages.length;
-  }, [messages, isAtBottom, firstItemIndex]);
+    prevLengthRef.current = filteredMessages.length;
+  }, [filteredMessages, activeChat, isAtBottom, firstItemIndex]);
 
   useEffect(() => {
     return () => {
@@ -609,21 +652,7 @@ export const ChatWindowDefault = ({
     setShowGifPicker(false);
   };
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
-  const filteredMessages = useMemo(() => {
-    if (!normalizedSearch) return messages;
 
-    return messages.filter((msg) => {
-      const fields = [
-        msg.text || "",
-        msg.media?.name || "",
-        msg.mediaFilename || "",
-        msg.replyTo?.text || "",
-        msg.type || "",
-      ];
-      return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
-    });
-  }, [messages, normalizedSearch]);
   return (
     <ChatContainer>
       {selectionMode ? (
@@ -650,8 +679,8 @@ export const ChatWindowDefault = ({
       ) : (
         <ChatHeader>
           {onBack && (
-            <BackButton onClick={onBack}>
-              <ArrowLeft size={24} />
+            <BackButton onClick={onBack} aria-label="Open sidebar" title="Open sidebar">
+              <Menu size={22} />
             </BackButton>
           )}
 
@@ -931,6 +960,7 @@ export const ChatWindowDefault = ({
           }}
           data={filteredMessages}
           firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
           followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
           alignToBottom
           atBottomStateChange={(bottom) => setIsAtBottom(bottom)}

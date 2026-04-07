@@ -16,7 +16,16 @@ const UserAvatar: React.FC<{
 
     const fetch = () => {
       avatarCacheService.getAvatar(avatarUrl).then((s) => {
-        if (active) setSrc(s);
+        if (!active) return;
+        if (!s) {
+          setSrc(null);
+          return;
+        }
+
+        const img = new window.Image();
+        img.onload = () => active && setSrc(s);
+        img.onerror = () => active && setSrc(null);
+        img.src = s;
       });
     };
 

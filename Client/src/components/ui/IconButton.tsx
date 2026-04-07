@@ -43,6 +43,17 @@ const getVariantStyles = (
           };
         }
       `;
+    case "ghost":
+      return `
+        background: ${isActive ? colors.primary.subtle : "transparent"};
+        color: ${isActive ? colors.primary.DEFAULT : colors.text.secondary};
+        border: 1px solid ${isActive ? colors.primary.subtle : "transparent"};
+        &:hover {
+          background: ${colors.background.tertiary};
+          color: ${colors.text.primary};
+          border-color: ${colors.border.subtle};
+        }
+      `;
     case "glass":
       return `
         background: ${isActive ? "white" : "rgba(255, 255, 255, 0.1)"};
@@ -113,6 +124,7 @@ export const IconButton = styled.button<IconButtonProps>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  background: transparent;
   border: none;
   border-radius: ${radii.full};
   cursor: pointer;

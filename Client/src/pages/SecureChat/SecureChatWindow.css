@@ -127,17 +127,6 @@
   margin: 0;
 }
 
-.secure-chat-back-btn {
-  align-self: flex-start;
-  margin-bottom: 12px;
-  border: 1px solid var(--sc-border-subtle);
-  background: transparent;
-  color: var(--sc-text-secondary);
-  border-radius: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
 .sc-title {
   margin: 0 0 8px 0;
 }
@@ -338,6 +327,13 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.secure-chat-back-icon-btn:hover,
+.secure-chat-search-btn:hover {
+  background: var(--sc-bg-secondary);
+  color: var(--sc-text-primary);
 }
 
 .secure-chat-search-btn.active {
