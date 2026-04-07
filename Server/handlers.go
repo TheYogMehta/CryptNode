@@ -963,31 +963,44 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			senderHash := emailHash(client.email)
 
-			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
-			hasSockets := false
-			if err == nil {
-				for rows.Next() {
-					hasSockets = true
-					var socketID string
-					rows.Scan(&socketID)
-					s.mu.Lock()
-					if targetClient, ok := s.clients[socketID]; ok {
-						respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
-						s.send(targetClient, Frame{T: "USER_BLOCKED_EVENT", Data: json.RawMessage(respData)})
-					}
-					s.mu.Unlock()
+			deleteResult, _ := s.db.Exec("DELETE FROM requests WHERE sender_hash = ? AND target_hash = ?", targetHash, senderHash)
+			pendingRequestRemoved := false
+			if deleteResult != nil {
+				if rowsAffected, err := deleteResult.RowsAffected(); err == nil && rowsAffected > 0 {
+					pendingRequestRemoved = true
 				}
-				rows.Close()
 			}
 
-			if !hasSockets {
-				respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
-				frameEvent, _ := json.Marshal(Frame{T: "USER_BLOCKED_EVENT", Data: json.RawMessage(respData)})
-				s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now())
+			if pendingRequestRemoved {
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", targetHash)
+				hasSockets := false
+				if err == nil {
+					for rows.Next() {
+						hasSockets = true
+						var socketID string
+						rows.Scan(&socketID)
+						s.mu.Lock()
+						if targetClient, ok := s.clients[socketID]; ok {
+							respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+							s.send(targetClient, Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+						}
+						s.mu.Unlock()
+					}
+					rows.Close()
+				}
+
+				if !hasSockets {
+					respData, _ := json.Marshal(map[string]string{"senderHash": senderHash})
+					frame, _ := json.Marshal(Frame{T: "FRIEND_DENIED", Data: json.RawMessage(respData)})
+					s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frame), time.Now())
+				}
 			}
 
 			// Broadcast SYNC_BLOCK to own devices
-			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]any{"targetHash": targetHash})
+			s.broadcastToOwnDevices(client.id, senderHash, "SYNC_BLOCK", map[string]any{
+				"targetHash":  targetHash,
+				"targetEmail": normalizeEmail(d.TargetEmail),
+			})
 
 			s.send(client, Frame{T: "USER_BLOCKED", Data: json.RawMessage(`{"success":true, "targetEmail":"` + d.TargetEmail + `"}`)})
 
