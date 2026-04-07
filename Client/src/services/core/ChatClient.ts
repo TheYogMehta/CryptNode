@@ -441,6 +441,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
         break;
       case "SYNC_UNFRIEND":
         if (data.targetHash && data.sid) {
+          if (this.callService.currentCallSid === data.sid) {
+            this.callService.endCall(data.sid).catch(() => {});
+          }
           this.sessionService.removeConnection(data.targetHash, data.sid, true);
           this.emit("session_updated");
         }
@@ -453,7 +456,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
               sidsToRemove.push(sid);
             }
           }
-          await Promise.all(sidsToRemove.map(sid => this.sessionService.removeConnection(data.senderHash, sid, true)));
+          await Promise.all(sidsToRemove.map(async sid => {
+            if (this.callService.currentCallSid === sid) {
+              await this.callService.endCall(sid).catch(() => {});
+            }
+            return this.sessionService.removeConnection(data.senderHash, sid, true);
+          }));
           if (sidsToRemove.length > 0) {
             this.emit("session_updated");
           }
@@ -767,6 +775,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public removeConnection(targetHash: string, sid: string, skipNetwork?: boolean) {
+    if (this.callService.currentCallSid === sid) {
+      this.callService.endCall(sid).catch(() => {});
+    }
     return this.sessionService.removeConnection(targetHash, sid, skipNetwork);
   }
 
