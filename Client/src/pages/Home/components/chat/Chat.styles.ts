@@ -130,6 +130,11 @@ export const MessageList = styled.div`
   &::-webkit-scrollbar {
     display: none;
   }
+  padding: ${spacing[4]};
+
+  @media (max-width: 768px) {
+    padding: ${spacing[2]};
+  }
 `;
 
 export const MessageListInner = styled.div`
@@ -210,7 +215,10 @@ export const ChatInput = styled.textarea`
   background: none;
   border: none;
   color: ${colors.text.primary};
+  caret-color: ${colors.text.primary};
+  -webkit-text-fill-color: ${colors.text.primary};
   font-size: ${typography.fontSize.base};
+  font-family: inherit;
   resize: none;
   max-height: 120px;
   padding: 0;

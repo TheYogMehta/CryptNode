@@ -3,7 +3,6 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { Capacitor } from "@capacitor/core";
 import ChatClient from "../../../../services/core/ChatClient";
 import { MessageBubble } from "./MessageBubble";
-import { PortShareModal } from "./PortShareModal";
 import { MediaModal } from "./MediaModal";
 import { FileUploadPreview } from "../overlays/FileUploadPreview";
 import { GifPicker } from "../../../../components/GifPicker";
@@ -11,12 +10,10 @@ import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
   Send,
   Mic,
-  Monitor,
   Plus,
   Image as ImageIcon,
   Camera as CameraIcon,
   FileText,
-  Globe,
   Phone,
   ArrowLeft,
   X,
@@ -26,7 +23,6 @@ import {
   Edit2,
   Trash2,
   Copy,
-  Lightbulb,
   Wand2,
   MoreVertical,
 } from "lucide-react";
@@ -138,15 +134,13 @@ export const ChatWindowDefault = ({
   const { messageLayout } = useTheme();
   const isAndroidPlatform = Capacitor.getPlatform() === "android";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
+  const { isInstalled: isAiInstalled } = useAIStatus();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [input, setInput] = useState("");
   const [isAtBottom, setIsAtBottom] = useState(true);
 
   const [showMenu, setShowMenu] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showPortModal, setShowPortModal] = useState(false);
-  const [port, setPort] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [mediaModalOpen, setMediaModalOpen] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -154,7 +148,6 @@ export const ChatWindowDefault = ({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAiSuggestions, setShowAiSuggestions] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
@@ -192,9 +185,9 @@ export const ChatWindowDefault = ({
   };
 
   const handleDeleteSelected = async () => {
-    if(!activeChat) return;
+    if (!activeChat) return;
     if (window.confirm(`Delete ${selectedMessages.size} selected message(s)?`)) {
-      for(const id of selectedMessages) {
+      for (const id of selectedMessages) {
         ChatClient.deleteMessage(activeChat, id);
       }
       clearSelection();
@@ -229,6 +222,7 @@ export const ChatWindowDefault = ({
 
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const optionsMenuRef = useRef<HTMLDivElement>(null);
+  const pendingScrollTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -308,23 +302,36 @@ export const ChatWindowDefault = ({
   useEffect(() => {
     if (messages.length > prevLengthRef.current && virtuosoRef.current) {
       const lastMessage = messages[messages.length - 1];
-      // Force scroll ONLY if I sent the message OR if I was already at the bottom
-      if (lastMessage.sender === "me" || isAtBottom) {
-        const index = messages.length - 1;
-        const scrollToBottom = () => {
+      if (lastMessage?.sender === "me") {
+        const index = firstItemIndex + messages.length - 1;
+        if (pendingScrollTimeoutRef.current !== null) {
+          window.clearTimeout(pendingScrollTimeoutRef.current);
+        }
+        virtuosoRef.current.scrollToIndex({
+          index,
+          align: "end",
+          behavior: "smooth",
+        });
+        pendingScrollTimeoutRef.current = window.setTimeout(() => {
           virtuosoRef.current?.scrollToIndex({
             index,
             align: "end",
-            behavior: "smooth",
+            behavior: "auto",
           });
-        };
-        scrollToBottom();
-        // One follow-up for layout shifts
-        setTimeout(scrollToBottom, 100);
+          pendingScrollTimeoutRef.current = null;
+        }, 100);
       }
     }
     prevLengthRef.current = messages.length;
-  }, [messages.length, isAtBottom]);
+  }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingScrollTimeoutRef.current !== null) {
+        window.clearTimeout(pendingScrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -613,31 +620,6 @@ export const ChatWindowDefault = ({
       return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
     });
   }, [messages, normalizedSearch]);
-
-
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
-
-  const generateQuickReplies = async () => {
-    if (isGeneratingReplies) return;
-
-    setIsGeneratingReplies(true);
-    try {
-      if (!localAIService.isLoaded) await localAIService.init();
-      const items = await localAIService.quickReplies(input, 3);
-      setQuickReplies(items);
-    } catch (e) {
-      console.error("Failed to generate replies", e);
-    } finally {
-      setIsGeneratingReplies(false);
-    }
-  };
-
-  useEffect(() => {
-    if (quickReplies.length > 0 && input.trim().length === 0) {
-    }
-  }, [input]);
-
   return (
     <ChatContainer>
       {selectionMode ? (
@@ -683,8 +665,8 @@ export const ChatWindowDefault = ({
               size="md"
               status={session?.isOwnDevice ? undefined : (peerOnline ? "online" : "offline")}
             />
-          <HeaderInfo>
-            <HeaderName>{headerName}</HeaderName>
+            <HeaderInfo>
+              <HeaderName>{headerName}</HeaderName>
               {session?.alias_name && session.alias_name !== (session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "")) && (
                 <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
                   {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
@@ -704,107 +686,107 @@ export const ChatWindowDefault = ({
               size="md"
               onClick={() => onStartCall("Audio")}
               title="Start Call"
-          >
-            <Phone size={20} />
-          </IconButton>
-          <IconButton
-            variant={showSearch ? "primary" : "ghost"}
-            size="md"
-            onClick={() => {
-              setShowSearch((prev) => {
-                const next = !prev;
-                if (!next) setSearchQuery("");
-                return next;
-              });
-            }}
-            title="Search"
-          >
-            <Search size={20} />
-          </IconButton>
-          {isAiInstalled && !isAndroidPlatform && (
-            <div style={{ position: "relative" }} ref={optionsMenuRef}>
-              <IconButton
-                variant="ghost"
-                size="md"
-                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                title="More Options"
-              >
-                <MoreVertical size={20} />
-              </IconButton>
-
-              {showOptionsMenu && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    right: 0,
-                    marginTop: "8px",
-                    backgroundColor: "rgba(20, 20, 30, 0.95)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "8px",
-                    padding: "8px",
-                    zIndex: 200,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                    minWidth: "180px",
-                    backdropFilter: "blur(10px)",
-                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                  }}
+            >
+              <Phone size={20} />
+            </IconButton>
+            <IconButton
+              variant={showSearch ? "primary" : "ghost"}
+              size="md"
+              onClick={() => {
+                setShowSearch((prev) => {
+                  const next = !prev;
+                  if (!next) setSearchQuery("");
+                  return next;
+                });
+              }}
+              title="Search"
+            >
+              <Search size={20} />
+            </IconButton>
+            {isAiInstalled && !isAndroidPlatform && (
+              <div style={{ position: "relative" }} ref={optionsMenuRef}>
+                <IconButton
+                  variant="ghost"
+                  size="md"
+                  onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                  title="More Options"
                 >
-                  <button
-                    onClick={() => {
-                      handleSummarize();
-                      setShowOptionsMenu(false);
-                    }}
-                    disabled={isSummarizing || localAIService.isLoading}
+                  <MoreVertical size={20} />
+                </IconButton>
+
+                {showOptionsMenu && (
+                  <div
                     style={{
+                      position: "absolute",
+                      top: "100%",
+                      right: 0,
+                      marginTop: "8px",
+                      backgroundColor: "rgba(20, 20, 30, 0.95)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "8px",
+                      padding: "8px",
+                      zIndex: 200,
                       display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "10px 12px",
-                      background: "transparent",
-                      border: "none",
-                      color:
-                        isSummarizing || localAIService.isLoading
-                          ? "rgba(255,255,255,0.5)"
-                          : "#ccc",
-                      cursor:
-                        isSummarizing || localAIService.isLoading
-                          ? "not-allowed"
-                          : "pointer",
-                      borderRadius: "4px",
-                      textAlign: "left",
-                      fontSize: "14px",
-                      transition: "background 0.2s",
+                      flexDirection: "column",
+                      gap: "4px",
+                      minWidth: "180px",
+                      backdropFilter: "blur(10px)",
+                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
                     }}
-                    onMouseOver={(e) => {
-                      if (!isSummarizing && !localAIService.isLoading)
-                        e.currentTarget.style.background =
-                          "rgba(255,255,255,0.1)";
-                    }}
-                    onMouseOut={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
                   >
-                    <FileText
-                      size={18}
-                      color={
-                        isSummarizing || localAIService.isLoading
-                          ? "#eda515"
-                          : undefined
+                    <button
+                      onClick={() => {
+                        handleSummarize();
+                        setShowOptionsMenu(false);
+                      }}
+                      disabled={isSummarizing || localAIService.isLoading}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "10px 12px",
+                        background: "transparent",
+                        border: "none",
+                        color:
+                          isSummarizing || localAIService.isLoading
+                            ? "rgba(255,255,255,0.5)"
+                            : "#ccc",
+                        cursor:
+                          isSummarizing || localAIService.isLoading
+                            ? "not-allowed"
+                            : "pointer",
+                        borderRadius: "4px",
+                        textAlign: "left",
+                        fontSize: "14px",
+                        transition: "background 0.2s",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isSummarizing && !localAIService.isLoading)
+                          e.currentTarget.style.background =
+                            "rgba(255,255,255,0.1)";
+                      }}
+                      onMouseOut={(e) =>
+                        (e.currentTarget.style.background = "transparent")
                       }
-                    />{" "}
-                    {isSummarizing || localAIService.isLoading
-                      ? "Loading AI..."
-                      : "Summarize Chat"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </HeaderActions>
-      </ChatHeader>
+                    >
+                      <FileText
+                        size={18}
+                        color={
+                          isSummarizing || localAIService.isLoading
+                            ? "#eda515"
+                            : undefined
+                        }
+                      />{" "}
+                      {isSummarizing || localAIService.isLoading
+                        ? "Loading AI..."
+                        : "Summarize Chat"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </HeaderActions>
+        </ChatHeader>
       )}
 
       {showSummary && (
@@ -945,7 +927,6 @@ export const ChatWindowDefault = ({
           }}
           data={filteredMessages}
           firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
           followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
           alignToBottom
           atBottomStateChange={(bottom) => setIsAtBottom(bottom)}
@@ -959,10 +940,9 @@ export const ChatWindowDefault = ({
             Scroller: ChatVirtuosoScroller,
             Header: () => isLoadingHistory ? (
               <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
-                 Loading older messages...
+                Loading older messages...
               </div>
             ) : null,
-            List: MessageListInner,
           }}
           itemContent={(index: number, msg: ChatMessage) => (
             <div style={{ marginBottom: 4 }}>
@@ -1262,121 +1242,6 @@ export const ChatWindowDefault = ({
         </InputContainer>
       ) : (
         <InputContainer>
-          {!showAiSuggestions && !input.trim() && !isAndroidPlatform && (
-            <div style={{ padding: "0 8px 8px 8px" }}>
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowAiSuggestions(true);
-                  if (!localAIService.isLoaded) await localAIService.init();
-                }}
-                disabled={localAIService.isLoading}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: 14,
-                  color: localAIService.isLoading
-                    ? "rgba(255,255,255,0.5)"
-                    : "#fff",
-                  background: "rgba(255,255,255,0.06)",
-                  padding: "5px 10px",
-                  fontSize: 12,
-                  cursor: localAIService.isLoading
-                    ? "not-allowed"
-                    : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <Lightbulb size={16} />
-                {localAIService.isLoading ? "Loading AI..." : "Catch Up"}
-              </button>
-            </div>
-          )}
-          {isAiInstalled &&
-            !isAndroidPlatform &&
-            showAiSuggestions &&
-            quickReplies.length > 0 &&
-            !isRecording && (
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  padding: "0 8px 8px 8px",
-                }}
-              >
-                {quickReplies.map((reply) => (
-                  <button
-                    key={reply}
-                    type="button"
-                    onClick={() => setInput(reply)}
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.2)",
-                      borderRadius: 14,
-                      color: "#fff",
-                      background: "rgba(255,255,255,0.06)",
-                      padding: "5px 10px",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {reply}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAiSuggestions(false);
-                  }}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "rgba(255,255,255,0.65)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  Hide
-                </button>
-                <button
-                  onClick={handleSummarize}
-                  disabled={isSummarizing || localAIService.isLoading}
-                  title="Summarize Chat"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor:
-                      isSummarizing || localAIService.isLoading
-                        ? "not-allowed"
-                        : "pointer",
-                    color:
-                      isSummarizing || localAIService.isLoading
-                        ? "rgba(255,255,255,0.5)"
-                        : "#ccc",
-                    marginRight: 10,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                  }}
-                >
-                  <FileText
-                    size={18}
-                    color={
-                      isSummarizing || localAIService.isLoading
-                        ? "#eda515"
-                        : undefined
-                    }
-                  />
-                  <span style={{ fontSize: 12 }}>
-                    {isSummarizing || localAIService.isLoading
-                      ? "Loading..."
-                      : "Summarize Chat"}
-                  </span>
-                </button>
-              </div>
-            )}
-
           <AttachmentButton
             active={showMenu}
             onClick={() => setShowMenu(!showMenu)}
@@ -1414,58 +1279,58 @@ export const ChatWindowDefault = ({
               }}
               placeholder={isRecording ? "" : "Message..."}
             />
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowGifPicker(!showGifPicker);
-                      setShowEmojiPicker(false);
-                    }}
-                    title="GIF"
-                    style={{
-                      color: "#f59e0b",
-                      fontSize: "11px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    GIF
-                  </IconButton>
-                  {isAiInstalled && !isAndroidPlatform && (
-                    <IconButton
-                      variant="ghost"
-                      size="sm"
-                      disabled={localAIService.isLoading}
-                      onClick={async () => {
-                        if (!input.trim()) return;
-                        if (!localAIService.isLoaded)
-                          await localAIService.init();
-                        const rewritten = await localAIService.smartCompose(
-                          input,
-                        );
-                        if (rewritten) setInput(rewritten);
-                      }}
-                      title="Rephrase"
-                      style={{
-                        color: localAIService.isLoading
-                          ? "rgba(139,92,246,0.5)"
-                          : "#8b5cf6",
-                      }}
-                    >
-                      <Wand2 size={16} />
-                    </IconButton>
-                  )}
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowEmojiPicker(!showEmojiPicker);
-                      setShowGifPicker(false);
-                    }}
-                    title="Emoji"
-                    style={{ color: "#fbbf24" }}
-                  >
-                    <Smile size={24} />
-                  </IconButton>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowGifPicker(!showGifPicker);
+                setShowEmojiPicker(false);
+              }}
+              title="GIF"
+              style={{
+                color: "#f59e0b",
+                fontSize: "11px",
+                fontWeight: 700,
+              }}
+            >
+              GIF
+            </IconButton>
+            {isAiInstalled && !isAndroidPlatform && (
+              <IconButton
+                variant="ghost"
+                size="sm"
+                disabled={localAIService.isLoading}
+                onClick={async () => {
+                  if (!input.trim()) return;
+                  if (!localAIService.isLoaded)
+                    await localAIService.init();
+                  const rewritten = await localAIService.smartCompose(
+                    input,
+                  );
+                  if (rewritten) setInput(rewritten);
+                }}
+                title="Rephrase"
+                style={{
+                  color: localAIService.isLoading
+                    ? "rgba(139,92,246,0.5)"
+                    : "#8b5cf6",
+                }}
+              >
+                <Wand2 size={16} />
+              </IconButton>
+            )}
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowEmojiPicker(!showEmojiPicker);
+                setShowGifPicker(false);
+              }}
+              title="Emoji"
+              style={{ color: "#fbbf24" }}
+            >
+              <Smile size={24} />
+            </IconButton>
 
           </InputWrapper>
 
@@ -1531,17 +1396,6 @@ export const ChatWindowDefault = ({
         </div>
       )}
 
-      <PortShareModal
-        isOpen={showPortModal}
-        onClose={() => setShowPortModal(false)}
-        port={port}
-        setPort={setPort}
-        onConfirm={() => {
-          setShowPortModal(false);
-          setShowMenu(false);
-        }}
-      />
-
       <MediaModal
         isOpen={mediaModalOpen}
         onClose={() => setMediaModalOpen(false)}
@@ -1562,16 +1416,16 @@ export const ChatWindowDefault = ({
           session={session}
           onClose={() => setShowProfileModal(false)}
           onSave={async (aliasName, notes) => {
-             await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
-             await updateSessionNotes(session.sid, notes);
-             ChatClient.sessionService.updateSessionNotes(session.sid, notes);
-             ChatClient.sessionService.emit("session_updated");
+            await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
+            await updateSessionNotes(session.sid, notes);
+            ChatClient.sessionService.updateSessionNotes(session.sid, notes);
+            ChatClient.sessionService.emit("session_updated");
           }}
           onGoToMessage={(msgId) => {
             setShowProfileModal(false);
             const index = messages.findIndex(m => m.id === msgId);
             if (index >= 0 && virtuosoRef.current) {
-               virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+              virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
             }
           }}
         />
