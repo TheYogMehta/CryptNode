@@ -143,8 +143,17 @@ export class ElectronCapacitorApp {
         contextIsolation: true,
         plugins: true,
         preload: preloadPath,
+        devTools: false,
       },
     });
+
+    this.MainWindow.webContents.on("before-input-event", (event, input) => {
+      // Disable Ctrl+Shift+I and F12
+      if ((input.control && input.shift && input.key.toLowerCase() === "i") || input.key === "F12") {
+        event.preventDefault();
+      }
+    });
+
     this.mainWindowState.manage(this.MainWindow);
 
     if (this.CapacitorFileConfig.backgroundColor) {
@@ -192,10 +201,8 @@ export class ElectronCapacitorApp {
       );
     }
 
-    // Setup the main manu bar at the top of our window.
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(this.AppMenuBarMenuTemplate),
-    );
+    // Disable the main menu bar at the top of our window completely.
+    Menu.setApplicationMenu(null);
 
     // If the splashscreen is enabled, show it first while the main window loads then switch it out for the main window, or just load the main window from the start.
     if (this.CapacitorFileConfig.electron?.splashScreenEnabled) {

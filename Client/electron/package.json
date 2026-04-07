@@ -1,6 +1,6 @@
 {
   "name": "cryptnode",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Electron cryptnode client using Capacitor",
   "author": {
     "name": "TheYogMehta",

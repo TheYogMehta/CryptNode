@@ -126,10 +126,17 @@ ipcMain.handle("GoogleLogin", async () => {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        devTools: false,
       },
     });
 
     authWindow.loadURL(googleLoginUrl);
+
+    authWindow.webContents.on("before-input-event", (event, input) => {
+      if ((input.control && input.shift && input.key.toLowerCase() === "i") || input.key === "F12") {
+        event.preventDefault();
+      }
+    });
 
     authWindow.webContents.on("will-redirect", (event, url) => {
       handleNavigation(url);
