@@ -35,8 +35,10 @@ export const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   position: relative;
   background-color: ${colors.background.primary};
+  overflow: hidden;
 `;
 
 export const ChatHeader = styled.div`
@@ -117,7 +119,13 @@ export const HeaderActions = styled.div`
 export const MessageList = styled.div`
   flex: 1;
   min-height: 0; // Ensures it can shrink if needed
+  min-width: 0;
   position: relative;
+  overflow: hidden;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 `;
 
 export const MessageListInner = styled.div`
@@ -125,6 +133,9 @@ export const MessageListInner = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${spacing[1]};
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};
@@ -148,10 +159,12 @@ export const InputContainer = styled.div`
   align-items: flex-end;
   gap: ${spacing[3]};
   position: relative;
-  border-top: 1px solid ${colors.border.subtle};
+  border-top: none;
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
+  overflow-x: hidden;
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};
@@ -170,8 +183,8 @@ export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
   align-items: center;
   gap: ${spacing[2]};
   min-height: 48px;
-  border: 1px solid
-    ${(props) => (props.isRateLimited ? colors.status.error : "transparent")};
+  border: none;
+  outline: none;
   transition: all 0.2s;
   ${(props) =>
     props.isRateLimited &&
@@ -180,11 +193,9 @@ export const InputWrapper = styled.div<{ isRateLimited?: boolean }>`
     `}
 
   &:focus-within {
-    border-color: ${(props) =>
-    props.isRateLimited ? colors.status.error : colors.primary.DEFAULT};
-    box-shadow: 0 0 0 2px
-      ${(props) =>
-    props.isRateLimited ? "rgba(239, 68, 68, 0.2)" : colors.primary.subtle};
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 `;
 
@@ -199,7 +210,16 @@ export const ChatInput = styled.textarea`
   max-height: 120px;
   padding: 0;
   outline: none;
+  box-shadow: none;
   line-height: 1.5;
+  -webkit-appearance: none;
+  
+  &:focus,
+  &:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
 
   &::placeholder {
     color: ${colors.text.tertiary};
@@ -351,6 +371,8 @@ export const BubbleWrapper = styled.div<{
   display: flex;
   justify-content: ${(props) => (props.isMe ? "flex-end" : "flex-start")};
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   position: relative;
   padding-left: ${(props) => (props.isMe ? spacing[12] : "0")};
   padding-right: ${(props) => (props.isMe ? "0" : spacing[12])};
@@ -368,6 +390,7 @@ export const Bubble = styled.div<{ isMe: boolean }>`
       ? `${radii.lg} 0 ${radii.lg} ${radii.lg}`
       : `0 ${radii.lg} ${radii.lg} ${radii.lg}`};
   max-width: 85%;
+  min-width: 0;
   position: relative;
   box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
   word-break: break-word;
@@ -388,9 +411,9 @@ export const Bubble = styled.div<{ isMe: boolean }>`
 
 export const ReplyContext = styled.div`
   padding: ${spacing[2]};
-  background-color: rgba(0, 0, 0, 0.15);
+  background-color: ${colors.background.secondary};
   border-radius: ${radii.md};
-  border-left: 3px solid rgba(255, 255, 255, 0.3);
+  border-left: 3px solid ${colors.primary.DEFAULT};
   margin-bottom: ${spacing[1]};
   font-size: ${typography.fontSize.xs};
   display: flex;
@@ -398,7 +421,7 @@ export const ReplyContext = styled.div`
   cursor: pointer;
 
   &:hover {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: ${colors.background.tertiary};
   }
 `;
 
@@ -438,11 +461,11 @@ export const HoverReactionBar = styled.div<{ isMe: boolean }>`
   display: flex;
   align-items: center;
   gap: 4px;
-  background-color: #232d36;
+  background-color: ${colors.surface.primary};
   padding: 4px 8px;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 1px solid ${colors.border.subtle};
+  box-shadow: ${shadows.lg};
   opacity: 0;
   visibility: hidden;
   transform: translateY(10px);
@@ -471,7 +494,7 @@ export const HoverReactionButton = styled.button`
 `;
 
 export const HoverMoreReactionsButton = styled.button`
-  background: rgba(255, 255, 255, 0.1);
+  background: ${colors.background.tertiary};
   border: none;
   border-radius: 50%;
   width: 24px;
@@ -480,13 +503,13 @@ export const HoverMoreReactionsButton = styled.button`
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #aebac1;
+  color: ${colors.text.secondary};
   margin-left: 2px;
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
+    background: ${colors.surface.highlight};
+    color: ${colors.text.primary};
   }
 `;
 
@@ -521,21 +544,36 @@ export const FileStatus = styled.div`
 `;
 
 // Media Styles
-export const MediaContainer = styled.div`
+export const uniformMediaFrameSize = "min(280px, 72vw)";
+
+export const MediaContainer = styled.div<{ uniformFrame?: boolean }>`
   position: relative;
   border-radius: ${radii.lg};
   overflow: hidden;
-  background-color: transparent;
+  background-color: ${(props) =>
+    props.uniformFrame ? colors.background.tertiary : "transparent"};
   display: flex;
   align-items: center;
   justify-content: center;
+  width: ${(props) => (props.uniformFrame ? uniformMediaFrameSize : "auto")};
+  max-width: 100%;
+  aspect-ratio: ${(props) => (props.uniformFrame ? "1 / 1" : "auto")};
 
   img,
   video {
-    max-width: 100%;
-    max-height: 300px;
     display: block;
     border-radius: ${radii.lg};
+    ${(props) =>
+      props.uniformFrame
+        ? css`
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          `
+        : css`
+            max-width: 100%;
+            max-height: 300px;
+          `}
   }
 `;
 
@@ -668,17 +706,17 @@ export const ContextMenuContainer = styled.div<{ x: number; y: number }>`
   position: fixed;
   top: ${(props) => props.y}px;
   left: ${(props) => props.x}px;
-  background-color: #232d36;
+  background-color: ${colors.surface.primary};
   border-radius: 16px;
   padding: 8px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: ${shadows.lg};
   z-index: 1000;
   min-width: 220px;
   animation: ${scaleIn} 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   transform-origin: top left;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid ${colors.border.subtle};
 `;
 
 export const ContextMenuItem = styled.div<{ variant?: "danger" }>`
@@ -687,13 +725,14 @@ export const ContextMenuItem = styled.div<{ variant?: "danger" }>`
   display: flex;
   align-items: center;
   gap: 16px;
-  color: ${(props) => (props.variant === "danger" ? "#ef4444" : "#e9edef")};
+  color: ${(props) =>
+    props.variant === "danger" ? colors.status.error : colors.text.primary};
   font-size: 14.5px;
   transition: background-color 0.2s;
   letter-spacing: 0.3px;
 
   &:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: ${colors.background.tertiary};
   }
 `;
 
@@ -702,10 +741,10 @@ export const ReactionBar = styled.div`
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background-color: #232d36;
+  background-color: ${colors.surface.primary};
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border: 1px solid ${colors.border.subtle};
+  box-shadow: ${shadows.lg};
   position: absolute;
   top: -55px; // Float above the menu
   left: 0;
@@ -739,7 +778,7 @@ export const ReactionButton = styled.button`
 `;
 
 export const MoreReactionsButton = styled.button`
-  background: rgba(255, 255, 255, 0.1);
+  background: ${colors.background.tertiary};
   border: none;
   border-radius: 50%;
   width: 32px;
@@ -748,12 +787,12 @@ export const MoreReactionsButton = styled.button`
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #aebac1;
+  color: ${colors.text.secondary};
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
+    background: ${colors.surface.highlight};
+    color: ${colors.text.primary};
   }
 `;
 
@@ -761,17 +800,17 @@ export const ReactionBubble = styled.div<{ isMe: boolean }>`
   position: absolute;
   bottom: -24px;
   ${(props) => (props.isMe ? "right: 0;" : "left: 0;")}
-  background-color: #232d36;
-  border: 1px solid #111b21;
+  background-color: ${colors.surface.primary};
+  border: 1px solid ${colors.border.subtle};
   padding: 4px 8px;
   border-radius: 20px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: ${shadows.md};
   font-size: 11px;
-  color: #aebac1;
+  color: ${colors.text.secondary};
   z-index: 10;
   cursor: pointer;
   white-space: normal;

@@ -36,6 +36,7 @@ import { FileBubble } from "./bubbles/FileBubble";
 import { FileViewerModal } from "./FileViewerModal";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
+import { useTheme } from "../../../../theme/ThemeContext";
 
 import { queryDB } from "../../../../services/storage/sqliteService";
 import { Reaction } from "../../types";
@@ -61,11 +62,13 @@ import {
   EditInput,
   EditActionButtons,
   EditButton,
+  uniformMediaFrameSize,
 } from "./Chat.styles";
 import {
   canCopySingleMessage,
   copySingleMessageToClipboard,
 } from "./chatClipboard";
+import { colors, shadows } from "../../../../theme/design-system";
 
 // ─── GifBubble ────────────────────────────────────────────────────────────────
 // Renders tenor/giphy GIFs without layout shift by reserving an aspect-ratio
@@ -84,13 +87,13 @@ const GifBubble: React.FC<{
     <div
       style={{
         position: "relative",
-        width: "100%",
-        maxWidth: "280px",
+        width: uniformMediaFrameSize,
+        maxWidth: "100%",
         marginBottom: "8px",
         borderRadius: "10px",
         overflow: "hidden",
         background: "#1a1a2e",
-        aspectRatio: "4 / 3",
+        aspectRatio: "1 / 1",
       }}
     >
       {/* Shimmer skeleton shown while loading */}
@@ -212,6 +215,7 @@ export const MessageBubble = React.memo(
     isSelected?: boolean;
     onToggleSelect?: (msg: ChatMessage) => void;
   }) => {
+    const { theme } = useTheme();
     const isMe = msg.sender === "me";
     const [imageSrc, setImageSrc] = useState<string | null>(null);
     const [swipeOffset, setSwipeOffset] = useState(0);
@@ -915,6 +919,8 @@ export const MessageBubble = React.memo(
       })
       : "";
     const isModernLayout = messageLayout === "modern" && msg.type !== "system";
+    const internalMessageColor =
+      theme === "light" ? "rgba(15, 23, 42, 0.75)" : "rgba(255, 255, 255, 0.6)";
 
     const bubbleNode = (
       <Bubble
@@ -1022,7 +1028,7 @@ export const MessageBubble = React.memo(
           <div
             style={{
               fontSize: "0.85rem",
-              color: "rgba(255, 255, 255, 0.6)",
+              color: internalMessageColor,
               textAlign: "center",
               fontStyle: "italic",
               padding: "4px 0",
@@ -1120,6 +1126,7 @@ export const MessageBubble = React.memo(
                         if (!media.isGif) {
                           return (
                             <MediaContainer
+                              uniformFrame={media.type === "image"}
                               style={{ marginBottom: "8px" }}
                               key={`${media.sourceUrl}-${idx}`}
                             >
@@ -1128,9 +1135,6 @@ export const MessageBubble = React.memo(
                                   src={media.resolvedUrl}
                                   alt="preview"
                                   style={{
-                                    width: "100%",
-                                    height: "auto",
-                                    maxHeight: "300px",
                                     borderRadius: "8px",
                                     cursor: "zoom-in",
                                   }}
@@ -1250,12 +1254,23 @@ export const MessageBubble = React.memo(
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{
-          ...(isSelected ? { backgroundColor: "rgba(99, 102, 241, 0.15)", borderRadius: "8px", outline: "1px solid #6366f1", padding: "4px" } : {})
+          ...(isSelected
+            ? {
+                backgroundColor: colors.primary.subtle,
+                borderRadius: "8px",
+                outline: `1px solid ${colors.primary.DEFAULT}`,
+                padding: "4px",
+              }
+            : {}),
         }}
       >
         {selectionMode && (
           <div style={{ padding: "0 10px", display: "flex", alignItems: "center", cursor: "pointer" }}>
-            {isSelected ? <CheckCircle2 size={24} color="#6366f1" /> : <Circle size={24} color="rgba(255,255,255,0.3)" />}
+            {isSelected ? (
+              <CheckCircle2 size={24} color={colors.primary.DEFAULT} />
+            ) : (
+              <Circle size={24} color={colors.text.tertiary} />
+            )}
           </div>
         )}
         {!isModernLayout && (
@@ -1284,10 +1299,12 @@ export const MessageBubble = React.memo(
               display: "flex",
               gap: "12px",
               width: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
               alignItems: "flex-start",
               padding: "2px 12px 2px 16px",
               borderRadius: "4px",
-              backgroundColor: isHovered ? "rgba(255,255,255,0.04)" : "transparent",
+              backgroundColor: isHovered ? colors.background.tertiary : "transparent",
               transition: "background-color 0.1s",
             }}
           >
@@ -1307,10 +1324,10 @@ export const MessageBubble = React.memo(
                   marginBottom: "2px",
                 }}
               >
-                <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "#f3f4f6", lineHeight: 1 }}>
+                <span style={{ fontWeight: 600, fontSize: "0.9rem", color: colors.text.primary, lineHeight: 1 }}>
                   {senderName || (isMe ? "You" : "User")}
                 </span>
-                <span style={{ fontSize: "0.7rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "3px" }}>
+                <span style={{ fontSize: "0.7rem", color: colors.text.tertiary, display: "flex", alignItems: "center", gap: "3px" }}>
                   {timeString}
                   {isMe && (
                     <span style={{ display: "flex", alignItems: "center", opacity: msg.status === 2 ? 1 : 0.6 }}>
@@ -1381,12 +1398,12 @@ export const MessageBubble = React.memo(
                   padding: "2px 8px",
                   borderRadius: "999px",
                   border: info.mine
-                    ? "1.5px solid #3b82f6"
-                    : "1px solid rgba(255,255,255,0.12)",
+                    ? `1.5px solid ${colors.primary.DEFAULT}`
+                    : `1px solid ${colors.border.subtle}`,
                   background: info.mine
-                    ? "rgba(59,130,246,0.18)"
-                    : "rgba(255,255,255,0.06)",
-                  color: info.mine ? "#bfdbfe" : "#d1d5db",
+                    ? colors.primary.subtle
+                    : colors.background.tertiary,
+                  color: info.mine ? colors.primary.DEFAULT : colors.text.primary,
                   fontSize: "12px",
                   lineHeight: 1.2,
                   cursor: "pointer",
@@ -1418,17 +1435,17 @@ export const MessageBubble = React.memo(
             }
             MenuListProps={{
               style: {
-                backgroundColor: "#1f2937",
-                color: "white",
+                backgroundColor: colors.surface.primary,
+                color: colors.text.primary,
                 borderRadius: "8px",
               },
             }}
             PaperProps={{
               style: {
-                backgroundColor: "#1f2937",
+                backgroundColor: colors.surface.primary,
                 borderRadius: "8px",
-                border: "1px solid rgba(255,255,255,0.08)",
-                boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+                border: `1px solid ${colors.border.subtle}`,
+                boxShadow: shadows.xl,
               },
             }}
           >

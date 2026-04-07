@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import ChatClient from "../../../services/core/ChatClient";
 import { executeDB, queryDB } from "../../../services/storage/sqliteService";
 import { ChatMessage } from "../types";
 
 interface UseCallLogicProps {
-  activeChatRef: React.MutableRefObject<string | null>;
+  activeChatRef: RefObject<string | null>;
   loadSessions: () => void;
   addMessage: (msg: ChatMessage) => void;
 }
@@ -16,6 +16,12 @@ export const useCallLogic = ({
 }: UseCallLogicProps) => {
   const [activeCall, setActiveCall] = useState<any>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+
+  
+  const addMessageRef = useRef(addMessage);
+  const loadSessionsRef = useRef(loadSessions);
+  useEffect(() => { addMessageRef.current = addMessage; }, [addMessage]);
+  useEffect(() => { loadSessionsRef.current = loadSessions; }, [loadSessions]);
 
   useEffect(() => {
     const client = ChatClient;
@@ -126,14 +132,13 @@ export const useCallLogic = ({
       const timestamp = Date.now();
 
       try {
-        // Use INSERT OR REPLACE so the final duration log overwrites the "Picked up" placeholder
         await executeDB(
           "INSERT OR REPLACE INTO messages (id, sid, sender, text, type, timestamp, status) VALUES (?, ?, 'system', ?, 'system', ?, 1)",
           [id, sid, text, timestamp],
         );
 
         if (activeChatRef.current === sid) {
-          addMessage({
+          addMessageRef.current({
             id,
             sid,
             text,
@@ -143,7 +148,7 @@ export const useCallLogic = ({
             status: 1,
           });
         }
-        loadSessions();
+        loadSessionsRef.current();
       } catch (e) {
         console.error("Failed to log call end:", e);
       }
@@ -173,7 +178,7 @@ export const useCallLogic = ({
       client.off("local_stream_ready", onLocalStream);
       client.off("remote_stream_ready", onRemoteStream);
     };
-  }, [addMessage, activeChatRef, loadSessions]);
+  }, []);
 
   return {
     state: {
@@ -181,8 +186,9 @@ export const useCallLogic = ({
       localStream,
     },
     actions: {
-      startCall: (sid: string, type: any) => ChatClient.startCall(sid, type),
-      switchStream: (mode: any) =>
+      startCall: (sid: string, type: "Audio" | "Video") =>
+        ChatClient.startCall(sid, type),
+      switchStream: (mode: "Audio" | "Video") =>
         activeCall ? ChatClient.switchStream(activeCall.sid, mode) : undefined,
       acceptCall: () =>
         activeCall ? ChatClient.acceptCall(activeCall.sid) : undefined,

@@ -9,7 +9,7 @@ interface ChatWindowProps {
   session?: SessionData;
   onFileSelect: (file: File, caption?: string) => void;
   peerOnline: boolean;
-  onStartCall: (mode: "Audio" | "Video" | "Screen") => void;
+  onStartCall: (mode: "Audio" | "Video") => void;
   onBack?: () => void;
   replyingTo: ChatMessage | null;
   setReplyingTo: (msg: ChatMessage | null) => void;

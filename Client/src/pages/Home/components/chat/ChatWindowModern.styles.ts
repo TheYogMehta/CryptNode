@@ -11,8 +11,10 @@ export const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   background-color: ${colors.background.secondary};
   position: relative;
+  overflow: hidden;
 `;
 
 export const Header = styled.div`
@@ -76,7 +78,9 @@ export const Status = styled.span<{ isOnline?: boolean }>`
 
 export const MessagesArea = styled.div`
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: ${spacing[6]};
   display: flex;
   flex-direction: column;
@@ -93,26 +97,25 @@ export const MessagesArea = styled.div`
 
 export const InputArea = styled.div`
   padding: ${spacing[4]};
-  background-color: ${colors.background.primary};
-  border-top: 1px solid ${colors.border.subtle};
+  background-color: ${colors.background.secondary};
+  border-top: none;
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
+  overflow-x: hidden;
 `;
 
 export const InputWrapper = styled.div`
   display: flex;
   align-items: center;
   gap: ${spacing[3]};
+  min-width: 0;
   background-color: ${colors.surface.primary};
   padding: ${spacing[2]} ${spacing[4]};
   border-radius: ${radii["2xl"]};
-  border: 1px solid ${colors.border.subtle};
-  transition: border-color 0.2s;
-
-  &:focus-within {
-    border-color: ${colors.primary.main};
-  }
+  border: none;
+  transition: background-color 0.2s;
 `;
 
 export const Input = styled.input`
@@ -124,6 +127,11 @@ export const Input = styled.input`
   padding: ${spacing[2]} 0;
   font-size: ${typography.fontSize.base};
   outline: none;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
 
   &::placeholder {
     color: ${colors.text.tertiary};

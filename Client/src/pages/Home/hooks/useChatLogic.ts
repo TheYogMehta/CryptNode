@@ -44,7 +44,7 @@ export const useChatLogic = (shouldInit: boolean = true) => {
       ...sessionLogic.actions,
       ...messageLogic.actions,
       ...callLogic.actions,
-      startCall: (type: any) => {
+      startCall: (type: "Audio" | "Video") => {
         if (sessionLogic.state.activeChat) {
           callLogic.actions.startCall(sessionLogic.state.activeChat, type);
         }
