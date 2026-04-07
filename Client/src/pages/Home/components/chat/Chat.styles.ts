@@ -175,6 +175,7 @@ export const InputContainer = styled.div`
   min-width: 0;
   box-sizing: border-box;
   overflow-x: hidden;
+  flex-shrink: 0;
 
   @media (max-width: 768px) {
     padding: ${spacing[2]};

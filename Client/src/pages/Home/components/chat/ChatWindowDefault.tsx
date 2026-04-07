@@ -124,9 +124,14 @@ const ChatVirtuosoHeader = ({ context }: { context?: { isLoadingHistory?: boolea
   );
 };
 
+const ChatVirtuosoFooter = () => {
+  return <div style={{ height: '24px' }} />;
+};
+
 const virtuosoComponents = {
   Scroller: ChatVirtuosoScroller,
   Header: ChatVirtuosoHeader,
+  Footer: ChatVirtuosoFooter,
 };
 
 export const ChatWindowDefault = ({

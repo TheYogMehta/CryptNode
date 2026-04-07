@@ -725,9 +725,9 @@ const Home = () => {
           onSettings={onOpenSettings}
           onOpenVault={onOpenVault}
           onGlobalSummary={generateGlobalSummary}
-          onLogout={async () => {
+          onLogout={() => {
             if (state.userEmail || ChatClient.userEmail) {
-              await ChatClient.logout();
+              ChatClient.lockSession();
               setShowSettings(false);
               setIsLocked(true);
             } else {

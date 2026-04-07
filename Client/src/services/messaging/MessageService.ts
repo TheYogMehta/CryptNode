@@ -171,8 +171,6 @@ export class MessageService extends EventEmitter {
           data.replyTo ? JSON.stringify(data.replyTo) : null,
         ],
       );
-      // Revive the session if it was previously deleted, so it appears in the UI again
-      await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
     } catch (e) {
       console.error("[MessageService] Failed to save received message:", e);
     }
@@ -212,9 +210,6 @@ export class MessageService extends EventEmitter {
         "INSERT INTO messages (id, sid, sender, text, type, timestamp, status, reply_to) VALUES (?, ?, 'me', ?, 'text', ?, 1, ?)",
         [id, sid, text, timestamp, replyTo ? JSON.stringify(replyTo) : null],
       );
-
-      // Revive the session if it was previously deleted
-      await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
 
       if (!this.client.sessionService.sessions[sid].online) {
         console.log(`[MessageService] Peer ${sid} is offline. Message queued locally.`);
@@ -457,7 +452,7 @@ export class MessageService extends EventEmitter {
           mediaRows
             .map((r: any) => r.filename)
             .filter(Boolean)
-            .map((filename: string) => StorageService.deleteFile(filename).catch(() => {})),
+            .map((filename: string) => StorageService.deleteFile(filename).catch(() => { })),
         );
       } catch (e) {
         console.warn("[MessageService] Failed to delete media files for chat:", e);
@@ -525,7 +520,7 @@ export class MessageService extends EventEmitter {
       await executeDB("DELETE FROM media WHERE message_id = ?", [messageId]);
 
       this.client.emit("message_deleted", { sid, id: messageId });
-      this.broadcastManifestToOwnDevices(false).catch(() => {});
+      this.broadcastManifestToOwnDevices(false).catch(() => { });
     } catch (e) {
       console.error("[MessageService] Failed to hard-delete message locally:", e);
     }
@@ -659,35 +654,35 @@ export class MessageService extends EventEmitter {
         }
 
         case "SYNC_REQ": {
-           try {
-             console.log(`[MessageService] Handling SYNC_REQ from ${sid}. Sending MANIFEST of our messages...`);
-             // We'll send our messages up to reasonable limit to fill their gap.
-             const missing = await queryDB(
-               "SELECT * FROM messages WHERE sid = ? AND sender = 'me' ORDER BY timestamp DESC LIMIT 300",
-               [sid]
-             );
-             // Also include anything they sent that we successfully stored, in case they lost their own messages.
-             const missingTheirs = await queryDB(
-               "SELECT * FROM messages WHERE sid = ? AND sender != 'me' ORDER BY timestamp DESC LIMIT 300",
-               [sid]
-             );
-             const combined = [...missing, ...missingTheirs].sort((a, b) => a.timestamp - b.timestamp);
-             const messageIds = combined.map(m => m.id);
-             let media: any[] = [];
-             if (messageIds.length > 0) {
-               const placeholders = messageIds.map(() => "?").join(",");
-               media = await queryDB(`SELECT * FROM media WHERE message_id IN (${placeholders})`, messageIds);
-               media = this.dedupeMediaRows(media);
-             }
-             const payloads = await this.client.encryptForSession(
-               sid,
-               JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: combined, media } } }), 0
-             );
-             this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-           } catch (e) {
-             console.warn(`[MessageService] Failed to handle SYNC_REQ`, e);
-           }
-           break;
+          try {
+            console.log(`[MessageService] Handling SYNC_REQ from ${sid}. Sending MANIFEST of our messages...`);
+            // We'll send our messages up to reasonable limit to fill their gap.
+            const missing = await queryDB(
+              "SELECT * FROM messages WHERE sid = ? AND sender = 'me' ORDER BY timestamp DESC LIMIT 300",
+              [sid]
+            );
+            // Also include anything they sent that we successfully stored, in case they lost their own messages.
+            const missingTheirs = await queryDB(
+              "SELECT * FROM messages WHERE sid = ? AND sender != 'me' ORDER BY timestamp DESC LIMIT 300",
+              [sid]
+            );
+            const combined = [...missing, ...missingTheirs].sort((a, b) => a.timestamp - b.timestamp);
+            const messageIds = combined.map(m => m.id);
+            let media: any[] = [];
+            if (messageIds.length > 0) {
+              const placeholders = messageIds.map(() => "?").join(",");
+              media = await queryDB(`SELECT * FROM media WHERE message_id IN (${placeholders})`, messageIds);
+              media = this.dedupeMediaRows(media);
+            }
+            const payloads = await this.client.encryptForSession(
+              sid,
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: combined, media } } }), 0
+            );
+            this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+          } catch (e) {
+            console.warn(`[MessageService] Failed to handle SYNC_REQ`, e);
+          }
+          break;
         }
 
         // ── Efficient peer sync handshake ──────────────────────────────────────
@@ -702,13 +697,6 @@ export class MessageService extends EventEmitter {
             const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
 
             console.log(`[MessageService] Handling SYNC_HINT from ${sid}: peerLatestFromYou=${peerLatestFromYou}, peerLatestFromMe=${peerLatestFromMe}, isOwnMessage=${isOwnMessage}`);
-
-            // Bail out if this session has been deleted locally — don't re-sync it
-            const deletedIds = await getDeletedSessionIds();
-            if (deletedIds.includes(sid)) {
-              console.log(`[MessageService] Skipping SYNC_HINT for deleted session ${sid}`);
-              break;
-            }
 
             // To the remote peer, "from you" means messages WE sent (sender='me' locally)
             // and "from me" means messages THEY sent (sender='other' locally)
@@ -1212,8 +1200,11 @@ export class MessageService extends EventEmitter {
 
             // ── messages section ──
             if (Array.isArray(manifest.messages) && manifest.messages.length > 0) {
-              // Collect deleted session IDs so we don't re-insert messages for them
-              const deletedSids = new Set(await getDeletedSessionIds());
+              const deletedRows = await queryDB("SELECT sid, deleted_at FROM sessions WHERE deleted_at > 0");
+              const deletedAtMap = new Map();
+              for (const r of deletedRows) {
+                deletedAtMap.set(r.sid, r.deleted_at);
+              }
 
               // Determine if this manifest came from an own device or a different peer.
               // Own-device manifests use sender values as-is ("me" stays "me").
@@ -1240,8 +1231,9 @@ export class MessageService extends EventEmitter {
 
               for (const msg of manifest.messages) {
                 if (!msg.id || !msg.sid || !msg.timestamp) continue;
-                if (deletedSids.has(msg.sid)) continue;
-                
+                const deletedAt = deletedAtMap.get(msg.sid) || 0;
+                if (msg.timestamp <= deletedAt) continue;
+
                 const senderValue = (!isOwnDevice)
                   ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
                   : (msg.sender || "unknown");
@@ -1380,7 +1372,7 @@ export class MessageService extends EventEmitter {
             console.log("[MessageService] Ignoring CALL_START sent by our own sibling device.");
             break;
           }
-          
+
           const incomingCallId = data?.callId;
           const isSameCall = (this.client.callService.incomingCallId === incomingCallId && incomingCallId);
           const isActuallyBusy = (this.client.callService.isCallConnected || (this.client.callService.isCalling && this.client.callService.currentCallSid !== sid));
@@ -1401,8 +1393,8 @@ export class MessageService extends EventEmitter {
           }
 
           if (isSameCall) {
-             console.log("[MessageService] Received duplicate CALL_START for same callId, ignoring.");
-             break;
+            console.log("[MessageService] Received duplicate CALL_START for same callId, ignoring.");
+            break;
           }
 
           console.log("[MessageService] Received CALL_START with callId:", incomingCallId);
@@ -1481,7 +1473,7 @@ export class MessageService extends EventEmitter {
         case "SYNC_CALL_END": {
           if (isOwnMessage && isOwnDeviceSession) {
             console.log(`[MessageService] A sibling device broadcasted ${data.type}. Stopping call state regionally.`);
-            
+
             const isLocalIncomingCall = (!this.client.callService.isCalling && this.client.callService.incomingCallSid === data.callSid);
 
             if (isLocalIncomingCall) {
@@ -1491,11 +1483,11 @@ export class MessageService extends EventEmitter {
                 : 0;
               this.client.callService.cleanupCall();
               // Emit so UI clears the ringing screen but does not log duplicates to DB
-              this.client.emit("call_ended", { 
-                sid: data.callSid, 
-                duration, 
-                connected, 
-                hideLog: true, 
+              this.client.emit("call_ended", {
+                sid: data.callSid,
+                duration,
+                connected,
+                hideLog: true,
                 reason: data.type === "SYNC_CALL_ACCEPT" ? "picked_up_elsewhere" : undefined,
                 callId: data.callId
               });
@@ -2234,7 +2226,6 @@ export class MessageService extends EventEmitter {
         replyTo ? JSON.stringify(replyTo) : null,
       ],
     );
-    await executeDB("UPDATE sessions SET deleted_at = 0 WHERE sid = ? AND deleted_at > 0", [sid]);
     this.broadcastManifestToOwnDevices(false).catch(() => { });
     return id;
   }

@@ -21,6 +21,7 @@ export const LocalAISettings = () => {
   const [isDeletingModel, setIsDeletingModel] = useState(false);
   const [isRemovingModel, setIsRemovingModel] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [customUrlError, setCustomUrlError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchState = async () => {
@@ -137,6 +138,7 @@ export const LocalAISettings = () => {
 
   const handleAddCustom = async () => {
     if (!customUrl.trim()) return;
+    setCustomUrlError(null);
     setIsAdding(true);
     try {
       // Basic check
@@ -151,7 +153,9 @@ export const LocalAISettings = () => {
       // Check format
       const urlObj = new URL(finalUrl);
       if (!urlObj.pathname.toLowerCase().endsWith(".gguf")) {
+        setCustomUrlError("URL must point to a .gguf file.");
         toast.error("URL must point to a .gguf file.");
+        setCustomUrl("");
         setIsAdding(false);
         return;
       }
@@ -161,7 +165,9 @@ export const LocalAISettings = () => {
       try {
         const headRes = await fetch(finalUrl, { method: "HEAD" });
         if (!headRes.ok) {
+          setCustomUrlError("Could not verify file URL. It may be broken or private.");
           toast.error("Could not verify file URL. It may be broken or private.");
+          setCustomUrl("");
           setIsAdding(false);
           return;
         }
@@ -172,13 +178,17 @@ export const LocalAISettings = () => {
 
         // Very basic validation: a GGUF should be at least a few MBs. Wait, if sizeBytes is 0, HEAD could be missing Content-Length header in CORS
         if (sizeBytes > 0 && sizeBytes < 1024 * 1024) {
+          setCustomUrlError("File appears too small to be a valid GGUF model.");
           toast.error("File appears too small to be a valid GGUF model.");
+          setCustomUrl("");
           setIsAdding(false);
           return;
         }
       } catch (headErr) {
         console.warn("Failed to ping URL", headErr);
+        setCustomUrlError("Could not verify file URL. Please check your internet or URL.");
         toast.error("Could not verify file URL. Please check your internet or URL.");
+        setCustomUrl("");
         setIsAdding(false);
         return;
       }
@@ -203,7 +213,9 @@ export const LocalAISettings = () => {
       setInstalledModels(prev => ({ ...prev, [newModel.id]: false }));
       toast.success("Custom model added to your library.");
     } catch {
+      setCustomUrlError("Please enter a valid direct GGUF URL.");
       toast.error("Please enter a valid direct GGUF URL.");
+      setCustomUrl("");
     }
     setIsAdding(false);
   };
@@ -439,9 +451,12 @@ export const LocalAISettings = () => {
           <input
             type="url"
             value={customUrl}
-            onChange={e => setCustomUrl(e.target.value)}
+            onChange={e => {
+              setCustomUrl(e.target.value);
+              setCustomUrlError(null);
+            }}
             placeholder="https://huggingface.co/.../model.gguf"
-            style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: `1px solid ${colors.border.subtle}`, background: colors.background.primary, color: colors.text.primary }}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: "4px", border: `1px solid ${customUrlError ? '#ef4444' : colors.border.subtle}`, background: colors.background.primary, color: colors.text.primary }}
           />
           <button
             onClick={handleAddCustom}
@@ -451,6 +466,11 @@ export const LocalAISettings = () => {
             {isAdding ? "Adding..." : "Add"}
           </button>
         </div>
+        {customUrlError && (
+          <p style={{ margin: "8px 0 0 0", fontSize: "12px", color: "#ef4444" }}>
+            {customUrlError}
+          </p>
+        )}
       </div>
       <ConfirmDialog
         open={!!warningModel}

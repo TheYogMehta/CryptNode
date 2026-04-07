@@ -129,6 +129,15 @@ export class AuthService extends EventEmitter {
     return await this.exportPub();
   }
 
+  public lockSession() {
+    this.authToken = null;
+    this.userEmail = null;
+    this.identityKeyPair = null;
+    this.pendingProfileClaims = null;
+    socket.disconnect();
+    this.emit("auth_error", { isManualLogout: true });
+  }
+
   public async logout(isManualLogout = false) {
     if (this.userEmail) {
       const key = await AccountService.getStorageKey(

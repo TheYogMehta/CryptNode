@@ -719,6 +719,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.authService.logout(isManualLogout);
   }
 
+  public lockSession() {
+    this.authService.lockSession();
+  }
+
   public async deleteAccount() {
     this.authService.setAuthToken("");
     return new Promise<void>((resolve) => {

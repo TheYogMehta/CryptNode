@@ -201,7 +201,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			s.send(client, Frame{T: "AUTH_SUCCESS", Data: json.RawMessage(respBytes)})
 
 			go func() {
-				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ?", eh)
+				rows, err := s.db.Query("SELECT id, event_data FROM offline_notifications WHERE email_hash = ? ORDER BY id ASC", eh)
 				if err == nil {
 					var idsToDelete []int
 					for rows.Next() {
