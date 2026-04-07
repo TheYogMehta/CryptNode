@@ -1483,6 +1483,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			resp := map[string]any{
 				"urls": []string{
+					"stun:" + turnHost + ":3478",
 					"turn:" + turnHost + ":3478?transport=udp",
 					"turn:" + turnHost + ":3478?transport=tcp",
 				},
