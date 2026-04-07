@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import ChatClient from "../../../services/core/ChatClient";
 import { queryDB, executeDB } from "../../../services/storage/sqliteService";
 import { getMessageTypeForUpload } from "../../../utils/mediaType";
@@ -6,9 +6,100 @@ import { ChatMessage } from "../types";
 
 interface UseMessageLogicProps {
   activeChat: string | null;
-  activeChatRef: React.MutableRefObject<string | null>;
+  activeChatRef: RefObject<string | null>;
   loadSessions: () => void;
 }
+
+const getMessageMediaScore = (message: ChatMessage) => {
+  let score = 0;
+  if (message.mediaStatus === "downloaded") score += 1_000_000;
+  else if (message.mediaStatus === "downloading") score += 100_000;
+  else if (message.mediaStatus === "pending") score += 10_000;
+
+  score += Number(message.mediaCurrentSize || 0);
+  score += Math.round(Number(message.mediaProgress || 0) * 100);
+  if (message.thumbnail) score += 10;
+  if (message.mediaFilename) score += 1;
+  return score;
+};
+
+const mergeDuplicateMessage = (
+  current: ChatMessage,
+  incoming: ChatMessage,
+): ChatMessage => {
+  const preferred =
+    getMessageMediaScore(incoming) >= getMessageMediaScore(current)
+      ? incoming
+      : current;
+
+  return {
+    ...current,
+    ...incoming,
+    text: incoming.text ?? current.text,
+    type: incoming.type || current.type,
+    replyTo: incoming.replyTo ?? current.replyTo,
+    thumbnail: preferred.thumbnail || current.thumbnail || incoming.thumbnail,
+    mediaStatus:
+      preferred.mediaStatus || current.mediaStatus || incoming.mediaStatus,
+    mediaFilename:
+      preferred.mediaFilename ||
+      current.mediaFilename ||
+      incoming.mediaFilename,
+    mediaOriginalName:
+      preferred.mediaOriginalName ||
+      current.mediaOriginalName ||
+      incoming.mediaOriginalName,
+    mediaTotalSize:
+      Math.max(
+        Number(current.mediaTotalSize || 0),
+        Number(incoming.mediaTotalSize || 0),
+      ) ||
+      current.mediaTotalSize ||
+      incoming.mediaTotalSize,
+    mediaCurrentSize:
+      Math.max(
+        Number(current.mediaCurrentSize || 0),
+        Number(incoming.mediaCurrentSize || 0),
+      ) ||
+      current.mediaCurrentSize ||
+      incoming.mediaCurrentSize,
+    mediaProgress:
+      Math.max(
+        Number(current.mediaProgress || 0),
+        Number(incoming.mediaProgress || 0),
+      ) ||
+      current.mediaProgress ||
+      incoming.mediaProgress,
+    mediaMime: preferred.mediaMime || current.mediaMime || incoming.mediaMime,
+  };
+};
+
+const dedupeMessages = (items: ChatMessage[]): ChatMessage[] => {
+  const deduped: ChatMessage[] = [];
+  const indexById = new Map<string, number>();
+
+  for (const item of items) {
+    const key = item.id;
+    if (!key) {
+      deduped.push(item);
+      continue;
+    }
+
+    const existingIndex = indexById.get(key);
+    if (existingIndex === undefined) {
+      indexById.set(key, deduped.length);
+      deduped.push(item);
+      continue;
+    }
+
+    deduped[existingIndex] = mergeDuplicateMessage(
+      deduped[existingIndex],
+      item,
+    );
+  }
+
+  return deduped;
+};
 
 export const useMessageLogic = ({
   activeChat,
@@ -28,13 +119,22 @@ export const useMessageLogic = ({
 
   useEffect(() => {
     if (activeChat) {
+      setMessages([]);
+      setFirstItemIndex(0);
+      setReplyingTo(null);
       loadHistory(activeChat);
     } else {
       setMessages([]);
+      setFirstItemIndex(0);
+      setReplyingTo(null);
     }
   }, [activeChat]);
 
-  const loadHistory = async (sid: string, beforeTimestamp?: number, maintainCount?: number) => {
+  const loadHistory = async (
+    sid: string,
+    beforeTimestamp?: number,
+    maintainCount?: number,
+  ) => {
     setIsLoadingHistory(true);
     let query = `SELECT m.*, 
               md.status as mediaStatus, 
@@ -60,15 +160,20 @@ export const useMessageLogic = ({
     params.push(limit);
 
     const rows = await queryDB(query, params);
-    const formatted = rows.map((r: any) => ({
-      ...r,
-      replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
-    }));
+    const formatted = dedupeMessages(
+      rows.map((r: any) => ({
+        ...r,
+        replyTo: r.reply_to ? JSON.parse(r.reply_to) : undefined,
+      })),
+    );
 
     if (!beforeTimestamp && !maintainCount) {
       // First load: Query total messages for this session
       try {
-        const countRows = await queryDB("SELECT COUNT(*) as count FROM messages WHERE sid = ?", [sid]);
+        const countRows = await queryDB(
+          "SELECT COUNT(*) as count FROM messages WHERE sid = ?",
+          [sid],
+        );
         const totalRows = countRows[0]?.count || 0;
         setFirstItemIndex(Math.max(0, totalRows - formatted.length));
       } catch (e) {
@@ -81,10 +186,10 @@ export const useMessageLogic = ({
         return formatted.reverse();
       });
     } else {
-      setFirstItemIndex(prev => Math.max(0, prev - formatted.length));
+      setFirstItemIndex((prev) => Math.max(0, prev - formatted.length));
       setMessages((prev) => {
         if (formatted.length === 0) return prev;
-        return [...formatted.reverse(), ...prev];
+        return dedupeMessages([...formatted.reverse(), ...prev]);
       });
     }
     setIsLoadingHistory(false);
@@ -107,15 +212,18 @@ export const useMessageLogic = ({
       if (messageBuffer.length === 0) return;
       const toAdd = [...messageBuffer];
       messageBuffer = [];
-      setMessages((prev) => [...prev, ...toAdd]);
+      setMessages((prev) => dedupeMessages([...prev, ...toAdd]));
 
       if (activeChatRef.current) {
-        const ids = toAdd.map(m => m.id);
+        const ids = toAdd.map((m) => m.id);
         const chunkSize = 500;
         for (let i = 0; i < ids.length; i += chunkSize) {
           const chunk = ids.slice(i, i + chunkSize);
-          const placeholders = chunk.map(() => '?').join(',');
-          executeDB(`UPDATE messages SET is_read = 1 WHERE id IN (${placeholders})`, chunk).catch(e => console.error("Batch update read status failed", e));
+          const placeholders = chunk.map(() => "?").join(",");
+          executeDB(
+            `UPDATE messages SET is_read = 1 WHERE id IN (${placeholders})`,
+            chunk,
+          ).catch((e) => console.error("Batch update read status failed", e));
         }
       }
     };
@@ -148,11 +256,11 @@ export const useMessageLogic = ({
         prev.map((m) =>
           m.id === messageId
             ? {
-              ...m,
-              mediaStatus: "downloaded",
-              mediaProgress: 1,
-              mediaFilename: filename || m.mediaFilename,
-            }
+                ...m,
+                mediaStatus: "downloaded",
+                mediaProgress: 1,
+                mediaFilename: filename || m.mediaFilename,
+              }
             : m,
         ),
       );
@@ -164,25 +272,26 @@ export const useMessageLogic = ({
       }
     };
 
-    client.on("message_status", ({ sid }) => {
-      if (sid === activeChatRef.current) {
-        loadHistory(sid, undefined, Math.max(30, messagesRef.current.length));
-      }
-    });
-
     const onMessageMetadataUpdated = (data: any) => {
-      const { sid, messageId, mediaOriginalName, mediaTotalSize, mediaMime, thumbnail } = data;
+      const {
+        sid,
+        messageId,
+        mediaOriginalName,
+        mediaTotalSize,
+        mediaMime,
+        thumbnail,
+      } = data;
       if (sid === activeChatRef.current) {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === messageId
               ? {
-                ...m,
-                mediaOriginalName: mediaOriginalName || m.mediaOriginalName,
-                mediaTotalSize: mediaTotalSize || m.mediaTotalSize,
-                mediaMime: mediaMime || m.mediaMime,
-                thumbnail: thumbnail || m.thumbnail,
-              }
+                  ...m,
+                  mediaOriginalName: mediaOriginalName || m.mediaOriginalName,
+                  mediaTotalSize: mediaTotalSize || m.mediaTotalSize,
+                  mediaMime: mediaMime || m.mediaMime,
+                  thumbnail: thumbnail || m.thumbnail,
+                }
               : m,
           ),
         );
@@ -251,16 +360,16 @@ export const useMessageLogic = ({
     const replyContext =
       currentReplyTo && currentReplyTo.id
         ? {
-          id: currentReplyTo.id,
-          text: currentReplyTo.text,
-          sender:
-            currentReplyTo.sender === "me"
-              ? "Me"
-              : currentReplyTo.sender || "Other",
-          type: currentReplyTo.type,
-          mediaFilename: currentReplyTo.mediaFilename,
-          thumbnail: currentReplyTo.thumbnail,
-        }
+            id: currentReplyTo.id,
+            text: currentReplyTo.text,
+            sender:
+              currentReplyTo.sender === "me"
+                ? "Me"
+                : currentReplyTo.sender || "Other",
+            type: currentReplyTo.type,
+            mediaFilename: currentReplyTo.mediaFilename,
+            thumbnail: currentReplyTo.thumbnail,
+          }
         : undefined;
 
     const msgType = "text";
@@ -286,7 +395,7 @@ export const useMessageLogic = ({
         currentInput,
         replyContext,
         msgType,
-        tempId // Pass tempId so we can replace it later if the backend supports passing IDs
+        tempId, // Pass tempId so we can replace it later if the backend supports passing IDs
       );
     } catch (e: any) {
       console.error("[useMessageLogic] sendMessage failed:", e);
@@ -298,7 +407,9 @@ export const useMessageLogic = ({
             : "Failed to send message.",
       });
       // Optionally remove or mark as failed
-      setMessages((prev) => prev.map(m => m.id === tempId ? { ...m, status: 3 } : m));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, status: 3 } : m)),
+      );
       return;
     }
 
@@ -362,13 +473,18 @@ export const useMessageLogic = ({
 
     setMessages((prev) => [...prev, tempMsg]);
 
-    ChatClient.sendFile(activeChat, fileToSend, {
-      name: fileToSend.name,
-      size: fileToSend.size,
-      type: fileToSend.type,
-      caption: caption || "",
-      compressed: (fileToSend as any).compressed,
-    } as any, tempId).catch((err) => {
+    ChatClient.sendFile(
+      activeChat,
+      fileToSend,
+      {
+        name: fileToSend.name,
+        size: fileToSend.size,
+        type: fileToSend.type,
+        caption: caption || "",
+        compressed: (fileToSend as any).compressed,
+      } as any,
+      tempId,
+    ).catch((err) => {
       console.error("Failed to send file", err);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 3 } : m)),

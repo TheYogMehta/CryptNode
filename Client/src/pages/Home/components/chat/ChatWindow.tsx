@@ -11,16 +11,13 @@ import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import {
   Send,
   Mic,
-  Monitor,
   Plus,
   Image as ImageIcon,
   Camera as CameraIcon,
   FileText,
-  Globe,
   Phone,
   ArrowLeft,
   X,
-  Video,
   Smile,
   Search,
   Edit2,
@@ -33,6 +30,8 @@ import {
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { ChatMessage, SessionData } from "../../types";
 import { Avatar } from "../../../../components/ui/Avatar";
+import { EmojiPicker as FloatingEmojiPicker } from "../../../../components/EmojiPicker";
+import { colors, spacing } from "../../../../theme/design-system";
 import { useTheme } from "../../../../theme/ThemeContext";
 import {
   ChatContainer,
@@ -58,24 +57,42 @@ import {
   ReplySender,
   ReplyText,
 } from "./Chat.styles";
+import {
+  Container as ModernContainer,
+  Header as ModernHeader,
+  HeaderInfo as ModernHeaderInfo,
+  Avatar as ModernAvatar,
+  Name as ModernName,
+  Status as ModernStatus,
+  MessagesArea as ModernMessagesArea,
+  InputArea as ModernInputArea,
+  InputWrapper as ModernInputWrapper,
+  Input as ModernInput,
+  ActionButton as ModernActionButton,
+  SendButton as ModernSendButton,
+  DateSeparator as ModernDateSeparator,
+  ReplyContainer as ModernReplyContainer,
+  CloseReplyButton as ModernCloseReplyButton,
+} from "./ChatWindowModern.styles";
 import { IconButton } from "../../../../components/ui/IconButton";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { useAIStatus } from "../../hooks/useAIStatus";
+import { useQuickReplies } from "../../hooks/useQuickReplies";
+import { useSelectedMessages } from "../../hooks/useSelectedMessages";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import { UserProfileModal } from "../overlays/UserProfileModal";
-import { setSessionAlias, updateSessionNotes } from "../../../../services/storage/sqliteService";
+import {
+  setSessionAlias,
+  updateSessionNotes,
+} from "../../../../services/storage/sqliteService";
 import {
   getUploadPreviewType,
   normalizeSelectedUploadFile,
 } from "../../../../utils/mediaType";
-import {
-  canCopySelectedMessages,
-  copySelectedMessagesToClipboard,
-} from "./chatClipboard";
 
 interface ChatWindowProps {
   messages: ChatMessage[];
-  onSend: (text: string) => void;
+  onSend: (text: string, replyTo?: any) => void;
   activeChat: string | null;
   session?: SessionData;
   onFileSelect: (file: File, caption?: string) => void;
@@ -99,7 +116,31 @@ interface PendingAttachment {
   mediaType: "image" | "video" | "file";
 }
 
-export const ChatWindowDefault = ({
+const getMessageItemKey = (msg: ChatMessage, index: number) =>
+  msg.id ||
+  `${msg.sid || "chat"}:${msg.timestamp}:${msg.sender}:${msg.type}:${index}`;
+
+const ChatVirtuosoScroller = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentPropsWithoutRef<"div">
+>(({ style, ...props }, ref) => {
+  return (
+    <div
+      {...props}
+      ref={ref}
+      style={{
+        ...style,
+        overflowX: "hidden",
+        overscrollBehaviorX: "none",
+        scrollbarWidth: "none",
+      }}
+    />
+  );
+});
+
+ChatVirtuosoScroller.displayName = "ChatVirtuosoScroller";
+
+export const ChatWindow = ({
   messages,
   onSend,
   activeChat,
@@ -116,9 +157,10 @@ export const ChatWindowDefault = ({
   firstItemIndex = 0,
 }: ChatWindowProps) => {
   const { messageLayout } = useTheme();
+  const isModernLayout = messageLayout === "modern";
   const isAndroidPlatform = Capacitor.getPlatform() === "android";
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { isLoaded: isAiLoaded, isInstalled: isAiInstalled } = useAIStatus();
+  const { isInstalled: isAiInstalled } = useAIStatus(!isModernLayout);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [input, setInput] = useState("");
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -134,52 +176,31 @@ export const ChatWindowDefault = ({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAiSuggestions, setShowAiSuggestions] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<
     PendingAttachment[]
   >([]);
-
-  const [selectedMessages, setSelectedMessages] = useState<Set<string>>(new Set());
-  const selectionMode = selectedMessages.size > 0;
-  const selectedMessageItems = useMemo(
-    () => messages.filter((msg) => msg.id && selectedMessages.has(msg.id)),
-    [messages, selectedMessages],
-  );
-  const canCopySelected = canCopySelectedMessages(selectedMessageItems);
-
-  const handleToggleSelect = (msg: ChatMessage) => {
-    if (!msg.id) return;
-    const msgId = msg.id;
-    setSelectedMessages(prev => {
-      const next = new Set(prev);
-      if (next.has(msgId)) next.delete(msgId);
-      else next.add(msgId);
-      return next;
-    });
-  };
-
-  const clearSelection = () => setSelectedMessages(new Set());
-
-  const handleCopySelected = async () => {
-    if (!canCopySelected) return;
-
-    try {
-      await copySelectedMessagesToClipboard(selectedMessageItems, session);
-      clearSelection();
-    } catch (e) {
-      console.error("Copy multiple failed", e);
-    }
-  };
-
-  const handleDeleteSelected = async () => {
-    if(!activeChat) return;
-    if (window.confirm(`Delete ${selectedMessages.size} selected message(s)?`)) {
-      for(const id of selectedMessages) {
-        ChatClient.deleteMessage(activeChat, id);
-      }
-      clearSelection();
-    }
-  };
+  const {
+    showAiSuggestions,
+    setShowAiSuggestions,
+    quickReplies,
+    isGeneratingReplies,
+    generateQuickReplies,
+  } = useQuickReplies(input);
+  const {
+    selectedMessages,
+    selectionMode,
+    canCopySelected,
+    handleToggleSelect,
+    clearSelection,
+    handleCopySelected,
+    handleDeleteSelected,
+  } = useSelectedMessages({
+    messages,
+    session,
+    activeChat,
+    onDeleteMessage: (chatId, messageId) =>
+      ChatClient.deleteMessage(chatId, messageId),
+  });
   const [selectedMedia, setSelectedMedia] = useState<{
     url: string;
     type: "image" | "video";
@@ -189,12 +210,52 @@ export const ChatWindowDefault = ({
   } | null>(null);
 
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  const aiActionButtonStyle: React.CSSProperties = {
+    border: `1px solid ${colors.border.subtle}`,
+    borderRadius: 14,
+    color: isGeneratingReplies ? colors.text.secondary : colors.text.primary,
+    background: colors.background.tertiary,
+    padding: "5px 10px",
+    fontSize: 12,
+    cursor: isGeneratingReplies ? "not-allowed" : "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  };
+  const aiReplyChipStyle: React.CSSProperties = {
+    border: `1px solid ${colors.border.subtle}`,
+    borderRadius: 14,
+    color: colors.text.primary,
+    background: colors.background.tertiary,
+    padding: "5px 10px",
+    fontSize: 12,
+    cursor: "pointer",
+  };
+  const aiTextActionStyle: React.CSSProperties = {
+    border: "none",
+    background: "transparent",
+    color: colors.text.secondary,
+    fontSize: 12,
+    cursor: "pointer",
+  };
+  const aiInlineActionStyle: React.CSSProperties = {
+    ...aiTextActionStyle,
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+  };
+  const aiMutedTextStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: colors.text.secondary,
+  };
 
   const headerName =
     session?.alias_name ||
     session?.peer_name ||
     (session?.peerEmail ? session.peerEmail.split("@")[0] : undefined) ||
-    (session?.isOwnDevice ? `Saved Messages (${activeChat?.slice(0, 4) || ""})` : undefined) ||
+    (session?.isOwnDevice
+      ? `Saved Messages (${activeChat?.slice(0, 4) || ""})`
+      : undefined) ||
     (activeChat ? `Peer ${activeChat.slice(0, 6)}` : "Chat");
   const avatarToUse = session?.alias_avatar || session?.peer_avatar;
   const [resolvedAvatar, setResolvedAvatar] = useState<string | undefined>(
@@ -225,8 +286,6 @@ export const ChatWindowDefault = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showOptionsMenu]);
 
-
-
   const handleSummarize = async () => {
     if (isSummarizing || isInitializingModel || messages.length === 0) return;
     setSummaryElapsedMs(null);
@@ -252,6 +311,8 @@ export const ChatWindowDefault = ({
   };
 
   useEffect(() => {
+    if (isModernLayout) return;
+
     let active = true;
 
     const fetch = () => {
@@ -271,14 +332,16 @@ export const ChatWindowDefault = ({
       active = false;
       unsub();
     };
-  }, [avatarToUse]);
+  }, [avatarToUse, isModernLayout]);
 
   useEffect(() => {
+    if (isModernLayout) return;
+
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
-  }, [input]);
+  }, [input, isModernLayout]);
 
   useEffect(() => {
     pendingAttachmentsRef.current = pendingAttachments;
@@ -286,25 +349,33 @@ export const ChatWindowDefault = ({
 
   const prevLengthRef = useRef(messages.length);
   useEffect(() => {
+    if (isModernLayout) {
+      prevLengthRef.current = messages.length;
+      return;
+    }
+
     if (messages.length > prevLengthRef.current && virtuosoRef.current) {
       const lastMessage = messages[messages.length - 1];
       // Force scroll ONLY if I sent the message OR if I was already at the bottom
       if (lastMessage.sender === "me" || isAtBottom) {
         const index = messages.length - 1;
+        const isInitialChatLoad = prevLengthRef.current === 0;
         const scrollToBottom = () => {
           virtuosoRef.current?.scrollToIndex({
             index,
             align: "end",
-            behavior: "smooth",
+            behavior: isInitialChatLoad ? "auto" : "smooth",
           });
         };
         scrollToBottom();
         // One follow-up for layout shifts
-        setTimeout(scrollToBottom, 100);
+        if (!isInitialChatLoad) {
+          setTimeout(scrollToBottom, 100);
+        }
       }
     }
     prevLengthRef.current = messages.length;
-  }, [messages.length, isAtBottom]);
+  }, [isAtBottom, isModernLayout, messages.length]);
 
   useEffect(() => {
     return () => {
@@ -339,20 +410,10 @@ export const ChatWindowDefault = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0 && activeChat) {
-      const filesArr = Array.from(e.target.files).map(normalizeSelectedUploadFile);
-      const mediaFiles = filesArr.filter(
-        (file) => getUploadPreviewType(file) !== "unknown",
+      const filesArr = Array.from(e.target.files).map(
+        normalizeSelectedUploadFile,
       );
-      const docFiles = filesArr.filter(
-        (file) => getUploadPreviewType(file) === "unknown",
-      );
-
-      if (mediaFiles.length > 0) {
-        setSelectedFiles((prev) => [...prev, ...mediaFiles]);
-      }
-      if (docFiles.length > 0) {
-        addFilesToPending(docFiles);
-      }
+      setSelectedFiles((prev) => [...prev, ...filesArr]);
     }
     e.target.value = "";
   };
@@ -360,14 +421,6 @@ export const ChatWindowDefault = ({
   const handlePreviewSend = (
     processedFiles: { file: File; caption: string }[],
   ) => {
-    // Process files one by one (or add to pending if we want to support that flow, but user wants send)
-    // For now, let's treat them as "sent" immediately like the old flow, but with captions.
-
-    // We can re-use addFilesToPending if we want them to queue up,
-    // OR just send immediately.
-    // The previous flow was: onFileSelect -> send immediately.
-    // Let's stick to that but handle caption.
-
     processedFiles.forEach(({ file, caption }) => {
       onFileSelect(file, caption.trim() || undefined);
     });
@@ -418,7 +471,6 @@ export const ChatWindowDefault = ({
       color: "#e53170",
       onClick: () => fileInputRef.current?.click(),
     },
-
   ];
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -481,7 +533,7 @@ export const ChatWindowDefault = ({
     type: "image" | "video",
     description?: string,
     meta?: any,
-    mimeType?: string
+    mimeType?: string,
   ) => {
     setSelectedMedia({ url, type, description, meta, mimeType });
     setMediaModalOpen(true);
@@ -507,19 +559,7 @@ export const ChatWindowDefault = ({
         e.preventDefault();
 
         const filesArr = files.map(normalizeSelectedUploadFile);
-        const mediaFiles = filesArr.filter(
-          (file) => getUploadPreviewType(file) !== "unknown",
-        );
-        const docFiles = filesArr.filter(
-          (file) => getUploadPreviewType(file) === "unknown",
-        );
-
-        if (mediaFiles.length > 0) {
-          setSelectedFiles((prev) => [...prev, ...mediaFiles]);
-        }
-        if (docFiles.length > 0) {
-          addFilesToPending(docFiles);
-        }
+        setSelectedFiles((prev) => [...prev, ...filesArr]);
       }
     }
   };
@@ -568,7 +608,9 @@ export const ChatWindowDefault = ({
           lastModified: item.file.lastModified,
         });
       }
-      await Promise.resolve(onFileSelect(fileToSend, item.description.trim() || undefined));
+      await Promise.resolve(
+        onFileSelect(fileToSend, item.description.trim() || undefined),
+      );
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     }
 
@@ -586,57 +628,467 @@ export const ChatWindowDefault = ({
       const fields = [
         msg.text || "",
         msg.media?.name || "",
+        msg.mediaOriginalName || "",
         msg.mediaFilename || "",
         msg.replyTo?.text || "",
+        msg.replyTo?.mediaFilename || "",
         msg.type || "",
       ];
       return fields.some((v) => v.toLowerCase().includes(normalizedSearch));
     });
   }, [messages, normalizedSearch]);
 
+  if (isModernLayout) {
+    if (!session) return null;
 
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+    const peerLabelFromEmail = session.peerEmail
+      ? session.peerEmail.split("@")[0]
+      : undefined;
 
-  const generateQuickReplies = async () => {
-    if (isGeneratingReplies) return;
+    return (
+      <ModernContainer>
+        {selectionMode ? (
+          <ModernHeader
+            style={{
+              backgroundColor: "rgba(99, 102, 241, 0.15)",
+              borderBottom: "1px solid rgba(99, 102, 241, 0.3)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "16px",
+                flex: 1,
+              }}
+            >
+              <ModernActionButton onClick={clearSelection}>
+                <X size={20} />
+              </ModernActionButton>
+              <span
+                style={{ fontWeight: 600, fontSize: "16px", color: "#f3f4f6" }}
+              >
+                {selectedMessages.size} selected
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: "12px", position: "relative" }}>
+              {canCopySelected && (
+                <ModernActionButton
+                  onClick={handleCopySelected}
+                  title="Copy selected"
+                >
+                  <Copy size={20} />
+                </ModernActionButton>
+              )}
+              <ModernActionButton
+                onClick={handleDeleteSelected}
+                title="Delete selected"
+                style={{ color: "#ef4444" }}
+              >
+                <Trash2 size={20} />
+              </ModernActionButton>
+            </div>
+          </ModernHeader>
+        ) : (
+          <ModernHeader>
+            <ModernHeaderInfo>
+              {onBack && (
+                <ModernActionButton onClick={onBack}>
+                  <ArrowLeft size={20} />
+                </ModernActionButton>
+              )}
+              <div
+                onClick={() => setShowProfileModal(true)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setShowProfileModal(true);
+                }}
+                style={{
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  flex: 1,
+                  minWidth: 0,
+                }}
+                title="View Profile"
+              >
+                <ModernAvatar>
+                  {session.alias_avatar ||
+                    session.peer_name?.[0]?.toUpperCase() ||
+                    peerLabelFromEmail?.[0]?.toUpperCase() ||
+                    "?"}
+                </ModernAvatar>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    minWidth: 0,
+                  }}
+                >
+                  <ModernName>
+                    {session.alias_name ||
+                      session.peer_name ||
+                      peerLabelFromEmail ||
+                      "Unknown"}
+                  </ModernName>
+                  {session.alias_name &&
+                    session.alias_name !==
+                      (session.peer_name || peerLabelFromEmail || "") && (
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          color: "rgba(255, 255, 255, 0.4)",
+                          marginTop: "-2px",
+                          marginBottom: "2px",
+                        }}
+                      >
+                        {session.peer_name || peerLabelFromEmail || "User"}
+                      </div>
+                    )}
+                  {peerOnline ? (
+                    <ModernStatus isOnline={true}>Online</ModernStatus>
+                  ) : (
+                    <ModernStatus>Offline</ModernStatus>
+                  )}
+                </div>
+              </div>
+            </ModernHeaderInfo>
+            <div
+              style={{ display: "flex", gap: spacing[2], position: "relative" }}
+            >
+              <ModernActionButton
+                onClick={() => onStartCall("Audio")}
+                title="Start Call"
+              >
+                <Phone size={20} />
+              </ModernActionButton>
+            </div>
+          </ModernHeader>
+        )}
 
-    setIsGeneratingReplies(true);
-    try {
-      if (!localAIService.isLoaded) await localAIService.init();
-      const items = await localAIService.quickReplies(input, 3);
-      setQuickReplies(items);
-    } catch (e) {
-      console.error("Failed to generate replies", e);
-    } finally {
-      setIsGeneratingReplies(false);
-    }
-  };
+        <ModernMessagesArea>
+          <Virtuoso
+            ref={virtuosoRef}
+            style={{ height: "100%", overflowX: "hidden" }}
+            computeItemKey={(index, msg) => getMessageItemKey(msg, index)}
+            components={{
+              Scroller: ChatVirtuosoScroller,
+            }}
+            data={messages}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={
+              messages.length > 0 ? messages.length - 1 : 0
+            }
+            followOutput="auto"
+            alignToBottom
+            atTopStateChange={(atTop: boolean) => {
+              if (atTop && onLoadMore) onLoadMore();
+            }}
+            itemContent={(index: number, msg: ChatMessage) => {
+              const showDate =
+                index === 0 ||
+                new Date(Number(msg.timestamp)).toDateString() !==
+                  new Date(
+                    Number(messages[index - 1].timestamp),
+                  ).toDateString();
 
-  useEffect(() => {
-    if (quickReplies.length > 0 && input.trim().length === 0) {
-    }
-  }, [input]);
+              return (
+                <div style={{ paddingBottom: 8 }}>
+                  {showDate && (
+                    <ModernDateSeparator>
+                      {new Date(Number(msg.timestamp)).toLocaleDateString()}
+                    </ModernDateSeparator>
+                  )}
+                  <MessageBubble
+                    msg={msg}
+                    onReply={setReplyingTo}
+                    onMediaClick={handleMediaClick}
+                    messageLayout={messageLayout}
+                    senderName={
+                      msg.sender === "me"
+                        ? "You"
+                        : session.alias_name ||
+                          session.peer_name ||
+                          peerLabelFromEmail ||
+                          "User"
+                    }
+                    senderAvatar={undefined}
+                    selectionMode={selectionMode}
+                    isSelected={!!msg.id && selectedMessages.has(msg.id)}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                </div>
+              );
+            }}
+          />
+        </ModernMessagesArea>
+
+        {session.isConnected === false ? (
+          <ModernInputArea
+            style={{
+              justifyContent: "center",
+              alignItems: "center",
+              padding: "16px",
+              color: colors.text.secondary,
+              fontSize: "14px",
+              fontStyle: "italic",
+            }}
+          >
+            <div style={{ width: "100%", textAlign: "center" }}>
+              You cannot send messages to this user because you are not
+              connected.
+            </div>
+          </ModernInputArea>
+        ) : (
+          <ModernInputArea>
+            {replyingTo && (
+              <ModernReplyContainer>
+                <span>
+                  Replying to: {(replyingTo.text || "").substring(0, 50)}...
+                </span>
+                <ModernCloseReplyButton onClick={() => setReplyingTo?.(null)}>
+                  ✕
+                </ModernCloseReplyButton>
+              </ModernReplyContainer>
+            )}{" "}
+            {isAiInstalled &&
+              !showAiSuggestions &&
+              !input.trim() &&
+              !isAndroidPlatform && (
+                <div style={{ marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setShowAiSuggestions(true);
+                      await generateQuickReplies();
+                    }}
+                    disabled={isGeneratingReplies}
+                    style={aiActionButtonStyle}
+                  >
+                    <Lightbulb size={16} />
+                    {isGeneratingReplies ? "Catching up..." : "Catch Up"}
+                  </button>
+                </div>
+              )}
+            {showAiSuggestions &&
+              (quickReplies.length > 0 || isGeneratingReplies) &&
+              !input.trim() && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  {isGeneratingReplies && quickReplies.length === 0 && (
+                    <span style={aiMutedTextStyle}>Thinking...</span>
+                  )}
+                  {quickReplies.map((reply) => (
+                    <button
+                      key={reply}
+                      type="button"
+                      onClick={() => setInput(reply)}
+                      style={aiReplyChipStyle}
+                    >
+                      {reply}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAiSuggestions(false);
+                    }}
+                    style={aiTextActionStyle}
+                  >
+                    Hide
+                  </button>
+                </div>
+              )}
+            <ModernInputWrapper>
+              <ModernActionButton onClick={() => setShowMenu(!showMenu)}>
+                <Plus size={20} />
+              </ModernActionButton>
+              <input
+                type="file"
+                ref={fileInputRef}
+                multiple
+                style={{ display: "none" }}
+                onChange={handleFileSelect}
+              />
+              <ModernInput
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!input.trim()) return;
+                    onSend(input, replyingTo || undefined);
+                    setInput("");
+                    setReplyingTo?.(null);
+                    setShowEmojiPicker(false);
+                    setShowGifPicker(false);
+                  }
+                }}
+                placeholder="Type a message..."
+                disabled={!!isRateLimited}
+              />
+              <ModernActionButton
+                onClick={() => {
+                  setShowEmojiPicker(!showEmojiPicker);
+                  setShowGifPicker(false);
+                }}
+              >
+                <Smile size={20} />
+              </ModernActionButton>
+              <ModernSendButton
+                onClick={() => {
+                  if (!input.trim()) return;
+                  onSend(input, replyingTo || undefined);
+                  setInput("");
+                  setReplyingTo?.(null);
+                  setShowEmojiPicker(false);
+                  setShowGifPicker(false);
+                }}
+                disabled={!!isRateLimited || !input.trim()}
+              >
+                <Send size={18} />
+              </ModernSendButton>
+            </ModernInputWrapper>
+          </ModernInputArea>
+        )}
+
+        {showMenu && (
+          <AttachmentMenu>
+            {attachments.map((item, i) => (
+              <MenuItem
+                key={i}
+                onClick={() => {
+                  setShowMenu(false);
+                  item.onClick();
+                }}
+              >
+                <MenuIcon color={item.color}>{item.icon}</MenuIcon>
+                <MenuLabel>{item.label}</MenuLabel>
+              </MenuItem>
+            ))}
+          </AttachmentMenu>
+        )}
+
+        {showEmojiPicker && (
+          <FloatingEmojiPicker
+            onEmojiClick={(emojiData: any) => {
+              setInput((prev) => prev + emojiData.emoji);
+            }}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        )}
+
+        {showGifPicker && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1100,
+              background: "transparent",
+            }}
+            onClick={() => setShowGifPicker(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <GifPicker
+                onSelect={(url) => {
+                  onSend(url);
+                  setShowGifPicker(false);
+                }}
+                onClose={() => setShowGifPicker(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        <MediaModal
+          isOpen={mediaModalOpen}
+          onClose={() => setMediaModalOpen(false)}
+          media={selectedMedia}
+        />
+
+        {showProfileModal && (
+          <UserProfileModal
+            session={session}
+            onClose={() => setShowProfileModal(false)}
+            onSave={async (aliasName, notes) => {
+              await setSessionAlias(
+                session.sid,
+                aliasName,
+                session.alias_avatar || "",
+              );
+              await updateSessionNotes(session.sid, notes);
+              ChatClient.sessionService.updateSessionNotes(session.sid, notes);
+              ChatClient.sessionService.emit("session_updated");
+            }}
+            onGoToMessage={(msgId) => {
+              setShowProfileModal(false);
+              const index = messages.findIndex((m) => m.id === msgId);
+              if (index >= 0 && virtuosoRef.current) {
+                virtuosoRef.current.scrollToIndex({
+                  index,
+                  align: "center",
+                  behavior: "smooth",
+                });
+              }
+            }}
+          />
+        )}
+      </ModernContainer>
+    );
+  }
 
   return (
     <ChatContainer>
       {selectionMode ? (
-        <ChatHeader style={{ backgroundColor: "rgba(99, 102, 241, 0.15)", borderBottom: "1px solid rgba(99, 102, 241, 0.3)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1 }}>
+        <ChatHeader
+          style={{
+            backgroundColor: "rgba(99, 102, 241, 0.15)",
+            borderBottom: "1px solid rgba(99, 102, 241, 0.3)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "16px",
+              flex: 1,
+            }}
+          >
             <IconButton variant="ghost" size="md" onClick={clearSelection}>
               <X size={20} />
             </IconButton>
-            <span style={{ fontWeight: 600, fontSize: "16px", color: "#f3f4f6" }}>
+            <span
+              style={{ fontWeight: 600, fontSize: "16px", color: "#f3f4f6" }}
+            >
               {selectedMessages.size} selected
             </span>
           </div>
           <HeaderActions>
             {canCopySelected && (
-              <IconButton variant="ghost" size="md" onClick={handleCopySelected} title="Copy selected">
+              <IconButton
+                variant="ghost"
+                size="md"
+                onClick={handleCopySelected}
+                title="Copy selected"
+              >
                 <Copy size={20} />
               </IconButton>
             )}
-            <IconButton variant="ghost" size="md" onClick={handleDeleteSelected} title="Delete selected" style={{ color: "#ef4444" }}>
+            <IconButton
+              variant="ghost"
+              size="md"
+              onClick={handleDeleteSelected}
+              title="Delete selected"
+              style={{ color: "#ef4444" }}
+            >
               <Trash2 size={20} />
             </IconButton>
           </HeaderActions>
@@ -655,21 +1107,48 @@ export const ChatWindowDefault = ({
               e.preventDefault();
               setShowProfileModal(true);
             }}
-            style={{ cursor: "pointer", display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}
+            style={{
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              flex: 1,
+              minWidth: 0,
+            }}
           >
             <Avatar
               src={resolvedAvatar}
               name={headerName}
               size="md"
-              status={session?.isOwnDevice ? undefined : (peerOnline ? "online" : "offline")}
+              status={
+                session?.isOwnDevice
+                  ? undefined
+                  : peerOnline
+                  ? "online"
+                  : "offline"
+              }
             />
-          <HeaderInfo>
-            <HeaderName>{headerName}</HeaderName>
-              {session?.alias_name && session.alias_name !== (session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "")) && (
-                <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginTop: '-2px', marginBottom: '2px' }}>
-                  {session.peer_name || (session.peerEmail ? session.peerEmail.split("@")[0] : "User")}
-                </div>
-              )}
+            <HeaderInfo>
+              <HeaderName>{headerName}</HeaderName>
+              {session?.alias_name &&
+                session.alias_name !==
+                  (session.peer_name ||
+                    (session.peerEmail
+                      ? session.peerEmail.split("@")[0]
+                      : "")) && (
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "rgba(255, 255, 255, 0.4)",
+                      marginTop: "-2px",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    {session.peer_name ||
+                      (session.peerEmail
+                        ? session.peerEmail.split("@")[0]
+                        : "User")}
+                  </div>
+                )}
               {!session?.isOwnDevice && (
                 <HeaderStatus isOnline={peerOnline}>
                   {peerOnline ? "Online" : "Offline"}
@@ -684,107 +1163,107 @@ export const ChatWindowDefault = ({
               size="md"
               onClick={() => onStartCall("Audio")}
               title="Start Call"
-          >
-            <Phone size={20} />
-          </IconButton>
-          <IconButton
-            variant={showSearch ? "primary" : "ghost"}
-            size="md"
-            onClick={() => {
-              setShowSearch((prev) => {
-                const next = !prev;
-                if (!next) setSearchQuery("");
-                return next;
-              });
-            }}
-            title="Search"
-          >
-            <Search size={20} />
-          </IconButton>
-          {isAiInstalled && !isAndroidPlatform && (
-            <div style={{ position: "relative" }} ref={optionsMenuRef}>
-              <IconButton
-                variant="ghost"
-                size="md"
-                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                title="More Options"
-              >
-                <MoreVertical size={20} />
-              </IconButton>
-
-              {showOptionsMenu && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    right: 0,
-                    marginTop: "8px",
-                    backgroundColor: "rgba(20, 20, 30, 0.95)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "8px",
-                    padding: "8px",
-                    zIndex: 200,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                    minWidth: "180px",
-                    backdropFilter: "blur(10px)",
-                    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                  }}
+            >
+              <Phone size={20} />
+            </IconButton>
+            <IconButton
+              variant={showSearch ? "primary" : "ghost"}
+              size="md"
+              onClick={() => {
+                setShowSearch((prev) => {
+                  const next = !prev;
+                  if (!next) setSearchQuery("");
+                  return next;
+                });
+              }}
+              title="Search"
+            >
+              <Search size={20} />
+            </IconButton>
+            {isAiInstalled && !isAndroidPlatform && (
+              <div style={{ position: "relative" }} ref={optionsMenuRef}>
+                <IconButton
+                  variant="ghost"
+                  size="md"
+                  onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                  title="More Options"
                 >
-                  <button
-                    onClick={() => {
-                      handleSummarize();
-                      setShowOptionsMenu(false);
-                    }}
-                    disabled={isSummarizing || localAIService.isLoading}
+                  <MoreVertical size={20} />
+                </IconButton>
+
+                {showOptionsMenu && (
+                  <div
                     style={{
+                      position: "absolute",
+                      top: "100%",
+                      right: 0,
+                      marginTop: "8px",
+                      backgroundColor: "rgba(20, 20, 30, 0.95)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "8px",
+                      padding: "8px",
+                      zIndex: 200,
                       display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      padding: "10px 12px",
-                      background: "transparent",
-                      border: "none",
-                      color:
-                        isSummarizing || localAIService.isLoading
-                          ? "rgba(255,255,255,0.5)"
-                          : "#ccc",
-                      cursor:
-                        isSummarizing || localAIService.isLoading
-                          ? "not-allowed"
-                          : "pointer",
-                      borderRadius: "4px",
-                      textAlign: "left",
-                      fontSize: "14px",
-                      transition: "background 0.2s",
+                      flexDirection: "column",
+                      gap: "4px",
+                      minWidth: "180px",
+                      backdropFilter: "blur(10px)",
+                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
                     }}
-                    onMouseOver={(e) => {
-                      if (!isSummarizing && !localAIService.isLoading)
-                        e.currentTarget.style.background =
-                          "rgba(255,255,255,0.1)";
-                    }}
-                    onMouseOut={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
                   >
-                    <FileText
-                      size={18}
-                      color={
-                        isSummarizing || localAIService.isLoading
-                          ? "#eda515"
-                          : undefined
+                    <button
+                      onClick={() => {
+                        handleSummarize();
+                        setShowOptionsMenu(false);
+                      }}
+                      disabled={isSummarizing || localAIService.isLoading}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                        padding: "10px 12px",
+                        background: "transparent",
+                        border: "none",
+                        color:
+                          isSummarizing || localAIService.isLoading
+                            ? "rgba(255,255,255,0.5)"
+                            : "#ccc",
+                        cursor:
+                          isSummarizing || localAIService.isLoading
+                            ? "not-allowed"
+                            : "pointer",
+                        borderRadius: "4px",
+                        textAlign: "left",
+                        fontSize: "14px",
+                        transition: "background 0.2s",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isSummarizing && !localAIService.isLoading)
+                          e.currentTarget.style.background =
+                            "rgba(255,255,255,0.1)";
+                      }}
+                      onMouseOut={(e) =>
+                        (e.currentTarget.style.background = "transparent")
                       }
-                    />{" "}
-                    {isSummarizing || localAIService.isLoading
-                      ? "Loading AI..."
-                      : "Summarize Chat"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </HeaderActions>
-      </ChatHeader>
+                    >
+                      <FileText
+                        size={18}
+                        color={
+                          isSummarizing || localAIService.isLoading
+                            ? "#eda515"
+                            : undefined
+                        }
+                      />{" "}
+                      {isSummarizing || localAIService.isLoading
+                        ? "Loading AI..."
+                        : "Summarize Chat"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </HeaderActions>
+        </ChatHeader>
       )}
 
       {showSummary && (
@@ -917,11 +1396,14 @@ export const ChatWindowDefault = ({
       <MessageList>
         <Virtuoso
           ref={virtuosoRef}
-          style={{ height: "100%", scrollbarWidth: "none" as const }}
+          style={{ height: "100%", overflowX: "hidden" }}
+          computeItemKey={(index, msg) => getMessageItemKey(msg, index)}
           data={filteredMessages}
           firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={filteredMessages.length > 0 ? filteredMessages.length - 1 : 0}
-          followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
+          initialTopMostItemIndex={
+            filteredMessages.length > 0 ? filteredMessages.length - 1 : 0
+          }
+          followOutput={(isAtBottom) => (isAtBottom ? "smooth" : false)}
           alignToBottom
           atBottomStateChange={(bottom) => setIsAtBottom(bottom)}
           atTopStateChange={(atTop: boolean) => {
@@ -931,38 +1413,63 @@ export const ChatWindowDefault = ({
             if (onLoadMore && !isLoadingHistory) onLoadMore();
           }}
           components={{
-            Header: () => isLoadingHistory ? (
-              <div style={{ textAlign: 'center', padding: '12px 0', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
-                 Loading older messages...
-              </div>
-            ) : null,
+            Scroller: ChatVirtuosoScroller,
+            Header: () =>
+              isLoadingHistory ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "12px 0",
+                    color: "rgba(255,255,255,0.5)",
+                    fontSize: "13px",
+                  }}
+                >
+                  Loading older messages...
+                </div>
+              ) : null,
             List: MessageListInner,
           }}
-          itemContent={(index: number, msg: ChatMessage) => (
-            <div style={{ marginBottom: 4 }}>
-              <MessageBubble
-                key={msg.id || index}
-                msg={msg}
-                onReply={setReplyingTo}
-                onMediaClick={handleMediaClick}
-                messageLayout={messageLayout}
-                senderName={
-                  msg.sender === "me"
-                    ? "You"
-                    : session?.alias_name ||
-                    session?.peer_name ||
-                    (session?.peerEmail
-                      ? session.peerEmail.split("@")[0]
-                      : undefined) ||
-                    "User"
-                }
-                senderAvatar={msg.sender === "me" ? undefined : resolvedAvatar}
-                selectionMode={selectionMode}
-                isSelected={!!msg.id && selectedMessages.has(msg.id)}
-                onToggleSelect={handleToggleSelect}
-              />
-            </div>
-          )}
+          itemContent={(index: number, msg: ChatMessage) => {
+            const showDate =
+              index === 0 ||
+              new Date(Number(msg.timestamp)).toDateString() !==
+                new Date(
+                  Number(filteredMessages[index - 1].timestamp),
+                ).toDateString();
+
+            return (
+              <div style={{ marginBottom: 4 }}>
+                {showDate && (
+                  <ModernDateSeparator>
+                    {new Date(Number(msg.timestamp)).toLocaleDateString()}
+                  </ModernDateSeparator>
+                )}
+                <MessageBubble
+                  key={msg.id || index}
+                  msg={msg}
+                  onReply={setReplyingTo}
+                  onMediaClick={handleMediaClick}
+                  messageLayout={messageLayout}
+                  senderName={
+                    msg.sender === "me"
+                      ? "You"
+                      : session?.alias_name ||
+                        session?.peer_name ||
+                        (session?.peerEmail
+                          ? session.peerEmail.split("@")[0]
+                          : undefined) ||
+                        "User"
+                  }
+                  senderAvatar={
+                    msg.sender === "me" ? undefined : resolvedAvatar
+                  }
+                  selectionMode={selectionMode}
+                  isSelected={!!msg.id && selectedMessages.has(msg.id)}
+                  onToggleSelect={handleToggleSelect}
+                />
+              </div>
+            );
+          }}
         />
         {filteredMessages.length === 0 && (
           <div
@@ -973,7 +1480,9 @@ export const ChatWindowDefault = ({
               fontSize: "0.9rem",
             }}
           >
-            {normalizedSearch ? "No messages match your search." : "No messages yet."}
+            {normalizedSearch
+              ? "No messages match your search."
+              : "No messages yet."}
           </div>
         )}
       </MessageList>
@@ -1226,47 +1735,38 @@ export const ChatWindowDefault = ({
         <InputContainer
           style={{
             justifyContent: "center",
+            alignItems: "center",
             padding: "16px",
             color: "rgba(255,255,255,0.5)",
             fontSize: "14px",
             fontStyle: "italic",
           }}
         >
-          You cannot send messages to this user because you are not connected.
+          <div style={{ width: "100%", textAlign: "center" }}>
+            You cannot send messages to this user because you are not connected.
+          </div>
         </InputContainer>
       ) : (
         <InputContainer>
-          {!showAiSuggestions && !input.trim() && !isAndroidPlatform && (
-            <div style={{ padding: "0 8px 8px 8px" }}>
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowAiSuggestions(true);
-                  if (!localAIService.isLoaded) await localAIService.init();
-                }}
-                disabled={localAIService.isLoading}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: 14,
-                  color: localAIService.isLoading
-                    ? "rgba(255,255,255,0.5)"
-                    : "#fff",
-                  background: "rgba(255,255,255,0.06)",
-                  padding: "5px 10px",
-                  fontSize: 12,
-                  cursor: localAIService.isLoading
-                    ? "not-allowed"
-                    : "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <Lightbulb size={16} />
-                {localAIService.isLoading ? "Loading AI..." : "Catch Up"}
-              </button>
-            </div>
-          )}
+          {isAiInstalled &&
+            !showAiSuggestions &&
+            !input.trim() &&
+            !isAndroidPlatform && (
+              <div style={{ padding: "0 8px 8px 8px" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowAiSuggestions(true);
+                    await generateQuickReplies();
+                  }}
+                  disabled={isGeneratingReplies}
+                  style={aiActionButtonStyle}
+                >
+                  <Lightbulb size={16} />
+                  {isGeneratingReplies ? "Catching up..." : "Catch Up"}
+                </button>
+              </div>
+            )}
           {isAiInstalled &&
             !isAndroidPlatform &&
             showAiSuggestions &&
@@ -1285,15 +1785,7 @@ export const ChatWindowDefault = ({
                     key={reply}
                     type="button"
                     onClick={() => setInput(reply)}
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.2)",
-                      borderRadius: 14,
-                      color: "#fff",
-                      background: "rgba(255,255,255,0.06)",
-                      padding: "5px 10px",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
+                    style={aiReplyChipStyle}
                   >
                     {reply}
                   </button>
@@ -1303,13 +1795,7 @@ export const ChatWindowDefault = ({
                   onClick={() => {
                     setShowAiSuggestions(false);
                   }}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "rgba(255,255,255,0.65)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
+                  style={aiTextActionStyle}
                 >
                   Hide
                 </button>
@@ -1318,20 +1804,16 @@ export const ChatWindowDefault = ({
                   disabled={isSummarizing || localAIService.isLoading}
                   title="Summarize Chat"
                   style={{
-                    background: "transparent",
-                    border: "none",
+                    ...aiInlineActionStyle,
                     cursor:
                       isSummarizing || localAIService.isLoading
                         ? "not-allowed"
                         : "pointer",
                     color:
                       isSummarizing || localAIService.isLoading
-                        ? "rgba(255,255,255,0.5)"
-                        : "#ccc",
+                        ? colors.text.tertiary
+                        : colors.text.secondary,
                     marginRight: 10,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
                   }}
                 >
                   <FileText
@@ -1388,64 +1870,64 @@ export const ChatWindowDefault = ({
               }}
               placeholder={isRecording ? "" : "Message..."}
             />
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowGifPicker(!showGifPicker);
-                      setShowEmojiPicker(false);
-                    }}
-                    title="GIF"
-                    style={{
-                      color: "#f59e0b",
-                      fontSize: "11px",
-                      fontWeight: 700,
-                    }}
-                  >
-                    GIF
-                  </IconButton>
-                  {isAiInstalled && !isAndroidPlatform && (
-                    <IconButton
-                      variant="ghost"
-                      size="sm"
-                      disabled={localAIService.isLoading}
-                      onClick={async () => {
-                        if (!input.trim()) return;
-                        if (!localAIService.isLoaded)
-                          await localAIService.init();
-                        const rewritten = await localAIService.smartCompose(
-                          input,
-                        );
-                        if (rewritten) setInput(rewritten);
-                      }}
-                      title="Rephrase"
-                      style={{
-                        color: localAIService.isLoading
-                          ? "rgba(139,92,246,0.5)"
-                          : "#8b5cf6",
-                      }}
-                    >
-                      <Wand2 size={16} />
-                    </IconButton>
-                  )}
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowEmojiPicker(!showEmojiPicker);
-                      setShowGifPicker(false);
-                    }}
-                    title="Emoji"
-                    style={{ color: "#fbbf24" }}
-                  >
-                    <Smile size={24} />
-                  </IconButton>
-
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowGifPicker(!showGifPicker);
+                setShowEmojiPicker(false);
+              }}
+              title="GIF"
+              style={{
+                color: "#f59e0b",
+                fontSize: "11px",
+                fontWeight: 700,
+              }}
+            >
+              GIF
+            </IconButton>
+            {isAiInstalled && !isAndroidPlatform && (
+              <IconButton
+                variant="ghost"
+                size="sm"
+                disabled={localAIService.isLoading}
+                onClick={async () => {
+                  if (!input.trim()) return;
+                  if (!localAIService.isLoaded) await localAIService.init();
+                  const rewritten = await localAIService.smartCompose(input);
+                  if (rewritten) setInput(rewritten);
+                }}
+                title="Rephrase"
+                style={{
+                  color: localAIService.isLoading
+                    ? "rgba(139,92,246,0.5)"
+                    : "#8b5cf6",
+                }}
+              >
+                <Wand2 size={16} />
+              </IconButton>
+            )}
+            <IconButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowEmojiPicker(!showEmojiPicker);
+                setShowGifPicker(false);
+              }}
+              title="Emoji"
+              style={{ color: "#fbbf24" }}
+            >
+              <Smile size={24} />
+            </IconButton>
           </InputWrapper>
 
           <SendButton
             isRecording={isRecording}
-            onClick={input.trim().length > 0 || pendingAttachments.length > 0 ? handleSendMessage : handleRecord}
+            onClick={
+              input.trim().length > 0 || pendingAttachments.length > 0
+                ? handleSendMessage
+                : handleRecord
+            }
           >
             {input.trim().length > 0 || pendingAttachments.length > 0 ? (
               <Send size={20} key="send-icon" />
@@ -1536,16 +2018,24 @@ export const ChatWindowDefault = ({
           session={session}
           onClose={() => setShowProfileModal(false)}
           onSave={async (aliasName, notes) => {
-             await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
-             await updateSessionNotes(session.sid, notes);
-             ChatClient.sessionService.updateSessionNotes(session.sid, notes);
-             ChatClient.sessionService.emit("session_updated");
+            await setSessionAlias(
+              session.sid,
+              aliasName,
+              session.alias_avatar || "",
+            );
+            await updateSessionNotes(session.sid, notes);
+            ChatClient.sessionService.updateSessionNotes(session.sid, notes);
+            ChatClient.sessionService.emit("session_updated");
           }}
           onGoToMessage={(msgId) => {
             setShowProfileModal(false);
-            const index = messages.findIndex(m => m.id === msgId);
+            const index = messages.findIndex((m) => m.id === msgId);
             if (index >= 0 && virtuosoRef.current) {
-               virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+              virtuosoRef.current.scrollToIndex({
+                index,
+                align: "center",
+                behavior: "smooth",
+              });
             }
           }}
         />

@@ -4,7 +4,7 @@ import { colors, spacing, radii, typography } from "../../../../theme/design-sys
 export const Overlay = styled.div`
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: ${colors.background.overlay};
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 1000;
@@ -21,8 +21,12 @@ export const Overlay = styled.div`
 `;
 
 export const ModalContainer = styled.div`
-  background: linear-gradient(160deg, #1a1f2e 0%, #141820 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    160deg,
+    ${colors.background.secondary} 0%,
+    ${colors.surface.primary} 100%
+  );
+  border: 1px solid ${colors.border.subtle};
   border-radius: 20px;
   width: 100%;
   max-width: 600px;
@@ -30,7 +34,7 @@ export const ModalContainer = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.04);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
   animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 
   @keyframes slideUp {
@@ -43,7 +47,7 @@ export const Header = styled.div`
   display: flex;
   align-items: center;
   padding: 18px 20px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid ${colors.border.subtle};
 `;
 
 export const HeaderTitle = styled.h2`
@@ -51,15 +55,15 @@ export const HeaderTitle = styled.h2`
   font-family: ${typography.fontFamily.sans};
   font-size: 17px;
   font-weight: 600;
-  color: #f1f5f9;
+  color: ${colors.text.primary};
   margin: 0;
   letter-spacing: -0.01em;
 `;
 
 export const CloseButton = styled.button`
-  background: rgba(255, 255, 255, 0.06);
+  background: ${colors.background.tertiary};
   border: none;
-  color: #94a3b8;
+  color: ${colors.text.secondary};
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
@@ -71,8 +75,8 @@ export const CloseButton = styled.button`
   transition: all 0.18s;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #f1f5f9;
+    background: ${colors.surface.highlight};
+    color: ${colors.text.primary};
   }
 `;
 
@@ -91,7 +95,7 @@ export const Content = styled.div`
     background: transparent;
   }
   &::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.1);
+    background: ${colors.border.subtle};
     border-radius: 2px;
   }
 `;
@@ -134,10 +138,10 @@ export const ProfileInfo = styled.div`
 `;
 
 export const EditableInput = styled.input`
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: ${colors.background.tertiary};
+  border: 1px solid ${colors.border.subtle};
   border-radius: 10px;
-  color: #f1f5f9;
+  color: ${colors.text.primary};
   font-family: ${typography.fontFamily.sans};
   font-size: 16px;
   font-weight: 600;
@@ -145,12 +149,12 @@ export const EditableInput = styled.input`
   width: 100%;
   transition: border-color 0.2s, background 0.2s;
 
-  &::placeholder { color: rgba(255,255,255,0.3); }
+  &::placeholder { color: ${colors.text.tertiary}; }
 
   &:focus {
     outline: none;
-    border-color: #6366f1;
-    background: rgba(99, 102, 241, 0.08);
+    border-color: ${colors.primary.main};
+    background: ${colors.primary.subtle};
   }
 `;
 
@@ -158,17 +162,17 @@ export const SectionTitle = styled.h3`
   font-family: ${typography.fontFamily.sans};
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
+  color: ${colors.text.tertiary};
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin: 0 0 8px 2px;
 `;
 
 export const NotesArea = styled.textarea`
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: ${colors.background.secondary};
+  border: 1px solid ${colors.border.subtle};
   border-radius: 12px;
-  color: #cbd5e1;
+  color: ${colors.text.primary};
   font-family: ${typography.fontFamily.sans};
   font-size: 14px;
   line-height: 1.6;
@@ -178,12 +182,12 @@ export const NotesArea = styled.textarea`
   resize: vertical;
   transition: border-color 0.2s, background 0.2s;
 
-  &::placeholder { color: rgba(255,255,255,0.2); }
+  &::placeholder { color: ${colors.text.tertiary}; }
 
   &:focus {
     outline: none;
-    border-color: rgba(99, 102, 241, 0.5);
-    background: rgba(99, 102, 241, 0.06);
+    border-color: ${colors.primary.main};
+    background: ${colors.primary.subtle};
   }
 `;
 
@@ -197,15 +201,15 @@ export const MediaGridHeader = styled.div`
 export const GridControls = styled.div`
   display: flex;
   gap: 4px;
-  background: rgba(255,255,255,0.04);
+  background: ${colors.background.tertiary};
   border-radius: 8px;
   padding: 3px;
 `;
 
 export const GridButton = styled.button<{ active?: boolean }>`
-  background: ${(props) => (props.active ? "rgba(255, 255, 255, 0.12)" : "transparent")};
+  background: ${(props) => (props.active ? colors.surface.highlight : "transparent")};
   border: none;
-  color: ${(props) => (props.active ? "#f1f5f9" : "#64748b")};
+  color: ${(props) => (props.active ? colors.text.primary : colors.text.tertiary)};
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
@@ -215,8 +219,8 @@ export const GridButton = styled.button<{ active?: boolean }>`
   transition: all 0.15s;
 
   &:hover {
-    color: #f1f5f9;
-    background: rgba(255, 255, 255, 0.08);
+    color: ${colors.text.primary};
+    background: ${colors.background.secondary};
   }
 `;
 
@@ -232,15 +236,15 @@ export const MonthHeader = styled.div`
   font-family: ${typography.fontFamily.sans};
   font-size: 13px;
   font-weight: 600;
-  color: #94a3b8;
+  color: ${colors.text.secondary};
   margin: 16px 0 8px 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 `;
 
 export const FilterPanel = styled.div`
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: ${colors.background.secondary};
+  border: 1px solid ${colors.border.subtle};
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
@@ -275,16 +279,16 @@ export const FilterGroup = styled.div`
 export const FilterLabel = styled.label`
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
+  color: ${colors.text.tertiary};
   text-transform: uppercase;
   letter-spacing: 0.05em;
 `;
 
 export const FilterSelect = styled.select`
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: ${colors.background.tertiary};
+  border: 1px solid ${colors.border.subtle};
   border-radius: 8px;
-  color: #e2e8f0;
+  color: ${colors.text.primary};
   padding: 8px 12px;
   font-family: inherit;
   font-size: 13px;
@@ -292,25 +296,25 @@ export const FilterSelect = styled.select`
   outline: none;
   cursor: pointer;
 
-  &:focus { border-color: #6366f1; }
+  &:focus { border-color: ${colors.primary.main}; }
   
-  option { background: #1e293b; color: #e2e8f0; }
+  option { background: ${colors.surface.primary}; color: ${colors.text.primary}; }
 `;
 
 export const FilterInput = styled.input`
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: ${colors.background.tertiary};
+  border: 1px solid ${colors.border.subtle};
   border-radius: 8px;
-  color: #e2e8f0;
+  color: ${colors.text.primary};
   padding: 8px 12px;
   font-family: inherit;
   font-size: 13px;
   width: 100%;
   outline: none;
 
-  &:focus { border-color: #6366f1; }
+  &:focus { border-color: ${colors.primary.main}; }
   &::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+    filter: none;
     opacity: 0.6;
     cursor: pointer;
   }
@@ -318,12 +322,12 @@ export const FilterInput = styled.input`
 
 export const MediaItem = styled.div`
   aspect-ratio: 1;
-  background: rgba(255, 255, 255, 0.04);
+  background: ${colors.background.secondary};
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
   position: relative;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid ${colors.border.subtle};
   transition: transform 0.18s, border-color 0.18s;
 
   img, video {
@@ -335,7 +339,7 @@ export const MediaItem = styled.div`
 
   &:hover {
     transform: scale(1.02);
-    border-color: rgba(99, 102, 241, 0.4);
+    border-color: ${colors.primary.main};
   }
 
   &:hover img, &:hover video {
@@ -349,7 +353,7 @@ export const MediaItem = styled.div`
     justify-content: center;
     width: 100%;
     height: 100%;
-    color: #64748b;
+    color: ${colors.text.tertiary};
     font-size: 11px;
     gap: 6px;
     padding: 4px;
@@ -363,12 +367,12 @@ export const SaveButtonContainer = styled.div`
   justify-content: space-between;
   gap: 10px;
   padding: 14px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid ${colors.border.subtle};
+  background: ${colors.background.secondary};
 `;
 
 export const SaveButton = styled.button`
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, ${colors.primary.main}, ${colors.primary.hover});
   color: white;
   border: none;
   border-radius: 10px;
@@ -381,11 +385,11 @@ export const SaveButton = styled.button`
   align-items: center;
   gap: 7px;
   transition: all 0.18s;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.18);
 
   &:hover {
     filter: brightness(1.1);
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.45);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.24);
     transform: translateY(-1px);
   }
 
@@ -400,8 +404,8 @@ export const SaveButton = styled.button`
 
 export const RemoveConnectionButton = styled.button`
   background: transparent;
-  color: #f87171;
-  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: ${colors.status.error};
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 10px;
   padding: 9px 16px;
   font-family: ${typography.fontFamily.sans};
@@ -414,9 +418,9 @@ export const RemoveConnectionButton = styled.button`
   transition: all 0.18s;
 
   &:hover {
-    background: rgba(248, 113, 113, 0.1);
-    border-color: rgba(248, 113, 113, 0.6);
-    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: ${colors.status.error};
   }
 
   &:disabled {
@@ -427,8 +431,8 @@ export const RemoveConnectionButton = styled.button`
 
 export const SendRequestButton = styled.button`
   background: transparent;
-  color: #34d399;
-  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: ${colors.status.success};
+  border: 1px solid rgba(34, 197, 94, 0.28);
   border-radius: 10px;
   padding: 9px 16px;
   font-family: ${typography.fontFamily.sans};
@@ -442,15 +446,15 @@ export const SendRequestButton = styled.button`
   white-space: nowrap;
 
   &:hover {
-    background: rgba(52, 211, 153, 0.1);
-    border-color: rgba(52, 211, 153, 0.6);
-    color: #6ee7b7;
+    background: rgba(34, 197, 94, 0.08);
+    border-color: rgba(34, 197, 94, 0.45);
+    color: ${colors.status.success};
   }
 
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    color: #94a3b8;
-    border-color: rgba(148, 163, 184, 0.2);
+    color: ${colors.text.tertiary};
+    border-color: ${colors.border.subtle};
   }
 `;

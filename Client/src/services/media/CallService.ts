@@ -1,5 +1,4 @@
 import { IChatClient } from "../core/interfaces";
-import { Capacitor } from "@capacitor/core";
 
 export class CallService {
   private client: IChatClient;
@@ -18,11 +17,9 @@ export class CallService {
   public currentCallRemotePubKey: string | null = null;
   public micStream: MediaStream | null = null;
   public cameraStream: MediaStream | null = null;
-  public screenStream: MediaStream | null = null;
 
   public isMicEnabled: boolean = true;
   public isVideoEnabled: boolean = false;
-  public isScreenEnabled: boolean = false;
 
   private turnCreds: any = null;
   private turnPromise: Promise<any> | null = null;
@@ -43,86 +40,6 @@ export class CallService {
 
   constructor(client: IChatClient) {
     this.client = client;
-  }
-
-  private isAndroidPlatform(): boolean {
-    return Capacitor.getPlatform() === "android";
-  }
-
-  private isElectronPlatform(): boolean {
-    return !!(window as any).electron?.getDesktopSources;
-  }
-
-  public canUseScreenShare(): boolean {
-    const nav = navigator.mediaDevices as any;
-    return (
-      this.isElectronPlatform() || typeof nav?.getDisplayMedia === "function"
-    );
-  }
-
-  private async getDisplayStream(): Promise<MediaStream> {
-    const nav = navigator.mediaDevices as any;
-    const getDisplayMedia =
-      typeof nav?.getDisplayMedia === "function"
-        ? nav.getDisplayMedia.bind(nav)
-        : null;
-
-    const isLinuxElectron =
-      this.isElectronPlatform() &&
-      navigator.userAgent.toLowerCase().includes("linux");
-
-    if (this.isElectronPlatform() && !isLinuxElectron) {
-      try {
-        const sources = await (window as any).electron.getDesktopSources();
-        const source = Array.isArray(sources) ? sources[0] : null;
-        if (!source?.id) throw new Error("No desktop source available");
-
-        return await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: "desktop",
-              chromeMediaSourceId: source.id,
-              minWidth: 1280,
-              maxWidth: 1920,
-              minHeight: 720,
-              maxHeight: 1080,
-              maxFrameRate: 30,
-            },
-          },
-        } as any);
-      } catch (e) {
-        console.warn(
-          "[CallService] Electron desktop source capture failed, trying getDisplayMedia fallback",
-          e,
-        );
-      }
-    }
-
-    if (getDisplayMedia) {
-      try {
-        return await getDisplayMedia({
-          video: {
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            frameRate: { ideal: 20, max: 30 },
-          },
-          audio: false,
-        });
-      } catch (e) {
-        console.warn(
-          "[CallService] getDisplayMedia with constraints failed, retrying with minimal constraints",
-          e,
-        );
-        return await getDisplayMedia({ video: true, audio: false });
-      }
-    }
-
-    throw new Error(
-      this.isAndroidPlatform()
-        ? "Screen sharing is not available in this Android runtime. Use a Chromium-based browser build or add native MediaProjection bridge support."
-        : "Screen sharing is not supported on this device.",
-    );
   }
 
   public playRingtone() {
@@ -163,7 +80,7 @@ export class CallService {
 
   public async startCall(
     sid: string,
-    mode: "Audio" | "Video" | "Screen" = "Audio",
+    mode: "Audio" | "Video" = "Audio",
   ) {
     if (!this.client.sessions[sid]) throw new Error("Session not found");
     if (!this.client.sessions[sid].online) {
@@ -212,8 +129,6 @@ export class CallService {
 
       if (mode === "Video") {
         await this.toggleVideo(true);
-      } else if (mode === "Screen") {
-        await this.toggleScreenShare(true);
       }
 
       const offer = await this.peerConnection!.createOffer();
@@ -264,18 +179,15 @@ export class CallService {
     }
   }
 
-  public async switchStream(_sid: string, mode: "Audio" | "Video" | "Screen") {
+  public async switchStream(_sid: string, mode: "Audio" | "Video") {
     if (!this.isCalling) return;
     console.log(`[CallService] Switching stream to ${mode}`);
 
     try {
       if (mode === "Video") {
         await this.toggleVideo(true);
-      } else if (mode === "Screen") {
-        await this.toggleScreenShare(true);
       } else {
         await this.toggleVideo(false);
-        await this.toggleScreenShare(false);
       }
     } catch (err: any) {
       console.error("Failed to switch stream:", err);
@@ -545,15 +457,6 @@ export class CallService {
 
     try {
       if (shouldEnable) {
-        if (this.isScreenEnabled) {
-          if (this.screenStream) {
-            this.screenStream.getTracks().forEach((t) => t.stop());
-            this.screenStream = null;
-          }
-          this.isScreenEnabled = false;
-          this.client.emit("screen_toggled", { enabled: false });
-        }
-
         try {
           this.cameraStream = await navigator.mediaDevices.getUserMedia({
             video: {
@@ -644,103 +547,6 @@ export class CallService {
     }
   }
 
-  public async toggleScreenShare(enable?: boolean): Promise<void> {
-    const shouldEnable = enable !== undefined ? enable : !this.isScreenEnabled;
-    const sid = this.currentCallSid;
-    if (!sid || !this.isCalling || !this.peerConnection) return;
-
-    try {
-      if (shouldEnable) {
-        if (this.isVideoEnabled) {
-          if (this.cameraStream) {
-            this.cameraStream.getTracks().forEach((t) => t.stop());
-            this.cameraStream = null;
-          }
-          this.isVideoEnabled = false;
-          this.client.emit("video_toggled", { enabled: false });
-        }
-
-        this.screenStream = await this.getDisplayStream();
-
-        const screenTrack = this.screenStream.getVideoTracks()[0];
-        if (!screenTrack) {
-          throw new Error("No video track found in screen capture stream");
-        }
-        if (screenTrack) {
-          const transceivers = this.peerConnection.getTransceivers();
-          const videoTransceiver = transceivers.find(
-            (t) => t.receiver.track.kind === "video",
-          );
-
-          if (videoTransceiver && videoTransceiver.sender) {
-            await videoTransceiver.sender.replaceTrack(screenTrack);
-            videoTransceiver.direction = "sendrecv";
-          } else {
-            this.peerConnection.addTrack(screenTrack, this.screenStream);
-          }
-
-          screenTrack.onended = () => {
-            console.log("[CallService] Screen share ended by user");
-            this.toggleScreenShare(false);
-          };
-        }
-        this.currentLocalStream = new MediaStream([
-          ...this.micStream!.getTracks(),
-          screenTrack,
-        ]);
-
-        this.isScreenEnabled = true;
-        console.log("[CallService] Screen share enabled");
-      } else {
-        const transceivers = this.peerConnection.getTransceivers();
-        const videoTransceiver = transceivers.find(
-          (t) => t.receiver.track.kind === "video",
-        );
-
-        if (videoTransceiver && videoTransceiver.sender) {
-          await videoTransceiver.sender.replaceTrack(null);
-          videoTransceiver.direction = "recvonly";
-        }
-
-        if (this.screenStream) {
-          this.screenStream.getTracks().forEach((t) => t.stop());
-          this.screenStream = null;
-        }
-
-        this.currentLocalStream = this.micStream;
-        this.isScreenEnabled = false;
-        console.log("[CallService] Screen share disabled");
-      }
-
-      this.client.emit("local_stream_ready", this.currentLocalStream);
-      this.client.emit("screen_toggled", { enabled: this.isScreenEnabled });
-
-      if (this.isCallConnected) {
-        await this.negotiate(sid);
-        const mode = this.isScreenEnabled ? "Screen" : "Audio";
-        console.log(`[CallService] Sending CALL_MODE: ${mode}`);
-        const modePayloads = await this.client.encryptForSession(
-          sid,
-          JSON.stringify({ t: "MSG", data: { type: "CALL_MODE", mode } }),
-          0,
-        );
-        this.client.send({
-          t: "MSG",
-          sid,
-          data: { payloads: modePayloads },
-          c: true,
-          p: 0,
-        });
-      }
-    } catch (e: any) {
-      console.error("Error toggling screen share:", e);
-      this.client.emit("notification", {
-        type: "error",
-        message: "Screen share error: " + e.message,
-      });
-    }
-  }
-
   public async acceptCall(sid: string) {
     this.isCalling = true;
     this.currentCallSid = sid;
@@ -803,14 +609,17 @@ export class CallService {
     }
     const wasConnected = this.isCallConnected;
     const callIdToLog = this.currentCallId || this.incomingCallId;
-    this.cleanupCall();
     const duration = this.callStartTime ? Date.now() - this.callStartTime : 0;
+    // Emit call_ended BEFORE cleanupCall so the overlay unmounts first.
+    // cleanupCall() nulls out streams (emitting local_stream_ready/remote_stream_ready: null),
+    // which would cause a blank flash if the overlay was still mounted.
     this.client.emit("call_ended", {
       sid: targetSid,
       duration,
       connected: wasConnected,
       callId: callIdToLog
     });
+    this.cleanupCall();
   }
 
   public cleanupCall() {
@@ -837,17 +646,12 @@ export class CallService {
       this.cameraStream.getTracks().forEach((t) => t.stop());
       this.cameraStream = null;
     }
-    if (this.screenStream) {
-      this.screenStream.getTracks().forEach((t) => t.stop());
-      this.screenStream = null;
-    }
 
     this.currentLocalStream = null;
     this.remoteStream = null;
 
     this.isMicEnabled = true;
     this.isVideoEnabled = false;
-    this.isScreenEnabled = false;
 
     this.client.emit("local_stream_ready", null);
     this.client.emit("remote_stream_ready", null);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { ArrowLeft, LockKeyhole } from "lucide-react";
 import {
   getKeyFromSecureStorage,
   setActiveUser,
@@ -8,6 +9,9 @@ import {
   StoredAccount,
 } from "../../../../services/auth/AccountService";
 import { AccountPicker } from "./AccountPicker";
+import { colors, radii, shadows, spacing } from "../../../../theme/design-system";
+import { DialogPanel, ModalOverlay } from "./Overlay.styles";
+import { AppScreenLayout } from "./AppScreenLayout";
 
 interface AppLockScreenProps {
   onSuccess: (pin?: string) => void;
@@ -20,6 +24,7 @@ interface AppLockScreenProps {
   onUnlockAccount?: (email: string) => void;
   onAddAccount?: () => void;
   userEmail?: string | null;
+  fullscreen?: boolean;
 }
 
 export const AppLockScreen: React.FC<AppLockScreenProps> = ({
@@ -33,6 +38,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   onUnlockAccount,
   onAddAccount,
   userEmail,
+  fullscreen = false,
 }) => {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -107,37 +113,29 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
     }
   }, [pin]);
 
-  const containerStyle: React.CSSProperties = isOverlay
-    ? {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: "#111",
-      zIndex: 9999,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      color: "white",
-    }
-    : {
-      flex: 1,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-      color: "white",
-      width: "100%",
-      height: "100%",
-    };
+  const resolvedTitle =
+    title ||
+    (mode === "lock_screen" && selectedAccount
+      ? `Enter PIN for ${selectedAccount.displayName || selectedAccount.email}`
+      : "App Locked");
+
+  const resolvedDescription =
+    description || "Enter your PIN to access CryptNode";
+
+  const keypadSize = fullscreen ? "clamp(88px, 10vmin, 132px)" : "72px";
+  const keypadFontSize = fullscreen ? "clamp(32px, 3.8vmin, 44px)" : "24px";
+  const keypadGap = fullscreen ? "clamp(18px, 2.2vmin, 30px)" : "16px";
+  const keypadGridWidth = fullscreen ? "min(100%, 520px)" : "292px";
+  const isMinimalFullscreenLock = fullscreen && mode === "lock_screen";
+  const isFullscreenInput = fullscreen && mode === "input";
+  const useFullscreenCenteredStack = fullscreen && (mode === "input" || mode === "lock_screen");
 
   if (mode === "lock_screen" && !selectedAccount) {
     return (
       <AccountPicker
         accounts={accounts}
         isOverlay={isOverlay}
+        fullscreen={fullscreen}
         onAddAccount={onAddAccount}
         onSelectAccount={async (acc) => {
           setSelectedAccount(acc);
@@ -156,73 +154,223 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
       />
     );
   }
-  return (
-    <div style={containerStyle}>
+
+  const panelContent = (
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          padding: useFullscreenCenteredStack
+            ? isMinimalFullscreenLock
+              ? "clamp(88px, 12vh, 124px) 24px 48px"
+              : "0 24px 48px"
+            : fullscreen
+              ? "40px"
+              : "30px",
+          color: colors.text.primary,
+          display: useFullscreenCenteredStack ? "flex" : "block",
+          flexDirection: useFullscreenCenteredStack ? "column" : undefined,
+          alignItems: useFullscreenCenteredStack ? "center" : undefined,
+          justifyContent: isFullscreenInput ? "center" : "flex-start",
+          minHeight: useFullscreenCenteredStack
+            ? "min(calc(100vh - 48px), 840px)"
+            : undefined,
+        }}
+      >
       {(onCancel || (mode === "lock_screen" && selectedAccount)) && (
         <button
           onClick={
             mode === "lock_screen" && selectedAccount
               ? () => {
-                setSelectedAccount(null);
-                setPin("");
-                setError("");
-              }
+                  setSelectedAccount(null);
+                  setPin("");
+                  setError("");
+                }
               : onCancel
           }
           style={{
-            position: "absolute",
-            top: "20px",
-            left: "20px",
-            background: "none",
+            position: fullscreen ? "fixed" : "absolute",
+            top: fullscreen
+              ? "max(24px, calc(env(safe-area-inset-top) + 12px))"
+              : "18px",
+            left: fullscreen
+              ? "max(24px, calc(env(safe-area-inset-left) + 12px))"
+              : "18px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            background: "transparent",
             border: "none",
-            color: "#aaa",
-            fontSize: "16px",
+            color: colors.text.secondary,
+            fontSize: fullscreen ? "18px" : "14px",
             cursor: "pointer",
-            zIndex: 10000,
+            borderRadius: radii.md,
+            padding: fullscreen ? "10px 14px" : "6px 8px",
+            zIndex: fullscreen ? 2 : undefined,
           }}
         >
-          {mode === "lock_screen" && selectedAccount ? "← Back" : "Cancel"}
+          <ArrowLeft size={fullscreen ? 20 : 16} />
+          <span>{mode === "lock_screen" && selectedAccount ? "Back" : "Cancel"}</span>
         </button>
       )}
 
-      <div style={{ marginBottom: "40px", textAlign: "center" }}>
-        <h2 style={{ fontSize: "24px", marginBottom: "10px" }}>
-          {title ||
-            (mode === "lock_screen" && selectedAccount
-              ? `Enter PIN for ${selectedAccount.displayName || selectedAccount.email
-              }`
-              : "App Locked")}
-        </h2>
-        <p style={{ color: "#aaa" }}>
-          {description || "Enter your PIN to access CryptNode"}
-        </p>
+      <div
+        style={{
+          width: keypadGridWidth,
+          maxWidth: "100%",
+          margin: "0 auto",
+          marginBottom: isMinimalFullscreenLock ? "24px" : "28px",
+          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        {fullscreen && selectedAccount && (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: fullscreen ? "14px" : "12px",
+              padding: fullscreen ? "14px 18px" : "10px 14px",
+              borderRadius: radii.full,
+              background: colors.background.secondary,
+              border: `1px solid ${colors.border.subtle}`,
+              marginBottom: fullscreen ? "28px" : "20px",
+              maxWidth: "100%",
+            }}
+          >
+            <div
+              style={{
+                width: fullscreen ? "44px" : "34px",
+                height: fullscreen ? "44px" : "34px",
+                borderRadius: "50%",
+                background: colors.primary.main,
+                color: colors.text.inverse,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+                fontSize: fullscreen ? "18px" : "14px",
+              }}
+            >
+              {(selectedAccount.displayName || selectedAccount.email)[0]?.toUpperCase()}
+            </div>
+            <div style={{ textAlign: "left" }}>
+              <div
+                style={{
+                  color: colors.text.primary,
+                  fontSize: fullscreen ? "18px" : "14px",
+                  fontWeight: 600,
+                }}
+              >
+                {selectedAccount.displayName || selectedAccount.email.split("@")[0]}
+              </div>
+              <div
+                style={{
+                  color: colors.text.secondary,
+                  fontSize: fullscreen ? "14px" : "12px",
+                }}
+              >
+                {selectedAccount.email}
+              </div>
+            </div>
+          </div>
+        )}
+        <div
+          style={{
+            width: fullscreen ? "clamp(72px, 8vmin, 108px)" : "56px",
+            height: fullscreen ? "clamp(72px, 8vmin, 108px)" : "56px",
+            borderRadius: radii.full,
+            background: colors.primary.subtle,
+            color: colors.primary.main,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: isMinimalFullscreenLock
+              ? "0 auto 22px"
+              : "0 auto 16px",
+          }}
+        >
+          <LockKeyhole size={fullscreen ? 34 : 26} />
+        </div>
+        {!isMinimalFullscreenLock && (
+          <>
+            <h2
+              style={{
+                fontSize: fullscreen ? "30px" : "24px",
+                marginBottom: "10px",
+                marginTop: 0,
+                color: colors.text.primary,
+              }}
+            >
+              {resolvedTitle}
+            </h2>
+            <p
+              style={{
+                color: colors.text.secondary,
+                lineHeight: 1.5,
+                margin: 0,
+              }}
+            >
+              {resolvedDescription}
+            </p>
+          </>
+        )}
       </div>
 
-      <div style={{ display: "flex", gap: "15px", marginBottom: "40px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: fullscreen ? "18px" : "15px",
+          marginBottom: fullscreen ? "clamp(28px, 3.2vmin, 40px)" : "28px",
+          width: keypadGridWidth,
+          maxWidth: "100%",
+          marginLeft: "auto",
+          marginRight: "auto",
+        }}
+      >
         {[...Array(6)].map((_, i) => (
           <div
             key={i}
             style={{
-              width: "15px",
-              height: "15px",
+              width: fullscreen ? "clamp(14px, 1.4vmin, 18px)" : "15px",
+              height: fullscreen ? "clamp(14px, 1.4vmin, 18px)" : "15px",
               borderRadius: "50%",
-              backgroundColor: i < pin.length ? "#3b82f6" : "#333",
-              border: "2px solid #333",
+              backgroundColor:
+                i < pin.length ? colors.primary.main : colors.background.tertiary,
+              border: `2px solid ${
+                i < pin.length ? colors.primary.main : colors.border.subtle
+              }`,
+              transition: "all 0.16s ease",
             }}
           />
         ))}
       </div>
 
       {error && (
-        <div style={{ color: "#ef4444", marginBottom: "20px" }}>{error}</div>
+        <div
+          style={{
+            color: colors.status.error,
+            marginBottom: "20px",
+            textAlign: "center",
+            fontWeight: 600,
+          }}
+        >
+          {error}
+        </div>
       )}
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "20px",
-          maxWidth: "300px",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: keypadGap,
+          justifyItems: "center",
+          maxWidth: keypadGridWidth,
+          width: "100%",
+          margin: "0 auto",
         }}
       >
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
@@ -230,14 +378,15 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
             key={num}
             onClick={() => handleKeyPress(num.toString())}
             style={{
-              width: "70px",
-              height: "70px",
-              borderRadius: "35px",
-              border: "1px solid #333",
-              background: "transparent",
-              color: "white",
-              fontSize: "24px",
+              width: keypadSize,
+              height: keypadSize,
+              borderRadius: radii.full,
+              border: `1px solid ${colors.border.subtle}`,
+              background: colors.background.secondary,
+              color: colors.text.primary,
+              fontSize: keypadFontSize,
               cursor: "pointer",
+              boxShadow: shadows.sm,
             }}
           >
             {num}
@@ -247,14 +396,15 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
         <button
           onClick={() => handleKeyPress("0")}
           style={{
-            width: "70px",
-            height: "70px",
-            borderRadius: "35px",
-            border: "1px solid #333",
-            background: "transparent",
-            color: "white",
-            fontSize: "24px",
+            width: keypadSize,
+            height: keypadSize,
+            borderRadius: radii.full,
+            border: `1px solid ${colors.border.subtle}`,
+            background: colors.background.secondary,
+            color: colors.text.primary,
+            fontSize: keypadFontSize,
             cursor: "pointer",
+            boxShadow: shadows.sm,
           }}
         >
           0
@@ -262,13 +412,13 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
         <button
           onClick={handleBackspace}
           style={{
-            width: "70px",
-            height: "70px",
-            borderRadius: "35px",
+            width: fullscreen ? keypadSize : "72px",
+            height: fullscreen ? keypadSize : "72px",
+            borderRadius: radii.full,
             border: "none",
             background: "transparent",
-            color: "#aaa",
-            fontSize: "18px",
+            color: colors.text.secondary,
+            fontSize: fullscreen ? "clamp(24px, 2.8vmin, 34px)" : "18px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -279,5 +429,50 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
         </button>
       </div>
     </div>
+  );
+
+  return (
+    fullscreen ? (
+      <AppScreenLayout stageWidth="100%" panelless>
+        {panelContent}
+      </AppScreenLayout>
+    ) : isOverlay ? (
+      <ModalOverlay>
+        <DialogPanel
+          style={{
+            width: "min(100%, 420px)",
+            overflow: "hidden",
+          }}
+        >
+          {panelContent}
+        </DialogPanel>
+      </ModalOverlay>
+    ) : (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          height: "100%",
+          padding: spacing[4],
+          background: colors.background.primary,
+        }}
+      >
+        <div
+          style={{
+            width: "min(100%, 420px)",
+            background: colors.surface.primary,
+            border: `1px solid ${colors.border.subtle}`,
+            borderRadius: radii["2xl"],
+            boxShadow: shadows.xl,
+            overflow: "hidden",
+          }}
+        >
+          {panelContent}
+        </div>
+      </div>
+    )
   );
 };

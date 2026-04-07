@@ -3,20 +3,19 @@ import {
   colors,
   spacing,
   radii,
-  shadows,
+  typography,
 } from "../../../../theme/design-system";
 
 export const SettingsContainer = styled.div`
-  width: 800px;
-  height: 600px;
-  max-width: 95vw;
-  max-height: 90vh;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
   background-color: ${colors.background.primary};
-  border-radius: ${radii.lg};
   display: flex;
   overflow: hidden;
-  box-shadow: ${shadows["2xl"]};
-  border: 1px solid ${colors.border.subtle};
+  box-shadow: none;
+  border: none;
 
   @media (max-width: 768px) {
     flex-direction: column;
@@ -31,12 +30,13 @@ export const SettingsContainer = styled.div`
 `;
 
 export const SettingsSidebar = styled.div`
-  width: 250px;
+  width: 280px;
   background-color: ${colors.background.secondary};
-  padding: ${spacing[5]};
+  padding: ${spacing[6]};
   border-right: 1px solid ${colors.border.subtle};
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 
   @media (max-width: 768px) {
     display: none;
@@ -54,6 +54,29 @@ export const SidebarTitle = styled.h2`
   margin: 0;
   font-size: 20px;
   color: ${colors.text.primary};
+`;
+
+export const SidebarSearch = styled.div`
+  margin-bottom: ${spacing[5]};
+`;
+
+export const SearchInput = styled.input`
+  width: 100%;
+  height: 42px;
+  padding: 0 ${spacing[4]};
+  border-radius: ${radii.md};
+  border: 1px solid ${colors.border.subtle};
+  background: ${colors.background.tertiary};
+  color: ${colors.text.primary};
+  outline: none;
+
+  &::placeholder {
+    color: ${colors.text.tertiary};
+  }
+
+  &:focus {
+    border-color: ${colors.primary.main};
+  }
 `;
 
 export const BackButton = styled.button`
@@ -74,18 +97,36 @@ export const BackButton = styled.button`
 
 export const SettingsContent = styled.div`
   flex: 1;
-  padding: ${spacing[8]};
+  padding: ${spacing[8]} ${spacing[10]};
   overflow-y: auto;
   background-color: ${colors.background.primary};
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: ${spacing[6]};
+
+  & > * {
+    width: 100%;
+    max-width: 980px;
+  }
 
   @media (max-width: 768px) {
     padding: ${spacing[4]};
     width: 100%;
     height: 100%;
+    gap: ${spacing[5]};
+
+    & > * {
+      max-width: none;
+    }
   }
 `;
 
 export const CategoryButton = styled.button<{ isActive: boolean }>`
+  display: flex;
+  align-items: flex-start;
+  gap: ${spacing[3]};
+  width: 100%;
   padding: ${spacing[3]} ${spacing[4]};
   margin-bottom: ${spacing[2]};
   border-radius: ${radii.md};
@@ -104,6 +145,65 @@ export const CategoryButton = styled.button<{ isActive: boolean }>`
       props.isActive ? colors.primary.hover : colors.background.tertiary};
     color: ${(props) => (props.isActive ? "white" : colors.text.primary)};
   }
+`;
+
+export const CategoryIcon = styled.div<{ isActive: boolean }>`
+  width: 34px;
+  height: 34px;
+  border-radius: ${radii.md};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: ${(props) =>
+    props.isActive ? "rgba(255,255,255,0.16)" : colors.background.tertiary};
+  color: ${(props) => (props.isActive ? "white" : colors.text.secondary)};
+`;
+
+export const CategoryText = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`;
+
+export const CategoryLabel = styled.div`
+  color: inherit;
+  font-size: ${typography.fontSize.sm};
+  font-weight: ${typography.fontWeight.semibold};
+`;
+
+export const CategoryDescription = styled.div`
+  color: inherit;
+  font-size: ${typography.fontSize.xs};
+  opacity: 0.82;
+  line-height: 1.45;
+`;
+
+export const SettingsContentHeader = styled.div`
+  margin-bottom: 0;
+  padding-bottom: ${spacing[4]};
+  border-bottom: 1px solid ${colors.border.subtle};
+`;
+
+export const SettingsContentTitle = styled.h2`
+  margin: 0 0 ${spacing[2]};
+  font-size: 1.35rem;
+  color: ${colors.text.primary};
+`;
+
+export const SettingsContentDescription = styled.p`
+  margin: 0;
+  color: ${colors.text.secondary};
+  line-height: 1.55;
+`;
+
+export const EmptySearchState = styled.div`
+  padding: ${spacing[5]};
+  border: 1px dashed ${colors.border.subtle};
+  border-radius: ${radii.md};
+  color: ${colors.text.secondary};
+  text-align: center;
 `;
 
 export const MobileCategoryList = styled.div`
@@ -159,11 +259,20 @@ export const MobileCategoryItem = styled.button`
   }
 `;
 
+export const MobileCategoryInfo = styled.div`
+  display: flex;
+  align-items: flex-start;
+  gap: ${spacing[3]};
+  min-width: 0;
+`;
+
 export const ProfileSection = styled.div`
-  margin-bottom: ${spacing[8]};
-  padding: ${spacing[5]};
+  margin-bottom: ${spacing[6]};
+  padding: ${spacing[6]};
   background-color: ${colors.background.secondary};
-  border-radius: ${radii.md};
+  border-radius: ${radii.lg};
+  border: 1px solid ${colors.border.subtle};
+  box-shadow: 0 14px 36px -28px rgba(0, 0, 0, 0.34);
 
   @media (max-width: 768px) {
     padding: ${spacing[4]};
@@ -174,12 +283,13 @@ export const AccountItem = styled.div<{ isActive: boolean }>`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: ${spacing[4]};
+  padding: ${spacing[5]};
   background-color: ${colors.background.secondary};
-  border-radius: ${radii.md};
-  margin-bottom: ${spacing[3]};
+  border-radius: ${radii.lg};
+  margin-bottom: ${spacing[4]};
   border: 1px solid
     ${(props) => (props.isActive ? colors.primary.main : colors.border.subtle)};
+  box-shadow: 0 14px 36px -30px rgba(0, 0, 0, 0.34);
 
   @media (max-width: 640px) {
     flex-direction: column;
@@ -226,6 +336,7 @@ export const ProfileHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: ${spacing[5]};
 
   @media (max-width: 640px) {
     flex-direction: column;
@@ -242,6 +353,7 @@ export const ProfileInfo = styled.div`
   display: flex;
   align-items: center;
   gap: ${spacing[5]};
+  min-width: 0;
 
   @media (max-width: 640px) {
     gap: ${spacing[3]};

@@ -1,12 +1,16 @@
-import { colors } from "../../../../theme/colors";
+import { colors } from "../../../../theme/design-system";
 import ChatClient from "../../../../services/core/ChatClient";
 import {
   ModalOverlay,
-  GlassModal,
-  ModalButtons,
-  PrimaryButton,
-  CancelButton,
+  DialogPanel,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+  DialogBadge,
 } from "./Overlay.styles";
+import { Button } from "../../../../components/ui/Button";
 
 export const RequestModal = ({
   inboundReq,
@@ -15,36 +19,46 @@ export const RequestModal = ({
   setIsWaiting,
 }: any) => (
   <ModalOverlay>
-    <GlassModal>
+    <DialogPanel>
       {isWaiting ? (
         <>
-          <div className="spinner" style={{ margin: "0 auto 15px" }}></div>
-          <h3 style={{ color: colors.text.primary, marginTop: 0 }}>
-            Waiting for Peer...
-          </h3>
-          <p style={{ color: colors.text.secondary }}>
-            Establishing secure handshake.
-          </p>
-          <CancelButton onClick={() => setIsWaiting(false)}>
+          <DialogHeader>
+            <DialogBadge>Connecting</DialogBadge>
+            <DialogTitle>Waiting for Peer...</DialogTitle>
+            <DialogDescription>
+              Establishing a secure handshake between both devices.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="spinner" style={{ margin: "0 auto" }}></div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" fullWidth onClick={() => setIsWaiting(false)}>
             Cancel
-          </CancelButton>
+            </Button>
+          </DialogFooter>
         </>
       ) : (
         <>
-          <h3 style={{ color: colors.text.primary, marginTop: 0 }}>
-            Peer Request
-          </h3>
-          <p style={{ color: colors.text.primary }}>
-            Request from{" "}
-            <span style={{ color: colors.primary, fontWeight: 600 }}>
-              {(inboundReq as any).email || "Unknown"}
-            </span>
-          </p>
-          <p style={{ fontSize: "0.8em", color: colors.text.muted }}>
-            Session ID: {inboundReq?.sid.slice(0, 8)}
-          </p>
-          <ModalButtons>
-            <PrimaryButton
+          <DialogHeader>
+            <DialogBadge>Secure Request</DialogBadge>
+            <DialogTitle>Peer Request</DialogTitle>
+            <DialogDescription>
+              Request from{" "}
+              <span style={{ color: colors.primary.main, fontWeight: 700 }}>
+                {(inboundReq as any).email || "Unknown"}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <p style={{ fontSize: "0.88rem", color: colors.text.secondary, margin: 0 }}>
+              Session ID: {inboundReq?.sid.slice(0, 8)}
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              variant="primary"
+              fullWidth
               onClick={async () => {
                 await ChatClient.acceptFriend(
                   inboundReq!.email,
@@ -55,18 +69,20 @@ export const RequestModal = ({
               }}
             >
               Accept
-            </PrimaryButton>
-            <CancelButton
+            </Button>
+            <Button
+              variant="secondary"
+              fullWidth
               onClick={() => {
                 ChatClient.denyFriend(inboundReq!.email);
                 setInboundReq(null);
               }}
             >
               Decline
-            </CancelButton>
-          </ModalButtons>
+            </Button>
+          </DialogFooter>
         </>
       )}
-    </GlassModal>
+    </DialogPanel>
   </ModalOverlay>
 );

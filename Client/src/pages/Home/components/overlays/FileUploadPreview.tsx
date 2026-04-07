@@ -22,6 +22,10 @@ import {
   shadows,
 } from "../../../../theme/design-system";
 import { IconButton } from "../../../../components/ui/IconButton";
+import {
+  darkFilePreviewTheme,
+  FilePreviewPane,
+} from "../../../../components/files/FilePreviewPane";
 import { getUploadPreviewType } from "../../../../utils/mediaType";
 import { canRenderVideoSource } from "../../../../utils/videoPreview";
 
@@ -557,69 +561,71 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
           </div>
         ) : (
           <PreviewArea>
-            {currentFile.type === "image" ? (
-              <img src={currentFile.previewUrl} alt="Preview" />
-            ) : currentFile.type === "video" ? (
-              <>
-                <video src={currentFile.previewUrl} controls />
-                {currentVideoState &&
-                  currentVideoState.state !== "ready" &&
-                  currentVideoState.state !== "idle" && (
+            <FilePreviewPane
+              fileUrl={currentFile.previewUrl}
+              fileName={currentFile.file.name}
+              mimeType={currentFile.file.type}
+              theme={darkFilePreviewTheme}
+              loadingLabel="Loading preview..."
+              style={{ width: "100%", height: "100%" }}
+              mediaStyle={{
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                objectFit: "contain",
+                borderRadius: radii.lg,
+                boxShadow: shadows.xl,
+              }}
+              audioStyle={{
+                width: "min(100%, 420px)",
+              }}
+            />
+            {currentFile.type === "video" &&
+              currentVideoState &&
+              currentVideoState.state !== "ready" &&
+              currentVideoState.state !== "idle" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0, 0, 0, 0.72)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "12px",
+                    padding: "24px",
+                    textAlign: "center",
+                    zIndex: 2,
+                  }}
+                >
+                  <div style={{ fontSize: "16px", fontWeight: 600 }}>
+                    {currentVideoState.message ||
+                      (currentVideoState.state === "checking"
+                        ? "Checking video compatibility..."
+                        : "Preview unavailable")}
+                  </div>
+                  {currentVideoState.state === "checking" && (
                     <div
                       style={{
-                        position: "absolute",
-                        inset: 0,
-                        background: "rgba(0, 0, 0, 0.72)",
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "12px",
-                        padding: "24px",
-                        textAlign: "center",
-                        zIndex: 2,
+                        width: "240px",
+                        maxWidth: "80%",
+                        height: "8px",
+                        borderRadius: "999px",
+                        background: "rgba(255,255,255,0.16)",
+                        overflow: "hidden",
                       }}
                     >
-                      <div style={{ fontSize: "16px", fontWeight: 600 }}>
-                        {currentVideoState.message ||
-                          (currentVideoState.state === "checking"
-                            ? "Checking video compatibility..."
-                            : "Preview unavailable")}
-                      </div>
-                      {currentVideoState.state === "checking" && (
-                        <div
-                          style={{
-                            width: "240px",
-                            maxWidth: "80%",
-                            height: "8px",
-                            borderRadius: "999px",
-                            background: "rgba(255,255,255,0.16)",
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: "45%",
-                              height: "100%",
-                              background: colors.primary.DEFAULT,
-                            }}
-                          />
-                        </div>
-                      )}
+                      <div
+                        style={{
+                          width: "45%",
+                          height: "100%",
+                          background: colors.primary.DEFAULT,
+                        }}
+                      />
                     </div>
                   )}
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                <FileText size={64} style={{ opacity: 0.8 }} />
-                <span style={{ fontSize: '18px', fontWeight: 500, textAlign: 'center', wordBreak: 'break-all', maxWidth: '80%' }}>
-                  {currentFile.file.name}
-                </span>
-                <span style={{ fontSize: '14px', opacity: 0.6 }}>
-                  {(currentFile.file.size / 1024 / 1024).toFixed(2)} MB
-                </span>
-              </div>
-            )}
+                </div>
+              )}
             {currentIndex > 0 && (
               <IconButton
                 variant="ghost"

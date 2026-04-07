@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import {
   AccountService,
   StoredAccount,
@@ -14,14 +15,12 @@ import {
   setKeyFromSecureStorage,
   setActiveUser,
 } from "../../../../services/storage/SafeStorage";
-import UserAvatar from "../../../../components/UserAvatar";
 import Dialog from "@mui/material/Dialog";
 import {
   SettingsContainer,
   SettingsSidebar,
   SettingsContent,
   CategoryButton,
-  AccountItem,
   DangerZone,
   DangerButton,
   SignOutButton,
@@ -30,11 +29,32 @@ import {
   BackButton,
   MobileCategoryList,
   MobileCategoryItem,
+  MobileCategoryInfo,
   MobileHeader,
   MobileTitle,
+  SidebarSearch,
+  SearchInput,
+  CategoryIcon,
+  CategoryText,
+  CategoryLabel,
+  CategoryDescription,
+  SettingsContentHeader,
+  SettingsContentTitle,
+  SettingsContentDescription,
+  EmptySearchState,
 } from "./Settings.styles";
 import { colors } from "../../../../theme/design-system";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  UserRound,
+  Smartphone,
+  Palette,
+  Shield,
+  Bot,
+  ScrollText,
+  Database,
+} from "lucide-react";
 import { ProfileSettings } from "../settings/ProfileSettings";
 import { SecuritySettings } from "../settings/SecuritySettings";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
@@ -45,6 +65,7 @@ import { DeviceManager } from "../settings/DeviceManager";
 import { LocalAISettings } from "../settings/LocalAISettings";
 import { LogSettings } from "../settings/LogSettings";
 import { Capacitor } from "@capacitor/core";
+import { ConfirmDialog } from "../../../../components/ui/ConfirmDialog";
 
 
 interface SettingsOverlayProps {
@@ -80,6 +101,11 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   );
   const [accounts, setAccounts] = useState<StoredAccount[]>([]);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
+  const [deleteAccountConfirmOpen, setDeleteAccountConfirmOpen] = useState(false);
+  const [deleteModelsWithAccount, setDeleteModelsWithAccount] = useState(false);
+  const [canDeleteModelsWithAccount, setCanDeleteModelsWithAccount] = useState(false);
 
   useEffect(() => {
     if (!isMobile && !activeCategory) {
@@ -112,121 +138,178 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
   };
 
   const handleSignOut = async () => {
-    if (confirm("Are you sure you want to sign out?")) {
+    try {
       await ChatClient.logout(true);
+      toast.success("Signed out.");
       onClose();
+    } catch (e) {
+      console.error("Sign out failed", e);
+      toast.error("Failed to sign out.");
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (isDeletingAccount) return;
-    if (
-      confirm(
-        "ARE YOU SURE? This will delete all your chats and keys permanently from this device.",
-      )
-    ) {
-      if (confirm("Really really sure? This cannot be undone.")) {
+  const openDeleteAccountConfirm = async () => {
+    if (isDeletingAccount || !currentUserEmail) return;
 
-        // If this is the ONLY account, ask if they want to delete downloaded local models too
-        let deleteModels = false;
-        if (accounts.length <= 1 && Capacitor.getPlatform() !== 'android') {
-          try {
-            await localAIService.refreshInstalledStatus();
-            const installedModels = await localAIService.getEnhancedModels();
-            const hasDownloadedModels = installedModels.some(m => m.isDownloaded);
-
-            if (hasDownloadedModels) {
-              if (confirm("You are deleting your last account. Do you also want to delete all downloaded AI models from this device?")) {
-                deleteModels = true;
-              }
-            }
-          } catch (err) {
-            console.error("Failed to check for downloaded models", err);
-          }
-        }
-
-        if (currentUserEmail) {
-          setIsDeletingAccount(true);
-          let deleteFailed = false;
-          try {
-            const dbName = await AccountService.getDbName(currentUserEmail);
-            const masterKey = await getKeyFromSecureStorage(
-              await AccountService.getStorageKey(
-                currentUserEmail,
-                "MASTER_KEY",
-              ),
-            );
-
-            await switchDatabase(dbName, masterKey || undefined);
-
-            const mediaFiles = await getMediaFilenames();
-            for (const fileName of mediaFiles) {
-              await StorageService.deleteFile(fileName);
-            }
-
-            await StorageService.deleteProfileImage(dbName);
-            await deleteItemsByOwner(currentUserEmail);
-            localStorage.removeItem(`secure_chat_salt_${currentUserEmail}`);
-
-            await setActiveUser(currentUserEmail);
-
-            const keysToClear = [
-              "app_lock_pin",
-              "MASTER_KEY",
-              "vault_mfa_secret",
-              "vault_mfa_provisioned",
-              "identity_priv",
-              "identity_pub",
-              "auth_token",
-            ];
-
-            for (const keyId of keysToClear) {
-              const scopedKey = await AccountService.getStorageKey(
-                currentUserEmail,
-                keyId,
-              );
-              await setKeyFromSecureStorage(scopedKey, "");
-            }
-
-            await ChatClient.deleteAccount();
-
-            await deleteDatabase(dbName);
-            await AccountService.removeAccount(currentUserEmail);
-
-            // Delete Models if requested
-            if (deleteModels) {
-              try {
-                // Ensure models info is loaded
-                await localAIService.refreshInstalledStatus();
-                const installedModels = await localAIService.getEnhancedModels();
-                for (const model of installedModels) {
-                  if (model.isDownloaded) {
-                    await localAIService.deleteModel(model.id);
-                  }
-                }
-              } catch (modelErr) {
-                console.error("Failed to delete models", modelErr);
-              }
-            }
-          } catch (e) {
-            deleteFailed = true;
-            console.error("Delete failed", e);
-            alert("Failed to delete account data fully.");
-          } finally {
-            try {
-              await setActiveUser(null);
-              await ChatClient.logout(true);
-            } catch (logoutErr) {
-              console.warn("Forced logout after delete failed", logoutErr);
-            }
-            setIsDeletingAccount(false);
-            if (!deleteFailed) {
-              onClose();
-            }
-          }
-        }
+    let hasDownloadedModels = false;
+    if (accounts.length <= 1 && Capacitor.getPlatform() !== "android") {
+      try {
+        await localAIService.refreshInstalledStatus();
+        const installedModels = await localAIService.getEnhancedModels();
+        hasDownloadedModels = installedModels.some((m) => m.isDownloaded);
+      } catch (err) {
+        console.error("Failed to check for downloaded models", err);
       }
     }
+
+    setCanDeleteModelsWithAccount(hasDownloadedModels);
+    setDeleteModelsWithAccount(false);
+    setDeleteAccountConfirmOpen(true);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!currentUserEmail || isDeletingAccount) return;
+
+    setIsDeletingAccount(true);
+    let deleteFailed = false;
+    try {
+      const dbName = await AccountService.getDbName(currentUserEmail);
+      const masterKey = await getKeyFromSecureStorage(
+        await AccountService.getStorageKey(currentUserEmail, "MASTER_KEY"),
+      );
+
+      await switchDatabase(dbName, masterKey || undefined);
+
+      const mediaFiles = await getMediaFilenames();
+      for (const fileName of mediaFiles) {
+        await StorageService.deleteFile(fileName);
+      }
+
+      await StorageService.deleteProfileImage(dbName);
+      await deleteItemsByOwner(currentUserEmail);
+      localStorage.removeItem(`secure_chat_salt_${currentUserEmail}`);
+
+      await setActiveUser(currentUserEmail);
+
+      // Fire-and-forget server delete while the current authenticated session
+      // is still intact. We only wait for the frame to flush locally, not for
+      // any server response.
+      await ChatClient.deleteAccount();
+
+      const keysToClear = [
+        "app_lock_pin",
+        "MASTER_KEY",
+        "MASTER_KEY_PENDING_REVEAL",
+        "vault_mfa_secret",
+        "vault_mfa_provisioned",
+        "identity_priv",
+        "identity_pub",
+      ];
+
+      for (const keyId of keysToClear) {
+        const scopedKey = await AccountService.getStorageKey(
+          currentUserEmail,
+          keyId,
+        );
+        await setKeyFromSecureStorage(scopedKey, "");
+      }
+
+      await AccountService.removeAccount(currentUserEmail);
+      await deleteDatabase(dbName);
+
+      if (deleteModelsWithAccount) {
+        try {
+          await localAIService.refreshInstalledStatus();
+          const installedModels = await localAIService.getEnhancedModels();
+          for (const model of installedModels) {
+            if (model.isDownloaded) {
+              await localAIService.deleteModel(model.id);
+            }
+          }
+        } catch (modelErr) {
+          console.error("Failed to delete models", modelErr);
+        }
+      }
+
+      toast.success("Account deleted from this device.");
+    } catch (e) {
+      deleteFailed = true;
+      console.error("Delete failed", e);
+      toast.error("Failed to delete account data fully.");
+    } finally {
+      try {
+        await setActiveUser(null);
+        await ChatClient.logout(true);
+      } catch (logoutErr) {
+        console.warn("Forced logout after delete failed", logoutErr);
+      }
+      setIsDeletingAccount(false);
+      setDeleteAccountConfirmOpen(false);
+      if (!deleteFailed) {
+        onClose();
+      }
+    }
+  };
+
+  const menuItems: {
+    id: SettingsCategory;
+    label: string;
+    description: string;
+    icon: any;
+    keywords: string[];
+  }[] = [
+    {
+      id: "Profile",
+      label: "Profile",
+      description: "Display name, avatar, public key, and account identity.",
+      icon: UserRound,
+      keywords: ["name", "avatar", "profile", "identity", "account"],
+    },
+    {
+      id: "Devices",
+      label: "Devices",
+      description: "Manage linked devices and session trust.",
+      icon: Smartphone,
+      keywords: ["devices", "linked", "sync", "trust"],
+    },
+    {
+      id: "Appearance",
+      label: "Appearance",
+      description: "Themes, message layout, and interface behavior.",
+      icon: Palette,
+      keywords: ["theme", "layout", "bubble", "modern", "ui"],
+    },
+    {
+      id: "Logs",
+      label: "Logs",
+      description: "Inspect runtime logs and diagnostics.",
+      icon: ScrollText,
+      keywords: ["logs", "debug", "errors", "diagnostics"],
+    },
+    {
+      id: "Security",
+      label: "Security",
+      description: "Backups, PIN lock, trusted users, and recovery tools.",
+      icon: Shield,
+      keywords: ["security", "backup", "pin", "block", "recovery"],
+    },
+    {
+      id: "Account",
+      label: "Data & Storage",
+      description: "Sign out, delete account data, and storage controls.",
+      icon: Database,
+      keywords: ["sign out", "delete", "storage", "data"],
+    },
+  ];
+
+  if (!isAndroid) {
+    menuItems.push({
+      id: "Local AI",
+      label: "Local AI Models",
+      description: "Download, switch, and manage offline AI models.",
+      icon: Bot,
+      keywords: ["local ai", "models", "llm", "download", "offline"],
+    });
   };
 
   const deletingOverlay = isDeletingAccount ? (
@@ -262,23 +345,23 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     </div>
   ) : null;
 
-  const menuItems: { id: SettingsCategory; label: string }[] = [
-    { id: "Profile", label: "Profile" },
-    { id: "Devices", label: "Devices" },
-    { id: "Appearance", label: "Appearance" },
-    { id: "Logs", label: "Logs" },
-    { id: "Security", label: "Security" },
-    { id: "Account", label: "Data & Storage" },
-  ];
-
-  if (!isAndroid) {
-    menuItems.push({ id: "Local AI", label: "Local AI Models" });
-  }
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredMenuItems = menuItems.filter((item) => {
+    if (!normalizedSearch) return true;
+    return (
+      item.label.toLowerCase().includes(normalizedSearch) ||
+      item.description.toLowerCase().includes(normalizedSearch) ||
+      item.keywords.some((keyword) =>
+        keyword.toLowerCase().includes(normalizedSearch),
+      )
+    );
+  });
+  const activeMenuItem = menuItems.find((item) => item.id === activeCategory);
 
   const renderContent = () => {
     switch (activeCategory) {
       case "Devices":
-        return <DeviceManager />;
+        return <DeviceManager currentUserEmail={currentUserEmail} />;
       case "Appearance":
         return <AppearanceSettings />;
       case "Profile":
@@ -295,17 +378,20 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
       case "Account":
         return (
           <div>
-            <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
+            <h3 style={{ color: colors.text.primary, marginTop: 0 }}>Danger Zone</h3>
+            <p style={{ color: colors.text.secondary, lineHeight: 1.55 }}>
+              Sign out of this account or permanently remove all local account data from this device.
+            </p>
             <DangerZone>
               <SignOutButton
                 disabled={isDeletingAccount}
-                onClick={handleSignOut}
+                onClick={() => setSignOutConfirmOpen(true)}
               >
                 Sign Out
               </SignOutButton>
               <DangerButton
                 disabled={isDeletingAccount}
-                onClick={handleDeleteAccount}
+                onClick={openDeleteAccountConfirm}
               >
                 {isDeletingAccount ? "Deleting..." : "Delete Account"}
               </DangerButton>
@@ -344,20 +430,86 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                 </BackButton>
                 <SidebarTitle>Settings</SidebarTitle>
               </SidebarHeader>
+              <div style={{ padding: "16px" }}>
+                <SidebarSearch style={{ marginBottom: 0 }}>
+                  <SearchInput
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search settings"
+                  />
+                </SidebarSearch>
+              </div>
 
-              {menuItems.map((item) => (
+              {filteredMenuItems.length === 0 && (
+                <div style={{ padding: "0 16px 16px" }}>
+                  <EmptySearchState>No settings match "{searchQuery}".</EmptySearchState>
+                </div>
+              )}
+
+              {filteredMenuItems.map((item) => (
                 <MobileCategoryItem
                   key={item.id}
                   disabled={isDeletingAccount}
                   onClick={() => setActiveCategory(item.id)}
                 >
-                  {item.label}
+                  <MobileCategoryInfo>
+                    <CategoryIcon isActive={false}>
+                      <item.icon size={18} />
+                    </CategoryIcon>
+                    <CategoryText>
+                      <CategoryLabel>{item.label}</CategoryLabel>
+                      <CategoryDescription>{item.description}</CategoryDescription>
+                    </CategoryText>
+                  </MobileCategoryInfo>
                   <ChevronRight size={20} color={colors.text.tertiary} />
                 </MobileCategoryItem>
               ))}
             </MobileCategoryList>
           </SettingsContainer>
           {deletingOverlay}
+          <ConfirmDialog
+            open={signOutConfirmOpen}
+            title="Sign out of this account?"
+            description="You can sign back in later. Local encrypted data stays on this device unless you delete the account."
+            confirmLabel="Sign Out"
+            badgeLabel="Account Action"
+            onCancel={() => setSignOutConfirmOpen(false)}
+            onConfirm={async () => {
+              setSignOutConfirmOpen(false);
+              await handleSignOut();
+            }}
+          />
+          <ConfirmDialog
+            open={deleteAccountConfirmOpen}
+            title="Delete this account from this device?"
+            description="This removes local chats, keys, media, and account data stored on this device. This cannot be undone."
+            confirmLabel="Delete Account"
+            tone="danger"
+            badgeLabel="Permanent Action"
+            isLoading={isDeletingAccount}
+            onCancel={() => setDeleteAccountConfirmOpen(false)}
+            onConfirm={handleDeleteAccount}
+          >
+            {canDeleteModelsWithAccount ? (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  color: colors.text.primary,
+                  lineHeight: 1.5,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={deleteModelsWithAccount}
+                  onChange={(e) => setDeleteModelsWithAccount(e.target.checked)}
+                />
+                <span>Also delete downloaded Local AI models from this device.</span>
+              </label>
+            ) : null}
+          </ConfirmDialog>
         </Dialog>
       );
     }
@@ -373,12 +525,65 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
               <ArrowLeft size={24} />
             </BackButton>
             <MobileTitle>
-              {menuItems.find((m) => m.id === activeCategory)?.label}
+              {activeMenuItem?.label}
             </MobileTitle>
           </MobileHeader>
-          <SettingsContent>{renderContent()}</SettingsContent>
+          <SettingsContent>
+            {activeMenuItem && (
+              <SettingsContentHeader>
+                <SettingsContentTitle>{activeMenuItem.label}</SettingsContentTitle>
+                <SettingsContentDescription>
+                  {activeMenuItem.description}
+                </SettingsContentDescription>
+              </SettingsContentHeader>
+            )}
+            {renderContent()}
+          </SettingsContent>
         </SettingsContainer>
         {deletingOverlay}
+        <ConfirmDialog
+          open={signOutConfirmOpen}
+          title="Sign out of this account?"
+          description="You can sign back in later. Local encrypted data stays on this device unless you delete the account."
+          confirmLabel="Sign Out"
+          badgeLabel="Account Action"
+          onCancel={() => setSignOutConfirmOpen(false)}
+          onConfirm={async () => {
+            setSignOutConfirmOpen(false);
+            await handleSignOut();
+          }}
+        />
+        <ConfirmDialog
+          open={deleteAccountConfirmOpen}
+          title="Delete this account from this device?"
+          description="This removes local chats, keys, media, and account data stored on this device. This cannot be undone."
+          confirmLabel="Delete Account"
+          tone="danger"
+          badgeLabel="Permanent Action"
+          isLoading={isDeletingAccount}
+          onCancel={() => setDeleteAccountConfirmOpen(false)}
+          onConfirm={handleDeleteAccount}
+        >
+          {canDeleteModelsWithAccount ? (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "10px",
+                color: colors.text.primary,
+                lineHeight: 1.5,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={deleteModelsWithAccount}
+                onChange={(e) => setDeleteModelsWithAccount(e.target.checked)}
+              />
+              <span>Also delete downloaded Local AI models from this device.</span>
+            </label>
+          ) : null}
+        </ConfirmDialog>
       </Dialog>
     );
   }
@@ -388,8 +593,7 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     <Dialog
       open={true}
       onClose={isDeletingAccount ? undefined : onClose}
-      maxWidth="md"
-      fullWidth
+      fullScreen
       PaperProps={{
         style: {
           backgroundColor: "transparent",
@@ -407,15 +611,32 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
             <SidebarTitle>Settings</SidebarTitle>
           </SidebarHeader>
 
+          <SidebarSearch>
+            <SearchInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search settings"
+            />
+          </SidebarSearch>
+
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {menuItems.map((item) => (
+            {filteredMenuItems.length === 0 && (
+              <EmptySearchState>No settings match "{searchQuery}".</EmptySearchState>
+            )}
+            {filteredMenuItems.map((item) => (
               <CategoryButton
                 key={item.id}
                 isActive={activeCategory === item.id}
                 disabled={isDeletingAccount}
                 onClick={() => setActiveCategory(item.id)}
               >
-                {item.label}
+                <CategoryIcon isActive={activeCategory === item.id}>
+                  <item.icon size={18} />
+                </CategoryIcon>
+                <CategoryText>
+                  <CategoryLabel>{item.label}</CategoryLabel>
+                  <CategoryDescription>{item.description}</CategoryDescription>
+                </CategoryText>
               </CategoryButton>
             ))}
           </div>
@@ -423,7 +644,17 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
 
         {/* Right Content */}
         <SettingsContent>
-          {activeCategory === "Devices" && <DeviceManager />}
+          {activeMenuItem && (
+            <SettingsContentHeader>
+              <SettingsContentTitle>{activeMenuItem.label}</SettingsContentTitle>
+              <SettingsContentDescription>
+                {activeMenuItem.description}
+              </SettingsContentDescription>
+            </SettingsContentHeader>
+          )}
+          {activeCategory === "Devices" && (
+            <DeviceManager currentUserEmail={currentUserEmail} />
+          )}
           {activeCategory === "Appearance" && <AppearanceSettings />}
           {activeCategory === "Profile" && (
             <ProfileSettings
@@ -437,17 +668,20 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
           )}
           {activeCategory === "Account" && (
             <div>
-              <h3 style={{ color: colors.text.primary }}>Danger Zone</h3>
+              <h3 style={{ color: colors.text.primary, marginTop: 0 }}>Danger Zone</h3>
+              <p style={{ color: colors.text.secondary, lineHeight: 1.55 }}>
+                Sign out of this account or permanently remove all local account data from this device.
+              </p>
               <DangerZone>
                 <SignOutButton
                   disabled={isDeletingAccount}
-                  onClick={handleSignOut}
+                  onClick={() => setSignOutConfirmOpen(true)}
                 >
                   Sign Out
                 </SignOutButton>
                 <DangerButton
                   disabled={isDeletingAccount}
-                  onClick={handleDeleteAccount}
+                  onClick={openDeleteAccountConfirm}
                 >
                   {isDeletingAccount ? "Deleting..." : "Delete Account"}
                 </DangerButton>
@@ -472,6 +706,49 @@ export const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         </SettingsContent>
       </SettingsContainer>
       {deletingOverlay}
+      <ConfirmDialog
+        open={signOutConfirmOpen}
+        title="Sign out of this account?"
+        description="You can sign back in later. Local encrypted data stays on this device unless you delete the account."
+        confirmLabel="Sign Out"
+        badgeLabel="Account Action"
+        onCancel={() => setSignOutConfirmOpen(false)}
+        onConfirm={async () => {
+          setSignOutConfirmOpen(false);
+          await handleSignOut();
+        }}
+      />
+      <ConfirmDialog
+        open={deleteAccountConfirmOpen}
+        title="Delete this account from this device?"
+        description="This removes local chats, keys, media, and account data stored on this device. This cannot be undone."
+        confirmLabel="Delete Account"
+        tone="danger"
+        badgeLabel="Permanent Action"
+        isLoading={isDeletingAccount}
+        onCancel={() => setDeleteAccountConfirmOpen(false)}
+        onConfirm={handleDeleteAccount}
+      >
+        {canDeleteModelsWithAccount ? (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "10px",
+              color: colors.text.primary,
+              lineHeight: 1.5,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={deleteModelsWithAccount}
+              onChange={(e) => setDeleteModelsWithAccount(e.target.checked)}
+            />
+            <span>Also delete downloaded Local AI models from this device.</span>
+          </label>
+        ) : null}
+      </ConfirmDialog>
     </Dialog>
   );
 };

@@ -36,6 +36,7 @@ import { avatarCacheService } from "../../../../services/storage/AvatarCacheServ
 import { StorageService } from "../../../../services/storage/StorageService";
 import { getMediaForSession } from "../../../../services/storage/sqliteService";
 import ChatClient from "../../../../services/core/ChatClient";
+import { colors } from "../../../../theme/design-system";
 
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -45,7 +46,7 @@ import "yet-another-react-lightbox/styles.css";
 interface UserProfileModalProps {
   session: SessionData;
   onClose: () => void;
-  onSave: (aliasName: string, notes: string) => void;
+  onSave: (aliasName: string, notes: string) => Promise<void>;
   onGoToMessage?: (messageId: string) => void;
 }
 
@@ -287,7 +288,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 onChange={(e) => setAliasName(e.target.value)}
                 placeholder={displayName}
               />
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', paddingLeft: '8px' }}>
+              <span style={{ fontSize: '12px', color: colors.text.secondary, paddingLeft: '8px' }}>
                 {session.peerEmail || session.sid.substring(0, 12) + "..."}
               </span>
             </ProfileInfo>
@@ -358,7 +359,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
 
               {mediaGroups.length === 0 ? (
-                <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ color: colors.text.tertiary, fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
                   No media matches the active filters.
                 </div>
               ) : (
@@ -404,12 +405,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           {session.isConnected !== false ? (
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <RemoveConnectionButton
-                onClick={() => {
-                  if (window.confirm("Are you sure you want to remove this connection? This will delete all local history and block future messages from them.")) {
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to remove this connection? The chat will stay visible, but you will no longer be connected to this user.")) {
                     setIsSaving(true);
                     onClose();
-                    ChatClient.removeConnection(session.peerEmailHash || "", session.sid);
-                    ChatClient.deleteChat(session.sid);
+                    await ChatClient.removeConnection(
+                      session.peerEmailHash || "",
+                      session.sid,
+                    );
                   }
                 }}
                 disabled={isSaving}
@@ -420,10 +423,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
               <RemoveConnectionButton
                 onClick={() => {
-                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages AND remove the chat from all synced devices.")) {
+                  if (window.confirm("Are you sure you want to delete this chat? This will clear past messages but keep the connection and chat visible.")) {
                     setIsSaving(true);
                     onClose();
-                    ChatClient.deleteChat(session.sid);
+                    ChatClient.deleteChat(session.sid, false);
                   }
                 }}
                 disabled={isSaving}
@@ -436,10 +439,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <RemoveConnectionButton
                 onClick={() => {
-                  if (window.confirm("Are you sure you want to delete this chat? This will remove all local history messages AND remove the chat from all synced devices.")) {
+                  if (window.confirm("Are you sure you want to delete this chat? This will delete the messages and remove this disconnected chat from your UI.")) {
                     setIsSaving(true);
                     onClose();
-                    ChatClient.deleteChat(session.sid);
+                    ChatClient.deleteChat(session.sid, true);
                   }
                 }}
                 disabled={isSaving}
@@ -480,10 +483,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
               : undefined
           }
+          PaperProps={{
+            style: {
+              backgroundColor: "var(--surface-primary)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "10px",
+              boxShadow: "var(--shadow-lg)",
+            },
+          }}
           MenuListProps={{
             style: {
-              backgroundColor: "#1f2937",
-              color: "white",
+              backgroundColor: "var(--surface-primary)",
+              color: "var(--text-primary)",
               borderRadius: "8px",
             },
           }}
@@ -561,4 +573,3 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     </Overlay>
   );
 };
-

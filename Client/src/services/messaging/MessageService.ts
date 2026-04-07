@@ -89,6 +89,53 @@ export class MessageService extends EventEmitter {
     return base64;
   }
 
+  private getMediaRowScore(row: {
+    status?: string | null;
+    size?: number | null;
+    download_progress?: number | null;
+    thumbnail?: string | null;
+    filename?: string | null;
+  }): number {
+    let score = 0;
+    if (row.status === "downloaded") score += 1_000_000;
+    else if (row.status === "downloading") score += 100_000;
+    else if (row.status === "pending") score += 10_000;
+
+    score += Number(row.size || 0);
+    score += Math.round(Number(row.download_progress || 0) * 100);
+    if (row.thumbnail) score += 10;
+    if (row.filename) score += 1;
+    return score;
+  }
+
+  private dedupeMediaRows<
+    T extends {
+      message_id?: string | null;
+      status?: string | null;
+      size?: number | null;
+      download_progress?: number | null;
+      thumbnail?: string | null;
+      filename?: string | null;
+    },
+  >(rows: T[]): T[] {
+    const byMessageId = new Map<string, T>();
+
+    for (const row of rows) {
+      const messageId = row?.message_id;
+      if (!messageId) continue;
+
+      const existing = byMessageId.get(messageId);
+      if (
+        !existing ||
+        this.getMediaRowScore(row) >= this.getMediaRowScore(existing)
+      ) {
+        byMessageId.set(messageId, row);
+      }
+    }
+
+    return Array.from(byMessageId.values());
+  }
+
   private splitProfileAvatarIntoChunks(base64: string): string[] {
     return this.splitTextIntoChunks(
       base64,
@@ -394,25 +441,46 @@ export class MessageService extends EventEmitter {
   }
 
   /**
-   * Deletes all messages for a session locally and marks it as deleted (tombstone).
-   * The MANIFEST broadcast will propagate the deletion to own devices.
-   * Works even while the peer is still online — does not send anything to the peer.
+   * Deletes chat data locally.
+   * When `removeFromUi` is false, only the messages are cleared and the session stays visible.
+   * When `removeFromUi` is true, the whole local chat/session is removed from the UI.
    */
-  public async deleteChatLocally(sid: string) {
+  public async deleteChatLocally(sid: string, removeFromUi: boolean = false) {
     try {
-      // Delete all messages for this session (cascade will handle reactions & media)
+      // Delete physical media files from disk before the DB cascade removes the rows.
+      try {
+        const mediaRows = await queryDB(
+          "SELECT filename FROM media WHERE message_id IN (SELECT id FROM messages WHERE sid = ?)",
+          [sid],
+        );
+        await Promise.all(
+          mediaRows
+            .map((r: any) => r.filename)
+            .filter(Boolean)
+            .map((filename: string) => StorageService.deleteFile(filename).catch(() => {})),
+        );
+      } catch (e) {
+        console.warn("[MessageService] Failed to delete media files for chat:", e);
+      }
+
+      // Delete all messages for this session (cascade will handle reactions & media rows)
       await executeDB("DELETE FROM messages WHERE sid = ?", [sid]);
 
-      // Mark session as deleted tombstone (keep row so deleted_at syncs via manifest)
+      // Keep the old local tombstone behavior so MANIFEST/SYNC cannot re-seed
+      // previously cleared history after restart/reconnect.
       await markSessionDeleted(sid, Date.now());
 
-      // Remove from in-memory session store so caller can also clean up
-      this.client.emit("chat_deleted", { sid });
+      if (removeFromUi) {
+        this.client.emit("chat_deleted", { sid });
+        this.client.emit("session_updated");
+        console.log(`[MessageService] Chat ${sid} removed locally.`);
+        return;
+      }
 
-      // Broadcast to own devices immediately so siblings learn about deletion
-      this.broadcastManifestToOwnDevices(true).catch(() => { });
+      this.client.emit("messages_synced", { sid });
+      this.client.emit("session_updated");
 
-      console.log(`[MessageService] Chat ${sid} deleted locally and tombstone set.`);
+      console.log(`[MessageService] Chat ${sid} cleared locally.`);
     } catch (e) {
       console.error("[MessageService] Failed to delete chat locally:", e);
       throw e;
@@ -623,6 +691,7 @@ export class MessageService extends EventEmitter {
                 `SELECT * FROM media WHERE message_id IN (${placeholders})`,
                 messageIds,
               );
+              media = this.dedupeMediaRows(media);
             }
 
             let manifestData: any = { messages: missing, media };
@@ -1144,12 +1213,63 @@ export class MessageService extends EventEmitter {
 
               // ── media section ──
               if (Array.isArray(manifest.media) && manifest.media.length > 0) {
+                const dedupedMedia = this.dedupeMediaRows(manifest.media);
                 const mediaStatements: { statement: string; values: any[] }[] = [];
-                for (const med of manifest.media) {
+                let existingMediaByMessageId = new Map<string, any>();
+
+                if (dedupedMedia.length > 0) {
+                  const placeholders = dedupedMedia.map(() => "?").join(",");
+                  const existingMediaRows = await queryDB(
+                    `SELECT message_id, filename FROM media WHERE message_id IN (${placeholders})`,
+                    dedupedMedia.map((med) => med.message_id),
+                  );
+                  existingMediaByMessageId = new Map(
+                    existingMediaRows.map((row: any) => [row.message_id, row]),
+                  );
+                }
+
+                for (const med of dedupedMedia) {
                   if (!med.message_id || !med.filename) continue;
+                  const existingMedia = existingMediaByMessageId.get(
+                    med.message_id,
+                  );
+
+                  if (existingMedia?.filename) {
+                    mediaStatements.push({
+                      statement: `UPDATE media
+                        SET original_name = COALESCE(NULLIF(?, ''), original_name),
+                            file_size = CASE
+                              WHEN ? > COALESCE(file_size, 0) THEN ?
+                              ELSE file_size
+                            END,
+                            mime_type = COALESCE(NULLIF(?, ''), mime_type),
+                            thumbnail = COALESCE(NULLIF(?, ''), thumbnail),
+                            is_compressed = CASE
+                              WHEN is_compressed = 1 OR ? = 1 THEN 1
+                              ELSE 0
+                            END
+                        WHERE message_id = ?`,
+                      values: [
+                        med.original_name || "",
+                        Number(med.file_size || 0),
+                        Number(med.file_size || 0),
+                        med.mime_type || "",
+                        med.thumbnail || "",
+                        med.is_compressed || 0,
+                        med.message_id,
+                      ],
+                    });
+                    mediaStatements.push({
+                      statement:
+                        "DELETE FROM media WHERE message_id = ? AND filename != ?",
+                      values: [med.message_id, existingMedia.filename],
+                    });
+                    continue;
+                  }
+
                   mediaStatements.push({
-                    statement: `INSERT OR IGNORE INTO media 
-                      (filename, original_name, file_size, size, mime_type, message_id, status, download_progress, thumbnail, is_compressed) 
+                    statement: `INSERT OR IGNORE INTO media
+                      (filename, original_name, file_size, size, mime_type, message_id, status, download_progress, thumbnail, is_compressed)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     values: [
                       med.filename,
@@ -1158,7 +1278,7 @@ export class MessageService extends EventEmitter {
                       med.size || 0,
                       med.mime_type,
                       med.message_id,
-                      "pending", 
+                      "pending",
                       0,
                       med.thumbnail,
                       med.is_compressed || 0,

@@ -2,6 +2,7 @@ export const VAULT_DIR = "cryptnode_vault";
 export const PROFILE_DIR = "cryptnode_profiles";
 export const CHUNK_SIZE = 256000;
 import { Directory } from "@capacitor/filesystem";
+import { getMimeTypeForFileLike } from "../../utils/mediaType";
 
 export const StorageUtils = {
   isLocalSystemPath(fileName: string): boolean {
@@ -27,44 +28,6 @@ export const StorageUtils = {
   },
 
   getMimeType(fileName: string, defaultMime?: string): string {
-    const ext = fileName.split(".").pop()?.toLowerCase();
-    let mime = defaultMime || "application/octet-stream";
-
-    if (!defaultMime) {
-      if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
-      else if (ext === "png") mime = "image/png";
-      else if (ext === "gif") mime = "image/gif";
-      else if (ext === "webp") mime = "image/webp";
-      else if (ext === "mp4") mime = "video/mp4";
-      else if (ext === "mov") mime = "video/quicktime";
-      else if (ext === "m4v") mime = "video/x-m4v";
-      else if (ext === "webm") mime = "video/webm";
-      else if (ext === "mkv") mime = "video/x-matroska";
-      else if (ext === "avi") mime = "video/x-msvideo";
-      else if (ext === "3gp") mime = "video/3gpp";
-      else if (ext === "3g2") mime = "video/3gpp2";
-      else if (ext === "ogv") mime = "video/ogg";
-      else if (ext === "mp3") mime = "audio/mpeg";
-      else if (ext === "wav") mime = "audio/wav";
-      else if (ext === "ogg") mime = "audio/ogg";
-      else if (ext === "m4a") mime = "audio/mp4";
-      else if (ext === "pdf") mime = "application/pdf";
-      else if (ext === "json") mime = "application/json";
-      else if (ext === "txt") mime = "text/plain";
-      else if (ext === "md") mime = "text/markdown";
-      else if (ext === "html") mime = "text/html";
-      else if (ext === "css") mime = "text/css";
-      else if (ext === "js") mime = "application/javascript";
-      else if (ext === "xml") mime = "application/xml";
-      else if (ext === "doc") mime = "application/msword";
-      else if (ext === "docx") mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-      else if (ext === "xls") mime = "application/vnd.ms-excel";
-      else if (ext === "xlsx") mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    }
-
-    if (fileName.includes("voice-note") && ext === "webm") {
-      mime = "audio/webm";
-    }
-    return mime;
+    return getMimeTypeForFileLike({ name: fileName, type: defaultMime });
   },
 };

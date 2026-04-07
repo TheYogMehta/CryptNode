@@ -3,6 +3,7 @@ import {
   executeDB,
   queryDB,
   addBlockedUser,
+  addOutboundRequestHistory,
   removeBlockedUser,
   isUserBlocked,
   addPendingRequest,
@@ -86,6 +87,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
       this.messageService.broadcastManifestToOwnDevices().catch((e) =>
         console.warn("[ChatClient] Failed to sync manifest to own devices", e),
       );
+    });
+    this.sessionService.on("request_history_changed", () => {
+      this.emit("request_history_changed");
     });
     this.messageService.on("block_list_updated", () => {
       this.emit("block_list_updated");
@@ -274,6 +278,10 @@ export class ChatClient extends EventEmitter implements IChatClient {
         this.emit("auth_success", this.authService.userEmail);
         break;
 
+      case "DELETE_ACCOUNT_SUCCESS":
+        this.emit("delete_account_success", data);
+        break;
+
       case "DEVICE_NUCLEAR_SUCCESS":
         this.emit("device_nuclear_success");
         break;
@@ -383,8 +391,16 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         break;
       }
+      case "FRIEND_DENIED":
       case "FRIEND_DENY":
         await this.sessionService.handleFriendDeny(data);
+        this.emit("notification", {
+          type: "info",
+          message:
+            data.reason === "blocked"
+              ? "Your connection request was blocked."
+              : "Your connection request was rejected.",
+        });
         this.emit("session_updated");
         break;
       case "SYNC_ACCEPT":
@@ -580,6 +596,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         break;
       case "REQUEST_SENT":
+        if (data.targetEmail) {
+          const normalizedTargetEmail = this.normalizeEmail(data.targetEmail);
+          const targetHash = await sha256(normalizedTargetEmail);
+          await addOutboundRequestHistory(normalizedTargetEmail, targetHash);
+          this.emit("request_history_changed");
+        }
         this.emit("notification", {
           type: "success",
           message: "Connection request sent",
@@ -686,7 +708,21 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async deleteAccount() {
-    socket.send({ t: "DELETE_ACCOUNT" });
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.off("delete_account_success", onAck);
+        resolve();
+      }, 5000);
+
+      const onAck = () => {
+        clearTimeout(timeout);
+        this.off("delete_account_success", onAck);
+        resolve();
+      };
+
+      this.on("delete_account_success", onAck);
+      socket.send({ t: "DELETE_ACCOUNT" });
+    });
   }
 
   public async switchAccount(email: string) {
@@ -763,8 +799,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
     return this.messageService.deleteMessage(sid, messageId, forEveryone);
   }
 
-  public async deleteChat(sid: string) {
-    await this.messageService.deleteChatLocally(sid);
+  public async deleteChat(sid: string, removeFromUi: boolean = false) {
+    await this.messageService.deleteChatLocally(sid, removeFromUi);
     this.emit("session_updated");
   }
 
@@ -809,12 +845,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
   public async startCall(
     sid: string,
-    mode: "Audio" | "Video" | "Screen" = "Audio",
+    mode: "Audio" | "Video" = "Audio",
   ) {
     return this.callService.startCall(sid, mode);
   }
 
-  public async switchStream(_sid: string, mode: "Audio" | "Video" | "Screen") {
+  public async switchStream(_sid: string, mode: "Audio" | "Video") {
     return this.callService.switchStream(_sid, mode);
   }
 
@@ -834,12 +870,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
   public get isVideoEnabled() {
     return this.callService.isVideoEnabled;
   }
-  public get isScreenEnabled() {
-    return this.callService.isScreenEnabled;
-  }
-  public get canScreenShare() {
-    return this.callService.canUseScreenShare();
-  }
   public async getPublicKeyString() {
     return await this.authService.exportPub();
   }
@@ -850,10 +880,6 @@ export class ChatClient extends EventEmitter implements IChatClient {
   // Delegate Call Public Methods
   public async toggleVideo(enabled: boolean) {
     return this.callService.toggleVideo(enabled);
-  }
-
-  public async toggleScreenShare(enabled: boolean) {
-    return this.callService.toggleScreenShare(enabled);
   }
 
   public async toggleMic(enabled?: boolean) {

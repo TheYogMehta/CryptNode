@@ -7,6 +7,7 @@ import {
   addBlockedUser,
   removeBlockedUser,
   removePendingRequest,
+  updateOutboundRequestHistoryStatus,
 } from "../storage/sqliteService";
 import { WorkerManager } from "../core/WorkerManager";
 import socket from "../core/SocketManager";
@@ -33,6 +34,10 @@ export class SessionService extends EventEmitter {
   public sessions: Record<string, ChatSession> = {};
   public connectedSids: Set<string> = new Set();
   private finalizeLocks: Map<string, Promise<void>> = new Map();
+  private pendingPresenceBySid: Map<
+    string,
+    { online: boolean; peerPubKeys: string[] }
+  > = new Map();
   private static readonly MAX_HANDSHAKE_AVATAR_B64 = 160 * 1024;
 
   constructor(authService: AuthService) {
@@ -42,6 +47,23 @@ export class SessionService extends EventEmitter {
 
   private normalizeEmail(email?: string | null): string {
     return (email || "").trim().toLowerCase();
+  }
+
+  private consumePendingPresence(
+    sid: string,
+    peerPubKeys: string[],
+    online: boolean,
+  ) {
+    const pending = this.pendingPresenceBySid.get(sid);
+    if (!pending) {
+      return { peerPubKeys, online };
+    }
+
+    this.pendingPresenceBySid.delete(sid);
+    return {
+      peerPubKeys: pending.peerPubKeys.length > 0 ? pending.peerPubKeys : peerPubKeys,
+      online: pending.online,
+    };
   }
 
   public async encrypt(
@@ -173,7 +195,7 @@ export class SessionService extends EventEmitter {
             "image/jpeg",
           );
           if (fileSrc) avatarData = fileSrc;
-        } catch (_e) { }
+        } catch (_e) {}
       }
     }
 
@@ -205,7 +227,7 @@ export class SessionService extends EventEmitter {
             if (fileSrc) avatarData = fileSrc;
           }
         }
-      } catch (_e) { }
+      } catch (_e) {}
     }
 
     if (
@@ -236,6 +258,13 @@ export class SessionService extends EventEmitter {
     online: boolean = true,
   ) {
     const runFinalize = async () => {
+      const pendingPresence = this.consumePendingPresence(
+        sid,
+        remotePubB64s,
+        online,
+      );
+      const effectivePeerPubKeys = pendingPresence.peerPubKeys;
+      const effectiveOnline = pendingPresence.online;
       const normalizedPeerEmail = this.normalizeEmail(peerEmail);
       const resolvedPeerEmailHash =
         peerEmailHash ||
@@ -248,22 +277,31 @@ export class SessionService extends EventEmitter {
           own: [...(this.sessions[sid].ownPubKeys || [])].sort(),
         });
         const incomingKeysStr = JSON.stringify({
-          peer: [...(remotePubB64s || [])].sort(),
+          peer: [...(effectivePeerPubKeys || [])].sort(),
           own: [...(ownPubKeys || [])].sort(),
         });
         if (currentKeysStr === incomingKeysStr) {
           // Keys are strictly identical, just update metadata and abort re-derivation.
           const resolvedPeerNameVer = peerName ? Number(peerNameVer || 0) : 0;
-          const resolvedPeerAvatarVer = peerAvatarVer ? Number(peerAvatarVer) : 0;
+          const resolvedPeerAvatarVer = peerAvatarVer
+            ? Number(peerAvatarVer)
+            : 0;
 
           Object.assign(this.sessions[sid], {
             peerEmail: normalizedPeerEmail || this.sessions[sid].peerEmail,
-            peerEmailHash: resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
+            peerEmailHash:
+              resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
             peerName: peerName || this.sessions[sid].peerName,
-            peer_name_ver: Math.max(resolvedPeerNameVer, this.sessions[sid].peer_name_ver || 0),
-            peer_avatar_ver: Math.max(resolvedPeerAvatarVer, this.sessions[sid].peer_avatar_ver || 0),
-            online,
-            isConnected: true
+            peer_name_ver: Math.max(
+              resolvedPeerNameVer,
+              this.sessions[sid].peer_name_ver || 0,
+            ),
+            peer_avatar_ver: Math.max(
+              resolvedPeerAvatarVer,
+              this.sessions[sid].peer_avatar_ver || 0,
+            ),
+            online: effectiveOnline,
+            isConnected: true,
           });
           this.connectedSids.add(sid);
           return;
@@ -273,7 +311,7 @@ export class SessionService extends EventEmitter {
       if (!this.sessions[sid]) {
         this.sessions[sid] = {
           cryptoKeys: {},
-          online,
+          online: effectiveOnline,
           isConnected: true,
         };
       }
@@ -281,19 +319,23 @@ export class SessionService extends EventEmitter {
       // Synchronously assign metadata upfront so that synchronous event orchestrators
       // checking `peerEmailHash` don't find it missing while crypto deriving is pending.
       // Also assign public keys so that concurrent calls don't think keys need rotating.
-      this.sessions[sid].peerEmail = normalizedPeerEmail || this.sessions[sid].peerEmail;
-      this.sessions[sid].peerEmailHash = resolvedPeerEmailHash || this.sessions[sid].peerEmailHash;
-      this.sessions[sid].online = online;
-      this.sessions[sid].peerPubKeys = remotePubB64s;
+      this.sessions[sid].peerEmail =
+        normalizedPeerEmail || this.sessions[sid].peerEmail;
+      this.sessions[sid].peerEmailHash =
+        resolvedPeerEmailHash || this.sessions[sid].peerEmailHash;
+      this.sessions[sid].online = effectiveOnline;
+      this.sessions[sid].peerPubKeys = effectivePeerPubKeys;
       this.sessions[sid].ownPubKeys = ownPubKeys || [];
 
       // Start with existing keys to avoid losing keys that might still be needed
       // for synced or in-flight messages (e.g. from other devices).
-      const cryptoKeysMap: Record<string, CryptoKey> = { ...this.sessions[sid].cryptoKeys };
+      const cryptoKeysMap: Record<string, CryptoKey> = {
+        ...this.sessions[sid].cryptoKeys,
+      };
       const jwksMap: Record<string, any> = {};
 
       const allKeysForDerivation = new Set([
-        ...remotePubB64s,
+        ...effectivePeerPubKeys,
         ...(ownPubKeys || []),
       ]);
 
@@ -303,7 +345,10 @@ export class SessionService extends EventEmitter {
           const sharedKey = await this.deriveSharedKey(pubB64);
           cryptoKeysMap[pubB64] = sharedKey;
         } catch (e) {
-          console.warn(`[SessionService] Failed to derive key for ${pubB64}`, e);
+          console.warn(
+            `[SessionService] Failed to derive key for ${pubB64}`,
+            e,
+          );
         }
       }
 
@@ -340,29 +385,39 @@ export class SessionService extends EventEmitter {
       Object.assign(this.sessions[sid], {
         cryptoKeys: cryptoKeysMap,
         peerEmail: normalizedPeerEmail || this.sessions[sid].peerEmail,
-        peerEmailHash: resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
+        peerEmailHash:
+          resolvedPeerEmailHash || this.sessions[sid].peerEmailHash,
         peerName: peerName || this.sessions[sid].peerName,
         peerAvatar: peerAvatarFile || this.sessions[sid].peerAvatar,
-        peer_name_ver: Math.max(resolvedPeerNameVer, this.sessions[sid].peer_name_ver || 0),
-        peer_avatar_ver: Math.max(resolvedPeerAvatarVer, this.sessions[sid].peer_avatar_ver || 0),
+        peer_name_ver: Math.max(
+          resolvedPeerNameVer,
+          this.sessions[sid].peer_name_ver || 0,
+        ),
+        peer_avatar_ver: Math.max(
+          resolvedPeerAvatarVer,
+          this.sessions[sid].peer_avatar_ver || 0,
+        ),
         isConnected: true,
-        peerPubKeys: remotePubB64s,
+        peerPubKeys: effectivePeerPubKeys,
         ownPubKeys: ownPubKeys || [],
-        deletedAt: undefined, // Clear deletion tombstone — session is being (re)established
       });
       this.connectedSids.add(sid);
 
       await WorkerManager.getInstance().initSession(sid, jwksMap);
       await executeDB(
         "INSERT OR IGNORE INTO sessions (sid, keyJWK, peer_pub_keys, own_pub_keys) VALUES (?, ?, ?, ?)",
-        [sid, JSON.stringify(jwksMap), JSON.stringify(remotePubB64s), JSON.stringify(ownPubKeys || [])],
+        [
+          sid,
+          JSON.stringify(jwksMap),
+          JSON.stringify(effectivePeerPubKeys),
+          JSON.stringify(ownPubKeys || []),
+        ],
       );
       await executeDB(
         `UPDATE sessions
          SET keyJWK = ?,
              peer_pub_keys = ?,
              own_pub_keys = ?,
-             deleted_at = 0,
              peer_email = COALESCE(?, peer_email),
              peer_hash = COALESCE(?, peer_hash),
              peer_name = COALESCE(?, peer_name),
@@ -378,7 +433,7 @@ export class SessionService extends EventEmitter {
          WHERE sid = ?`,
         [
           JSON.stringify(jwksMap),
-          JSON.stringify(remotePubB64s),
+          JSON.stringify(effectivePeerPubKeys),
           JSON.stringify(ownPubKeys || []),
           normalizedPeerEmail || null,
           resolvedPeerEmailHash || null,
@@ -395,16 +450,20 @@ export class SessionService extends EventEmitter {
     };
 
     let lock = this.finalizeLocks.get(sid) || Promise.resolve();
-    lock = lock.then(() => runFinalize()).catch(e => {
-      console.error("[SessionService] finalizeSession error:", e);
-    });
+    lock = lock
+      .then(() => runFinalize())
+      .catch((e) => {
+        console.error("[SessionService] finalizeSession error:", e);
+      });
     this.finalizeLocks.set(sid, lock);
     await lock;
   }
 
   private async deriveSharedKey(pubB64: string) {
     if (!this.authService.identityKeyPair) {
-      console.warn("[SessionService] Identity not loaded. Attempting to load...");
+      console.warn(
+        "[SessionService] Identity not loaded. Attempting to load...",
+      );
       await this.authService.loadIdentity();
       if (!this.authService.identityKeyPair) {
         throw new Error("Identity not loaded");
@@ -457,7 +516,8 @@ export class SessionService extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      const payloads: Array<{ publicKey: string, encryptedPacket: string }> = [];
+      const payloads: Array<{ publicKey: string; encryptedPacket: string }> =
+        [];
 
       for (const pubB64 of remotePubB64s) {
         if (!pubB64) continue;
@@ -474,15 +534,20 @@ export class SessionService extends EventEmitter {
           const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
           payloads.push({
             publicKey: pubB64,
-            encryptedPacket: `${ivB64}.${cipherB64}`
+            encryptedPacket: `${ivB64}.${cipherB64}`,
           });
         } catch (err) {
-          console.warn(`[SessionService] Failed to encrypt handshake for key ${pubB64}`, err);
+          console.warn(
+            `[SessionService] Failed to encrypt handshake for key ${pubB64}`,
+            err,
+          );
         }
       }
 
       if (payloads.length === 0) {
-        throw new Error("Failed to encrypt friend request for any target keys.");
+        throw new Error(
+          "Failed to encrypt friend request for any target keys.",
+        );
       }
 
       socket.send({
@@ -519,7 +584,8 @@ export class SessionService extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      const payloads: Array<{ publicKey: string, encryptedPacket: string }> = [];
+      const payloads: Array<{ publicKey: string; encryptedPacket: string }> =
+        [];
 
       for (const pubB64 of remotePubB64s) {
         if (!pubB64) continue;
@@ -536,15 +602,20 @@ export class SessionService extends EventEmitter {
           const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
           payloads.push({
             publicKey: pubB64,
-            encryptedPacket: `${ivB64}.${cipherB64}`
+            encryptedPacket: `${ivB64}.${cipherB64}`,
           });
         } catch (err) {
-          console.warn(`[SessionService] Failed to encrypt accept for key ${pubB64}`, err);
+          console.warn(
+            `[SessionService] Failed to encrypt accept for key ${pubB64}`,
+            err,
+          );
         }
       }
 
       if (payloads.length === 0) {
-        throw new Error("Failed to encrypt accept request for any target keys.");
+        throw new Error(
+          "Failed to encrypt accept request for any target keys.",
+        );
       }
 
       // Derive SID deterministically
@@ -566,7 +637,11 @@ export class SessionService extends EventEmitter {
                   undefined,
                   undefined,
                   undefined,
-                )
+                  undefined,
+                  undefined,
+                  undefined,
+                  false,
+                ),
               )
               .then(() => resolve(sid))
               .catch(reject);
@@ -623,15 +698,19 @@ export class SessionService extends EventEmitter {
 
   public async blockUser(targetEmail: string) {
     const norm = this.normalizeEmail(targetEmail);
+    const targetHash = await sha256(norm);
     socket.send({
       t: "BLOCK_USER",
       data: { targetEmail: norm },
       c: true,
       p: 0,
     });
-    // Store locally
     await addBlockedUser(norm);
+    await addBlockedUser(targetHash);
     await removePendingRequest(norm);
+    await executeDB("DELETE FROM pending_requests WHERE senderHash = ?", [
+      targetHash,
+    ]);
     this.emit("block_list_changed");
   }
 
@@ -651,7 +730,9 @@ export class SessionService extends EventEmitter {
 
   public async unblockUser(targetEmail: string) {
     const norm = this.normalizeEmail(targetEmail);
+    const targetHash = await sha256(norm);
     await removeBlockedUser(norm);
+    await removeBlockedUser(targetHash);
     this.emit("block_list_changed");
   }
 
@@ -663,7 +744,9 @@ export class SessionService extends EventEmitter {
     encryptedPacket: string,
     remotePubB64: string | string[],
   ) {
-    const keysToTry = Array.isArray(remotePubB64) ? remotePubB64 : [remotePubB64];
+    const keysToTry = Array.isArray(remotePubB64)
+      ? remotePubB64
+      : [remotePubB64];
 
     for (const pubKey of keysToTry) {
       if (!pubKey) continue;
@@ -685,7 +768,7 @@ export class SessionService extends EventEmitter {
         const jsonStr = new TextDecoder().decode(decrypted);
         return {
           profile: JSON.parse(jsonStr),
-          decryptedWithKey: pubKey
+          decryptedWithKey: pubKey,
         };
       } catch (e) {
         // Decryption failed with this key, try the next one
@@ -693,7 +776,9 @@ export class SessionService extends EventEmitter {
       }
     }
 
-    console.warn("Unable to decrypt friend request (likely meant for an older device key or a different device).");
+    console.warn(
+      "Unable to decrypt friend request (likely meant for an older device key or a different device).",
+    );
     return null;
   }
 
@@ -703,10 +788,12 @@ export class SessionService extends EventEmitter {
     let profile: any = null;
     let successfulPubKey = "";
 
-    const payloadsToTry = data.payloads || [{
-      encryptedPacket: data.encryptedPacket,
-      publicKey: data.publicKeys?.[0] || data.publicKey
-    }];
+    const payloadsToTry = data.payloads || [
+      {
+        encryptedPacket: data.encryptedPacket,
+        publicKey: data.publicKeys?.[0] || data.publicKey,
+      },
+    ];
 
     for (const payload of payloadsToTry) {
       if (!payload.encryptedPacket) continue;
@@ -726,14 +813,8 @@ export class SessionService extends EventEmitter {
     }
 
     if (!profile) {
-      // Check if the session was already reconstructed from SESSION_LIST
-      const otherEmailHash = await sha256(this.normalizeEmail(
-        // We don't have the peer email here, but if ANY session exists that
-        // includes this public key we can safely skip.
-        successfulPubKey,
-      )).catch(() => "");
-      const sidForKey = Object.entries(this.sessions).find(
-        ([, s]) => s.peerPubKeys?.includes(successfulPubKey),
+      const sidForKey = Object.entries(this.sessions).find(([, s]) =>
+        s.peerPubKeys?.includes(successfulPubKey),
       );
       if (sidForKey) {
         console.log(
@@ -751,6 +832,14 @@ export class SessionService extends EventEmitter {
     const [u1, u2] = [myEmail, otherEmail].sort();
     const sid = await sha256(u1 + ":" + u2);
 
+    const historyUpdated = await updateOutboundRequestHistoryStatus(
+      "accepted",
+      { email: otherEmail },
+    );
+    if (historyUpdated) {
+      this.emit("request_history_changed");
+    }
+
     await this.finalizeSession(
       sid,
       [successfulPubKey],
@@ -760,15 +849,32 @@ export class SessionService extends EventEmitter {
       profile.avatar,
       profile.nameVersion,
       profile.avatarVersion,
+      undefined,
+      false,
     );
     return sid;
   }
 
   public async handleFriendDeny(data: any) {
-    console.log("Friend request denied by", data.targetEmail);
+    const status: "blocked" | "rejected" =
+      data.reason === "blocked" ? "blocked" : "rejected";
+    const historyUpdated = await updateOutboundRequestHistoryStatus(status, {
+      targetHash: data.senderHash,
+      email: this.normalizeEmail(data.targetEmail),
+    });
+
+    if (historyUpdated) {
+      this.emit("request_history_changed");
+    }
+
+    console.log("Friend request denied by", data.senderHash || data.targetEmail);
   }
 
-  public async removeConnection(targetHash: string, sid: string, skipNetwork?: boolean) {
+  public async removeConnection(
+    targetHash: string,
+    sid: string,
+    skipNetwork?: boolean,
+  ) {
     if (!skipNetwork) {
       socket.send({
         t: "UNFRIEND",
@@ -833,16 +939,29 @@ export class SessionService extends EventEmitter {
         }
       }
     } else {
+      this.pendingPresenceBySid.set(sid, {
+        online: isOnline,
+        peerPubKeys: newPeerPubKeys || [],
+      });
+
       let ownSid = "";
       if (this.authService.userEmail) {
         const emailStr = this.normalizeEmail(this.authService.userEmail);
         try {
           ownSid = await sha256(emailStr + ":" + emailStr);
-        } catch (e) { }
+        } catch (e) {}
       }
 
-      if (ownSid && sid === ownSid && isOnline && newPeerPubKeys && newPeerPubKeys.length > 0) {
-        console.log(`[SessionService] PEER_ONLINE: Reconstructing newly online own-device session ${sid}`);
+      if (
+        ownSid &&
+        sid === ownSid &&
+        isOnline &&
+        newPeerPubKeys &&
+        newPeerPubKeys.length > 0
+      ) {
+        console.log(
+          `[SessionService] PEER_ONLINE: Reconstructing newly online own-device session ${sid}`,
+        );
         const emailStr = this.normalizeEmail(this.authService.userEmail || "");
         const myHash = await sha256(emailStr);
         try {
@@ -856,10 +975,13 @@ export class SessionService extends EventEmitter {
             0,
             0,
             undefined, // ownPubKeys will be picked up properly
-            true
+            true,
           );
         } catch (e) {
-          console.error("Failed to derive session for newly online own device", e);
+          console.error(
+            "Failed to derive session for newly online own device",
+            e,
+          );
         }
       }
     }
@@ -925,28 +1047,32 @@ export class SessionService extends EventEmitter {
               console.error(
                 "Failed to re-derive session key on pubKey rotation:",
                 e,
-              )
-            )
+              ),
+            ),
           );
         }
       } else {
-        console.warn("[SessionService] Server has session not found locally:", item.sid);
-
         if ((item.peerPubKeys || item.ownPubKeys) && item.peerHash) {
           let ownSid = "";
           if (this.authService.userEmail) {
             const emailStr = this.normalizeEmail(this.authService.userEmail);
             try {
               ownSid = await sha256(emailStr + ":" + emailStr);
-            } catch (e) { }
+            } catch (e) {}
           }
 
           if (ownSid && item.sid === ownSid && !item.online) {
-            console.log("[SessionService] Skipping offline own-device session reconstruction", item.sid);
+            console.log(
+              "[SessionService] Skipping offline own-device session reconstruction",
+              item.sid,
+            );
             continue;
           }
 
-          console.log("[SessionService] Reconstructing missing local session from server data", item.sid);
+          console.log(
+            "[SessionService] Reconstructing missing local session from server data",
+            item.sid,
+          );
           promises.push(
             this.finalizeSession(
               item.sid,
@@ -958,13 +1084,13 @@ export class SessionService extends EventEmitter {
               0,
               0,
               item.ownPubKeys,
-              item.online,  // Respect actual online status from server
+              item.online, // Respect actual online status from server
             ).catch((e) =>
               console.error(
                 "Failed to auto-restore session from server list:",
                 e,
-              )
-            )
+              ),
+            ),
           );
         }
       }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   User,
   PhoneOff,
@@ -8,15 +9,13 @@ import {
   Maximize2,
   Video,
   VideoOff,
-  Monitor,
-  MonitorOff,
   Phone,
 } from "lucide-react";
 
 import { IconButton } from "../../../../components/ui/IconButton";
+import { colors, shadows } from "../../../../theme/design-system";
 
 import { ChatClient } from "../../../../services/core/ChatClient";
-import { StorageService } from "../../../../services/storage/StorageService";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import {
   OverlayContainer,
@@ -36,30 +35,38 @@ import {
 interface CallOverlayProps {
   callState: any;
   localStream: MediaStream | null;
+  isMobile?: boolean;
+  isMinimized?: boolean;
   onAccept: () => void;
   onReject: () => void;
   onHangup: () => void;
+  onMinimize?: () => void;
+  onMaximize?: () => void;
 }
 
 export const CallOverlay: React.FC<CallOverlayProps> = ({
   callState,
   localStream,
+  isMobile = false,
+  isMinimized: controlledIsMinimized,
   onAccept,
   onReject,
   onHangup,
+  onMinimize,
+  onMaximize,
 }) => {
   const [duration, setDuration] = useState(0);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [internalIsMinimized, setInternalIsMinimized] = useState(false);
   const client = ChatClient.getInstance();
   const [isMuted, setIsMuted] = useState(!client.isMicEnabled);
   const [isVideoEnabled, setIsVideoEnabled] = useState(client.isVideoEnabled);
-  const [isScreenEnabled, setIsScreenEnabled] = useState(client.isScreenEnabled);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localPreviewRef = useRef<HTMLVideoElement | null>(null);
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
+  const isMinimized = controlledIsMinimized ?? internalIsMinimized;
 
   const [resolvedPeerAvatar, setResolvedPeerAvatar] = useState<string | null>(
     null,
@@ -87,23 +94,15 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     };
   }, [callState?.peerAvatar]);
 
-  const canScreenShare = client.canScreenShare;
   useEffect(() => {
     const handleVideoToggle = (data: { enabled: boolean }) => {
       setIsVideoEnabled(data.enabled);
-      if (data.enabled) setIsScreenEnabled(false);
-    };
-    const handleScreenToggle = (data: { enabled: boolean }) => {
-      setIsScreenEnabled(data.enabled);
-      if (data.enabled) setIsVideoEnabled(false);
     };
 
     client.on("video_toggled", handleVideoToggle);
-    client.on("screen_toggled", handleScreenToggle);
 
     return () => {
       client.off("video_toggled", handleVideoToggle);
-      client.off("screen_toggled", handleScreenToggle);
     };
   }, [client]);
 
@@ -118,14 +117,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   useEffect(() => {
     if (!localPreviewRef.current || !localStream) return;
-    
+
     localPreviewRef.current.srcObject = localStream;
     localPreviewRef.current.muted = true;
-    
+
     localPreviewRef.current.play().catch(e => {
-        console.warn("Failed to auto-play local stream PIP", e);
+      console.warn("Failed to auto-play local stream PIP", e);
     });
-  }, [localStream, isVideoEnabled, isScreenEnabled, isMinimized]);
+  }, [localStream, isVideoEnabled, isMinimized]);
 
   useEffect(() => {
     const handleRemoteStream = (stream: MediaStream | null) => {
@@ -138,12 +137,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           remoteVideoRef.current.play().catch((err) => {
             console.error("Error playing remote video:", err);
           });
-          
+
           const checkRemoteVideo = () => {
-             const hasActiveVideo = stream.getVideoTracks().some(track => track.enabled && track.readyState === 'live');
-             setHasRemoteVideo(hasActiveVideo);
+            const hasActiveVideo = stream.getVideoTracks().some(track => track.enabled && track.readyState === 'live');
+            setHasRemoteVideo(hasActiveVideo);
           };
-          
+
           checkRemoteVideo();
           stream.onaddtrack = checkRemoteVideo;
           stream.onremovetrack = checkRemoteVideo;
@@ -165,6 +164,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       client.off("remote_stream_ready", handleRemoteStream);
     };
   }, [client]);
+
+  useEffect(() => {
+    const existingStream = client.getRemoteStream();
+    if (existingStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = existingStream;
+      remoteVideoRef.current.play().catch(() => { });
+    }
+  }, [isMinimized, client]);
 
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -203,21 +210,45 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     await client.toggleVideo(!isVideoEnabled);
   };
 
-  const toggleScreen = async () => {
-    await client.toggleScreenShare(!isScreenEnabled);
-  };
-
   const displayName = callState?.peerName || "Unknown";
 
   const activeMode =
-    isScreenEnabled || callState?.type === "Screen"
-      ? "Screen Share"
-      : isVideoEnabled || callState?.type === "Video"
-      ? "Video Call"
-      : "Voice Call";
+    isVideoEnabled || callState?.type === "Video" ? "Video Call" : "Voice Call";
 
-  const shouldShowRemoteVideo =
-    callState?.type === "Screen" || hasRemoteVideo;
+  const shouldShowRemoteVideo = hasRemoteVideo;
+  const avatarImageStyle = {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover" as const,
+    display: "block",
+  };
+  const neutralCallButtonVariant = "secondary" as const;
+  const controlTrayStyle = {
+    padding: 12,
+    borderRadius: 999,
+    background: colors.surface.primary,
+    border: `1px solid ${colors.border.subtle}`,
+    boxShadow: shadows.lg,
+  };
+  const minimizeCall = () => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
+    setInternalIsMinimized(true);
+  };
+  const maximizeCall = () => {
+    if (onMaximize) {
+      onMaximize();
+      return;
+    }
+    setInternalIsMinimized(false);
+  };
+
+  const renderInPortal = (node: React.ReactNode) => {
+    if (typeof document === "undefined") return node;
+    return createPortal(node, document.body);
+  };
 
   if (!callState || callState.status === "idle") return null;
 
@@ -227,19 +258,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     callState.status === "connecting"
   ) {
     const isIncoming = callState.status === "ringing";
-    return (
-      <OverlayContainer>
+    return renderInPortal(
+      <OverlayContainer isMobile={isMobile}>
         <CallCard>
           <AvatarContainer isCalling>
             {resolvedPeerAvatar ? (
               <img
                 src={resolvedPeerAvatar}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  borderRadius: "50%",
-                }}
+                style={avatarImageStyle}
               />
             ) : (
               callState.remoteSid?.[0]?.toUpperCase() || <User size={48} />
@@ -251,8 +277,8 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               {callState.status === "connecting"
                 ? "Connecting..."
                 : isIncoming
-                ? "Incoming Call..."
-                : "Ringing..."}
+                  ? "Incoming Call..."
+                  : "Ringing..."}
             </CallStatus>
           </CallerInfo>
 
@@ -267,7 +293,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 </IconButton>
               </>
             ) : callState.status === "connecting" ? (
-              <div style={{ color: "#94a3b8", fontSize: "14px" }}>
+              <div style={{ color: colors.text.secondary, fontSize: "14px" }}>
                 Establishing connection...
               </div>
             ) : (
@@ -283,8 +309,9 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
   // Minimized Active Call
   if (isMinimized) {
-    return (
+    return renderInPortal(
       <MinimizedContainer
+        isMobile={isMobile}
         position={position}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
@@ -298,11 +325,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           style={{
             flex: 1,
             position: "relative",
-            backgroundColor: "black",
+            backgroundColor: shouldShowRemoteVideo
+              ? "black"
+              : colors.surface.primary,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "white",
+            color: colors.text.primary,
           }}
         >
           {shouldShowRemoteVideo ? (
@@ -331,24 +360,22 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 {resolvedPeerAvatar ? (
                   <img
                     src={resolvedPeerAvatar}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
+                    style={avatarImageStyle}
                   />
                 ) : (
                   displayName?.[0]?.toUpperCase() || <User size={24} />
                 )}
               </AvatarContainer>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{displayName}</div>
-              <div style={{ fontSize: 12, color: "#94a3b8" }}>{activeMode}</div>
+              <div style={{ fontSize: 12, color: colors.text.secondary }}>
+                {activeMode}
+              </div>
             </div>
           )}
           <MaximizeButton
             onClick={(e) => {
               e.stopPropagation();
-              setIsMinimized(false);
+              maximizeCall();
             }}
           >
             <Maximize2 size={16} />
@@ -361,14 +388,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             gap: 8,
             padding: 8,
             justifyContent: "center",
-            background: "rgba(15, 23, 42, 0.92)",
+            background: colors.surface.secondary,
+            borderTop: `1px solid ${colors.border.subtle}`,
           }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
           <IconButton
-            variant={isMuted ? "primary" : "glass"}
-            isActive={isMuted}
+            variant={isMuted ? "primary" : neutralCallButtonVariant}
             size="sm"
             onClick={toggleMic}
           >
@@ -377,8 +404,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
           {(isVideoEnabled || callState.type === "Video") && (
             <IconButton
-              variant={isVideoEnabled ? "primary" : "glass"}
-              isActive={isVideoEnabled}
+              variant={isVideoEnabled ? "primary" : neutralCallButtonVariant}
               size="sm"
               onClick={toggleVideo}
             >
@@ -396,14 +422,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
     );
   }
 
-  return (
-    <OverlayContainer style={{ flexDirection: "column" }}>
+  return renderInPortal(
+    <OverlayContainer isMobile={isMobile} style={{ flexDirection: "column" }}>
       <FullScreenContainer>
-        <MinimizeButton onClick={() => setIsMinimized(true)}>
+        <MinimizeButton onClick={minimizeCall}>
           <Minimize2 size={32} />
         </MinimizeButton>
 
-        <MainVideoArea>
+        <MainVideoArea hasRemoteVideo={shouldShowRemoteVideo}>
           <video
             ref={remoteVideoRef}
             autoPlay
@@ -428,7 +454,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 borderRadius: "12px",
                 overflow: "hidden",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                border: "2px solid rgba(255,255,255,0.1)",
+                border: `1px solid ${colors.border.subtle}`,
                 zIndex: 10,
               }}
             >
@@ -455,7 +481,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 left: "50%",
                 transform: "translate(-50%, -50%)",
                 textAlign: "center",
-                color: "white",
+                color: colors.text.primary,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -466,11 +492,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 {resolvedPeerAvatar ? (
                   <img
                     src={resolvedPeerAvatar}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
+                    style={avatarImageStyle}
                   />
                 ) : (
                   callState.peerName?.[0]?.toUpperCase() ||
@@ -482,14 +504,16 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               </CallerName>
               <CallStatus
                 style={{
-                  color: "#94a3b8",
+                  color: colors.text.secondary,
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
                 }}
               >
                 {formatDuration(duration)} • {activeMode}
-                {callState.peerMicMuted && <MicOff size={16} color="red" />}
+                {callState.peerMicMuted && (
+                  <MicOff size={16} color={colors.status.error} />
+                )}
               </CallStatus>
             </div>
           )}
@@ -500,7 +524,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             <>
               <CallerName
                 style={{
-                  color: "white",
                   marginBottom: 8,
                   display: "flex",
                   alignItems: "center",
@@ -509,18 +532,21 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 }}
               >
                 {displayName}
-                {callState.peerMicMuted && <MicOff size={16} color="red" />}
+                {callState.peerMicMuted && (
+                  <MicOff size={16} color={colors.status.error} />
+                )}
               </CallerName>
-              <CallStatus style={{ color: "#94a3b8", marginBottom: 16 }}>
+              <CallStatus
+                style={{ color: colors.text.secondary, marginBottom: 16 }}
+              >
                 {formatDuration(duration)} • {activeMode}
               </CallStatus>
             </>
           )}
 
-          <ControlsRow>
+          <ControlsRow style={controlTrayStyle}>
             <IconButton
-              variant={isMuted ? "primary" : "glass"}
-              isActive={isMuted}
+              variant={isMuted ? "primary" : neutralCallButtonVariant}
               size="xl"
               onClick={toggleMic}
             >
@@ -528,8 +554,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             </IconButton>
 
             <IconButton
-              variant={isVideoEnabled ? "primary" : "glass"}
-              isActive={isVideoEnabled}
+              variant={isVideoEnabled ? "primary" : neutralCallButtonVariant}
               size="xl"
               onClick={toggleVideo}
             >

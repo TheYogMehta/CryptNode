@@ -1,46 +1,26 @@
 import styled from "@emotion/styled";
-import { css, keyframes } from "@emotion/react";
-import {
-  colors,
-  glassEffect,
-  radii,
-  shadows,
-  spacing,
-  typography,
-} from "../../../../theme/design-system";
+import { colors, radii, shadows, spacing, typography } from "../../../../theme/design-system";
 
-const pulse = keyframes`
-  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
-  70% { box-shadow: 0 0 0 20px rgba(99, 102, 241, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
-`;
-
-export const OverlayContainer = styled.div`
-  position: absolute;
+export const OverlayContainer = styled.div<{ isMobile?: boolean }>`
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1000;
-  background-color: ${colors.background.overlay};
-  backdrop-filter: blur(8px);
+  z-index: 12000;
+  background:
+    linear-gradient(rgba(2, 6, 23, 0.94), rgba(2, 6, 23, 0.96)),
+    ${colors.background.primary};
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: fadeIn 0.3s ease-out;
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
+  isolation: isolate;
+  contain: paint;
 `;
 
 export const CallCard = styled.div`
-  ${glassEffect};
+  background: ${colors.surface.primary};
+  border: 1px solid ${colors.border.subtle};
   padding: ${spacing[10]};
   border-radius: ${radii.xl};
   width: 100%;
@@ -51,6 +31,7 @@ export const CallCard = styled.div`
   flex-direction: column;
   align-items: center;
   gap: ${spacing[6]};
+  isolation: isolate;
 `;
 
 export const AvatarContainer = styled.div<{ isCalling?: boolean }>`
@@ -70,11 +51,6 @@ export const AvatarContainer = styled.div<{ isCalling?: boolean }>`
   color: white;
   border: 4px solid ${colors.background.secondary};
   margin-bottom: ${spacing[4]};
-  ${(props) =>
-    props.isCalling &&
-    css`
-      animation: ${pulse} 2s infinite;
-    `}
 `;
 
 export const CallerInfo = styled.div`
@@ -105,6 +81,7 @@ export const ControlsRow = styled.div`
 `;
 
 export const MinimizedContainer = styled.div<{
+  isMobile?: boolean;
   position: { x: number; y: number };
 }>`
   position: fixed;
@@ -116,11 +93,13 @@ export const MinimizedContainer = styled.div<{
   border-radius: ${radii.lg};
   box-shadow: ${shadows.lg};
   border: 1px solid ${colors.border.subtle};
-  z-index: 3001;
+  z-index: 12001;
   overflow: hidden;
   cursor: grab;
   display: flex;
   flex-direction: column;
+  isolation: isolate;
+  contain: paint;
 
   &:active {
     cursor: grabbing;
@@ -132,7 +111,7 @@ export const VideoPlaceholder = styled.div`
   width: 100%;
   height: 100%;
   background-color: black;
-  display: relative;
+  position: relative;
 `;
 
 export const MaximizeButton = styled.button`
@@ -163,13 +142,14 @@ export const FullScreenContainer = styled.div`
   padding-bottom: ${spacing[10]};
 `;
 
-export const MainVideoArea = styled.div`
+export const MainVideoArea = styled.div<{ hasRemoteVideo?: boolean }>`
   flex: 1;
   width: 100%;
   max-width: 1200px;
   max-height: 80vh;
   margin: ${spacing[4]} 0;
-  background-color: black;
+  background-color: ${(props) =>
+    props.hasRemoteVideo ? "black" : colors.surface.primary};
   border-radius: ${radii.xl};
   overflow: hidden;
   position: relative;
@@ -177,6 +157,7 @@ export const MainVideoArea = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
+  isolation: isolate;
 `;
 
 export const RemoteVideo = styled.div`

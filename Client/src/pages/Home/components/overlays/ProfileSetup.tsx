@@ -1,5 +1,6 @@
 // @ts-nocheck
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import { executeDB, queryDB } from "../../../../services/storage/sqliteService";
 import { AccountService } from "../../../../services/auth/AccountService";
 import {
@@ -7,13 +8,26 @@ import {
   setKeyFromSecureStorage,
 } from "../../../../services/storage/SafeStorage";
 import { StorageService } from "../../../../services/storage/StorageService";
+import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
 import { AppLockScreen } from "./AppLockScreen";
 import { Clipboard } from "@capacitor/clipboard";
 import * as bip39 from "bip39";
 import { Buffer } from "buffer";
 import { ChatClient } from "../../../../services/core/ChatClient";
-import Dialog from "@mui/material/Dialog";
 import { useForm } from "react-hook-form";
+import { colors, radii } from "../../../../theme/design-system";
+import {
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+  DialogBadge,
+  InputField,
+} from "./Overlay.styles";
+import { AppScreenLayout } from "./AppScreenLayout";
+import { Button } from "../../../../components/ui/Button";
+import { BlockingProgressOverlay } from "./BlockingProgressOverlay";
 
 (window as any).Buffer = Buffer;
 
@@ -42,6 +56,8 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
   // Master Key State
   const [masterKey, setMasterKey] = useState("");
   const [isCopied, setIsCopied] = useState(false);
+  const [shouldShowMasterKeyAfterPin, setShouldShowMasterKeyAfterPin] =
+    useState(false);
 
   // PIN state
   const [tempPin, setTempPin] = useState("");
@@ -51,6 +67,14 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
     checkProfile();
   }, [userEmail]);
 
+  const resolveStoredAvatar = async (avatarUrl?: string | null) => {
+    if (!avatarUrl) return null;
+    if (avatarUrl.startsWith("data:") || avatarUrl.startsWith("http")) {
+      return avatarUrl;
+    }
+    return await avatarCacheService.getAvatar(avatarUrl);
+  };
+
   const checkProfile = async () => {
     try {
       // 1. Check/Generate Master Key
@@ -58,21 +82,35 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         userEmail,
         "MASTER_KEY",
       );
+      const pendingRevealKey = await AccountService.getStorageKey(
+        userEmail,
+        "MASTER_KEY_PENDING_REVEAL",
+      );
       let key = await getKeyFromSecureStorage(storageKey);
+      let needsMasterKeyReveal =
+        (await getKeyFromSecureStorage(pendingRevealKey)) === "1";
 
       if (!key) {
         // Generate new 12-word mnemonic for new accounts
         key = bip39.generateMnemonic(128); // 12 words
         await setKeyFromSecureStorage(storageKey, key);
+        await setKeyFromSecureStorage(pendingRevealKey, "1");
         setMasterKey(key);
-        setStep("master_key");
-        return;
+        setShouldShowMasterKeyAfterPin(true);
+        needsMasterKeyReveal = true;
       }
+
+      if (key && needsMasterKeyReveal) {
+        setMasterKey(key);
+      }
+
+      setShouldShowMasterKeyAfterPin(needsMasterKeyReveal);
 
       // Legacy hex key conversion (if any)
       if (key && !key.includes(" ") && /^[0-9a-fA-F]+$/.test(key)) {
         try {
           const mnemonic = bip39.entropyToMnemonic(key);
+          key = mnemonic;
           setMasterKey(mnemonic);
           // Don't trap them on login if it's just legacy conversion, only show on fresh setup
           // but we will update it in storage quietly.
@@ -82,7 +120,39 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         }
       }
 
-      // 2. Check PIN
+      // 2. Check Profile so we can recover first-run accounts whose key was
+      // generated before the reveal flag was set.
+      const rows = await queryDB(
+        "SELECT public_name, public_avatar FROM me WHERE id = 1",
+      );
+      const hasProfile = rows.length > 0 && rows[0].public_name;
+      const accounts = await AccountService.getAccounts();
+      const currentAccount = accounts.find(
+        (account) => account.email.toLowerCase() === userEmail.toLowerCase(),
+      );
+
+      if (!getValues("username")) {
+        setValue(
+          "username",
+          currentAccount?.displayName || userEmail.split("@")[0],
+        );
+      }
+
+      if (!hasProfile && !avatar && currentAccount?.avatarUrl) {
+        const accountAvatar = await resolveStoredAvatar(currentAccount.avatarUrl);
+        if (accountAvatar) {
+          setAvatar(accountAvatar);
+        }
+      }
+
+      if (key && !needsMasterKeyReveal && !hasProfile) {
+        await setKeyFromSecureStorage(pendingRevealKey, "1");
+        setMasterKey(key);
+        needsMasterKeyReveal = true;
+        setShouldShowMasterKeyAfterPin(true);
+      }
+
+      // 3. Check PIN
       const pinKey = await AccountService.getStorageKey(
         userEmail,
         "app_lock_pin",
@@ -95,19 +165,14 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         return;
       }
 
-      // 3. Check Profile
-      const rows = await queryDB(
-        "SELECT public_name, public_avatar FROM me WHERE id = 1",
-      );
-      const hasProfile = rows.length > 0 && rows[0].public_name;
+      if (needsMasterKeyReveal) {
+        setStep("master_key");
+        return;
+      }
 
       if (hasProfile) {
         onComplete();
       } else {
-        const defaultName = userEmail.split("@")[0];
-        if (!getValues("username")) {
-          setValue("username", defaultName);
-        }
         setStep("profile");
       }
     } catch (e) {
@@ -123,10 +188,19 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
         "MASTER_KEY",
       );
       await setKeyFromSecureStorage(storageKey, masterKey);
+      await setKeyFromSecureStorage(
+        await AccountService.getStorageKey(userEmail, "MASTER_KEY_PENDING_REVEAL"),
+        "",
+      );
     } catch (e) {
       console.error("Failed to update master key format", e);
     }
-    setStep("pin");
+    setShouldShowMasterKeyAfterPin(false);
+    const defaultName = userEmail.split("@")[0];
+    if (!getValues("username")) {
+      setValue("username", defaultName);
+    }
+    setStep("profile");
   };
 
   const handleCopyMasterKey = async () => {
@@ -182,6 +256,7 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
       onComplete();
     } catch (e) {
       console.error("Failed to save profile", e);
+      toast.error("Failed to save profile.");
     }
   };
 
@@ -199,10 +274,14 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
             await AccountService.getStorageKey(userEmail, "app_lock_pin"),
             tempPin,
           );
-          setStep("profile");
-          const defaultName = userEmail.split("@")[0];
-          if (!getValues("username")) {
-            setValue("username", defaultName);
+          if (shouldShowMasterKeyAfterPin) {
+            setStep("master_key");
+          } else {
+            const defaultName = userEmail.split("@")[0];
+            if (!getValues("username")) {
+              setValue("username", defaultName);
+            }
+            setStep("profile");
           }
         } catch (e) {
           setSetupError("Failed to save PIN");
@@ -228,141 +307,109 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
     }
   };
 
-  if (step === "loading") return null;
+  const renderSetupScreen = ({
+    width,
+    content,
+  }: {
+    width: string;
+    content: React.ReactNode;
+  }) => (
+    <AppScreenLayout stageWidth={`min(100%, ${width})`}>
+      {content}
+    </AppScreenLayout>
+  );
+
+  if (step === "loading") {
+    return (
+      <BlockingProgressOverlay
+        title="Finishing setup..."
+        description="Please wait and do not close the app while CryptNode sets up your encrypted storage, keys, and profile."
+      />
+    );
+  }
 
   if (step === "master_key") {
-    return (
-      <Dialog
-        open={true}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          style: {
-            backgroundColor: "transparent",
-            boxShadow: "none",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          },
-        }}
-      >
-        <div
-          style={{
-            maxWidth: "500px",
-            width: "100%",
-            backgroundColor: "#1a1a1a",
-            borderRadius: "16px",
-            padding: "30px",
-            textAlign: "center",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
-            border: "1px solid #333",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "48px",
-              marginBottom: "20px",
-            }}
-          >
-            🔐
-          </div>
-          <h2 style={{ color: "white", marginTop: 0, marginBottom: "10px" }}>
-            Recovery Passphrase
-          </h2>
-          <p
-            style={{
-              color: "#aaa",
-              fontSize: "14px",
-              lineHeight: "1.5",
-              marginBottom: "30px",
-            }}
-          >
-            This is your <strong>Master Key</strong>. You need this to recover
-            your account and decrypt your data if you switch devices.
-            <br />
-            <br />
-            <span style={{ color: "#ef4444", fontWeight: "bold" }}>
-              Do not lose it. We cannot recover it for you.
-            </span>
-          </p>
+    return renderSetupScreen({
+      width: "620px",
+      content: (
+        <>
+          <DialogHeader>
+            <DialogBadge tone="danger">Save This Securely</DialogBadge>
+            <DialogTitle>Recovery Passphrase</DialogTitle>
+            <DialogDescription>
+              This is your <strong>Master Key</strong>. You need it to recover
+              your account and decrypt your data on a new device.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div
+              style={{
+                color: colors.status.error,
+                fontWeight: 700,
+                marginBottom: "16px",
+                lineHeight: 1.5,
+              }}
+            >
+              Do not lose it. CryptNode cannot recover it for you.
+            </div>
 
-          <div
-            style={{
-              backgroundColor: "#111",
-              padding: "20px",
-              borderRadius: "8px",
-              marginBottom: "30px",
-              border: "1px solid #333",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "10px",
-              justifyContent: "center",
-            }}
-          >
-            {masterKey.split(" ").map((word, i) => (
-              <span
-                key={i}
-                style={{
-                  color: "#e5e7eb",
-                  fontFamily: "monospace",
-                  fontSize: "16px",
-                  backgroundColor: "#333",
-                  padding: "4px 8px",
-                  borderRadius: "4px",
-                }}
-              >
-                <span style={{ color: "#6b7280", marginRight: "4px" }}>
-                  {i + 1}.
+            <div
+              style={{
+                backgroundColor: colors.background.secondary,
+                padding: "20px",
+                borderRadius: radii.lg,
+                marginBottom: "8px",
+                border: `1px solid ${colors.border.subtle}`,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "10px",
+                justifyContent: "center",
+              }}
+            >
+              {masterKey.split(" ").map((word, i) => (
+                <span
+                  key={i}
+                  style={{
+                    color: colors.text.primary,
+                    fontFamily: "monospace",
+                    fontSize: "15px",
+                    backgroundColor: colors.background.tertiary,
+                    padding: "6px 10px",
+                    borderRadius: radii.md,
+                    border: `1px solid ${colors.border.subtle}`,
+                  }}
+                >
+                  <span style={{ color: colors.text.secondary, marginRight: "6px" }}>
+                    {i + 1}.
+                  </span>
+                  {word}
                 </span>
-                {word}
-              </span>
-            ))}
-          </div>
-
-          <button
-            onClick={handleCopyMasterKey}
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: "8px",
-              backgroundColor: "transparent",
-              color: "#3b82f6",
-              border: "1px solid #3b82f6",
-              fontSize: "16px",
-              fontWeight: 600,
-              cursor: "pointer",
-              marginBottom: "12px",
-            }}
-          >
-            {isCopied ? "Copied!" : "Copy to Clipboard"}
-          </button>
-
-          <button
-            onClick={handleMasterKeyNext}
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: "8px",
-              backgroundColor: "#3b82f6",
-              color: "white",
-              border: "none",
-              fontSize: "16px",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            I have saved it safely
-          </button>
-        </div>
-      </Dialog>
-    );
+              ))}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={handleCopyMasterKey}
+            >
+              {isCopied ? "Copied!" : "Copy to Clipboard"}
+            </Button>
+            <Button type="button" variant="primary" fullWidth onClick={handleMasterKeyNext}>
+              I Have Saved It
+            </Button>
+          </DialogFooter>
+        </>
+      ),
+    });
   }
 
   if (step === "pin") {
     return (
       <AppLockScreen
         mode="input"
-        isOverlay={true}
+        fullscreen
         title={tempPin ? "Confirm App Lock PIN" : "Set App Lock PIN"}
         description={
           setupError ||
@@ -383,45 +430,27 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
     );
   }
 
-  return (
-    <Dialog
-      open={true}
-      maxWidth="sm"
-      fullWidth
-      PaperProps={{
-        style: {
-          backgroundColor: "transparent",
-          boxShadow: "none",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        },
-      }}
-    >
-      <div
-        style={{
-          width: "400px",
-          backgroundColor: "#252525",
-          borderRadius: "12px",
-          padding: "30px",
-          textAlign: "center",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.5)",
-        }}
-      >
-        <h2 style={{ color: "white", marginTop: 0 }}>Setup Profile</h2>
-        <p style={{ color: "#aaa", fontSize: "14px", marginBottom: "30px" }}>
-          Complete your profile to let others recognize you.
-        </p>
+  return renderSetupScreen({
+      width: "520px",
+      content: <form onSubmit={handleSubmit(handleSaveProfile)}>
+        <DialogHeader>
+          <DialogBadge>Profile Setup</DialogBadge>
+          <DialogTitle>Set up your profile</DialogTitle>
+          <DialogDescription>
+            Choose a display name and optional avatar so others can recognize
+            you across encrypted chats.
+          </DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleSaveProfile)}>
-          <div style={{ marginBottom: "20px" }}>
+        <DialogBody>
+          <div style={{ marginBottom: "20px", textAlign: "center" }}>
             <div
               style={{
-                width: "100px",
-                height: "100px",
+                width: "108px",
+                height: "108px",
                 borderRadius: "50%",
-                backgroundColor: "#333",
-                margin: "0 auto 10px",
+                backgroundColor: colors.background.secondary,
+                margin: "0 auto 12px",
                 backgroundImage: avatar ? `url(${avatar})` : "none",
                 backgroundSize: "cover",
                 backgroundPosition: "center",
@@ -429,10 +458,11 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: "40px",
-                color: "#555",
+                color: colors.text.secondary,
                 cursor: "pointer",
                 position: "relative",
                 overflow: "hidden",
+                border: `1px solid ${colors.border.subtle}`,
               }}
               onClick={() => document.getElementById("avatar-input")?.click()}
             >
@@ -444,13 +474,15 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  backgroundColor: "rgba(0,0,0,0.6)",
-                  color: "white",
+                  backgroundColor: "rgba(0, 0, 0, 0.55)",
+                  color: colors.text.inverse,
                   fontSize: "10px",
-                  padding: "4px",
+                  padding: "5px",
+                  letterSpacing: "0.08em",
+                  fontWeight: 700,
                 }}
               >
-                EDIT
+                CHANGE
               </label>
             </div>
             <input
@@ -462,37 +494,33 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
             />
           </div>
 
-          <div style={{ marginBottom: "30px", textAlign: "left" }}>
+          <div style={{ marginBottom: "6px", textAlign: "left" }}>
             <label
               style={{
                 display: "block",
-                color: "#aaa",
+                color: colors.text.secondary,
                 fontSize: "12px",
-                marginBottom: "5px",
+                marginBottom: "8px",
+                fontWeight: 600,
               }}
             >
               Username
             </label>
-            <input
+            <InputField
               {...register("username", { required: "Username is required" })}
               autoFocus
               style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: "8px",
-                border: `1px solid ${errors.username ? "#ef4444" : "#444"}`,
-                backgroundColor: "#1a1a1a",
-                color: "white",
-                fontSize: "16px",
-                boxSizing: "border-box",
+                borderColor: errors.username
+                  ? colors.status.error
+                  : colors.border.subtle,
               }}
             />
             {errors.username && (
               <span
                 style={{
-                  color: "#ef4444",
+                  color: colors.status.error,
                   fontSize: "12px",
-                  marginTop: "4px",
+                  marginTop: "6px",
                   display: "block",
                 }}
               >
@@ -500,26 +528,13 @@ export const ProfileSetup: React.FC<ProfileSetupProps> = ({
               </span>
             )}
           </div>
+        </DialogBody>
 
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: "8px",
-              backgroundColor: "#3b82f6",
-              color: "white",
-              border: "none",
-              fontSize: "16px",
-              fontWeight: 600,
-              cursor: "pointer",
-              marginBottom: "10px",
-            }}
-          >
+        <DialogFooter>
+          <Button type="submit" variant="primary" fullWidth size="lg">
             Finish Setup
-          </button>
-        </form>
-      </div>
-    </Dialog>
-  );
+          </Button>
+        </DialogFooter>
+      </form>,
+  });
 };

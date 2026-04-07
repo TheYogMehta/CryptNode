@@ -21,6 +21,10 @@ const BannerContainer = styled.div<{ isVisible: boolean; status: "offline" | "co
   top: 0;
   left: 0;
   z-index: 50;
+
+  @media (max-width: 768px) {
+    top: calc(64px + env(safe-area-inset-top));
+  }
 `;
 
 const Content = styled.div`
