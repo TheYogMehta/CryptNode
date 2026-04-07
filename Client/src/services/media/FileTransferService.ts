@@ -196,7 +196,18 @@ export class FileTransferService {
     let startChunk = chunkIndex;
     try {
       const rows = await queryDB(
-        "SELECT filename, original_name, file_size, mime_type, thumbnail, status FROM media WHERE message_id = ?",
+        `SELECT filename, original_name, file_size, mime_type, thumbnail, status
+         FROM media
+         WHERE message_id = ?
+         ORDER BY
+           CASE status
+             WHEN 'downloaded' THEN 0
+             WHEN 'downloading' THEN 1
+             ELSE 2
+           END,
+           size DESC,
+           rowid DESC
+         LIMIT 1`,
         [messageId],
       );
       if (rows.length > 0) {
@@ -268,7 +279,18 @@ export class FileTransferService {
     );
 
     const rows = await queryDB(
-      "SELECT filename, file_size, original_name, mime_type, thumbnail, is_compressed FROM media WHERE message_id = ?",
+      `SELECT filename, file_size, original_name, mime_type, thumbnail, is_compressed
+       FROM media
+       WHERE message_id = ?
+       ORDER BY
+         CASE status
+           WHEN 'downloaded' THEN 0
+           WHEN 'downloading' THEN 1
+           ELSE 2
+         END,
+         size DESC,
+         rowid DESC
+       LIMIT 1`,
       [messageId],
     );
     if (!rows.length) {
@@ -390,7 +412,18 @@ export class FileTransferService {
     const { messageId, payload, chunkIndex, isLast } = data;
     try {
       const rows = await queryDB(
-        "SELECT filename, file_size FROM media WHERE message_id = ?",
+        `SELECT filename, file_size
+         FROM media
+         WHERE message_id = ?
+         ORDER BY
+           CASE status
+             WHEN 'downloaded' THEN 0
+             WHEN 'downloading' THEN 1
+             ELSE 2
+           END,
+           size DESC,
+           rowid DESC
+         LIMIT 1`,
         [messageId],
       );
       if (!rows.length) return;
@@ -415,7 +448,18 @@ export class FileTransferService {
         );
 
         const mediaRow = await queryDB(
-          "SELECT is_compressed, filename, mime_type FROM media WHERE message_id = ?",
+          `SELECT is_compressed, filename, mime_type
+           FROM media
+           WHERE message_id = ?
+           ORDER BY
+             CASE status
+               WHEN 'downloaded' THEN 0
+               WHEN 'downloading' THEN 1
+               ELSE 2
+             END,
+             size DESC,
+             rowid DESC
+           LIMIT 1`,
           [messageId],
         );
         if (mediaRow.length && mediaRow[0].is_compressed) {

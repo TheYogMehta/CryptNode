@@ -9,17 +9,16 @@ import {
   ItemPreview,
   UnreadBadge,
 } from "./Sidebar.styles";
+import { colors } from "../../../../theme/design-system";
 
 interface SidebarItemProps {
   data: SessionData;
   isActive: boolean;
   onSelect: (sid: string) => void;
-  onRename: (sid: string, currentName: string) => void;
-  onDelete?: (sid: string) => void;
 }
 
 export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
-  ({ data, isActive, onSelect, onRename, onDelete }) => {
+  ({ data, isActive, onSelect }) => {
     const {
       sid,
       lastMsg,
@@ -66,37 +65,6 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
         unsub();
       };
     }, [avatarUrl]);
-
-    const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
-    const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
-
-    const handleContextMenu = (e: React.MouseEvent) => {
-      e.preventDefault();
-      // Only regular chats, not local LLM or vault
-      if (sid === "secure-vault" || sid === "local-llm" || data.isOwnDevice) return;
-      setContextMenu({ x: e.clientX, y: e.clientY });
-    };
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-      if (sid === "secure-vault" || sid === "local-llm" || data.isOwnDevice) return;
-      const touch = e.touches[0];
-      const timer = setTimeout(() => {
-        setContextMenu({ x: touch.clientX, y: touch.clientY });
-      }, 600); // 600ms long press
-      setLongPressTimer(timer);
-    };
-
-    const handleTouchEnd = () => {
-      if (longPressTimer) clearTimeout(longPressTimer);
-    };
-
-    useEffect(() => {
-      const closeMenu = () => setContextMenu(null);
-      if (contextMenu) {
-        document.addEventListener('click', closeMenu);
-        return () => document.removeEventListener('click', closeMenu);
-      }
-    }, [contextMenu]);
 
     const getPreviewText = () => {
       if (!lastMsg && !lastMsgType) {
@@ -151,9 +119,6 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
       <ItemContainer
         isActive={isActive}
         onClick={() => onSelect(sid)}
-        onContextMenu={handleContextMenu}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
       >
         <Avatar
           src={resolvedAvatar}
@@ -166,7 +131,7 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
           <ItemName>
             <span>{displayName}</span>
             {getPreviewText().time && (
-              <span style={{ fontSize: "11px", color: "#6b7280", fontWeight: "normal" }}>
+              <span style={{ fontSize: "11px", color: colors.text.tertiary, fontWeight: "normal" }}>
                 {getPreviewText().time}
               </span>
             )}
@@ -176,62 +141,6 @@ export const SidebarItem: React.FC<SidebarItemProps> = React.memo(
 
         {unread > 0 && (
           <UnreadBadge>{unread > 99 ? "99+" : unread}</UnreadBadge>
-        )}
-        
-        {contextMenu && (
-          <div
-            style={{
-              position: "fixed",
-              top: contextMenu.y,
-              left: contextMenu.x,
-              backgroundColor: "#2a2a3e",
-              border: "1px solid #3B3B4F",
-              borderRadius: "8px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-              zIndex: 9999,
-              overflow: "hidden",
-              minWidth: "150px"
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                padding: "12px 16px",
-                cursor: "pointer",
-                color: "#e2e8f0",
-                fontSize: "14px",
-                borderBottom: "1px solid #3B3B4F",
-              }}
-              onClick={() => {
-                onRename(sid, displayName);
-                setContextMenu(null);
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#3B3B4F")}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-            >
-              Rename
-            </div>
-            {onDelete && (
-              <div
-                style={{
-                  padding: "12px 16px",
-                  cursor: "pointer",
-                  color: "#ef4444",
-                  fontSize: "14px",
-                }}
-                onClick={() => {
-                  if (confirm(`Are you sure you want to delete this chat with ${displayName}? This cannot be undone.`)) {
-                    onDelete(sid);
-                  }
-                  setContextMenu(null);
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#3B3B4F")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-              >
-                Delete Chat
-              </div>
-            )}
-          </div>
         )}
       </ItemContainer>
     );

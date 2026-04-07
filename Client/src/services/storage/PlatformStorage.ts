@@ -1,6 +1,5 @@
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
-import { VAULT_DIR } from "./StorageUtils";
 import { StorageService } from "./StorageService";
 
 export const PlatformStorage = {
@@ -77,34 +76,30 @@ export const PlatformStorage = {
     }
 
     if (platform === "electron") {
-      const fs = window.require("fs");
-      const path = window.require("path");
-      const { app } = window.require("electron").remote;
-
-      const downloadsDir = app.getPath("downloads");
-      const targetDir = path.join(downloadsDir, "cryptnode");
-
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
+      const decryptedBase64 = await StorageService.readFile(vaultFileName);
+      if (!decryptedBase64) {
+        throw new Error("Failed to read vault file");
       }
 
-      const srcPath = path.join(
-        app.getPath("userData"),
-        "vault",
-        vaultFileName,
-      );
-
-      let finalName = originalName;
-      let counter = 1;
-      const parsed = path.parse(originalName);
-
-      while (fs.existsSync(path.join(targetDir, finalName))) {
-        finalName = `${parsed.name} (${counter++})${parsed.ext}`;
+      if (window.electron?.saveToDownloads) {
+        return window.electron.saveToDownloads(decryptedBase64, originalName);
       }
 
-      fs.copyFileSync(srcPath, path.join(targetDir, finalName));
-
-      return path.join("Downloads", "cryptnode", finalName);
+      const binaryString = window.atob(decryptedBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes]);
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = originalName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+      return originalName;
     }
 
     throw new Error(`UNSUPPORTED_PLATFORM: ${platform}`);

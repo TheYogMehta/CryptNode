@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Capacitor } from "@capacitor/core";
+import toast from "react-hot-toast";
 import { colors } from "../../../../theme/design-system";
 import { localAIService } from "../../../../services/ai/localAI.service";
 import { RECOMMENDED_MODELS, LocalAIModel } from "../../../../services/ai/models";
+import { ConfirmDialog } from "../../../../components/ui/ConfirmDialog";
 
 export const LocalAISettings = () => {
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -13,9 +14,12 @@ export const LocalAISettings = () => {
   const [customUrl, setCustomUrl] = useState("");
   const [warningModel, setWarningModel] = useState<LocalAIModel | null>(null);
   const [editingParams, setEditingParams] = useState<{id: string, name: string, description: string} | null>(null);
-  const [renderTick, setRenderTick] = useState(0);
   const [downloadFolder, setDownloadFolder] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [deleteModelId, setDeleteModelId] = useState<string | null>(null);
+  const [removeModelId, setRemoveModelId] = useState<string | null>(null);
+  const [isDeletingModel, setIsDeletingModel] = useState(false);
+  const [isRemovingModel, setIsRemovingModel] = useState(false);
 
   useEffect(() => {
     const fetchState = async () => {
@@ -40,7 +44,6 @@ export const LocalAISettings = () => {
       setIsDownloading(localAIService.isLoading);
       setDownloadProgress(localAIService.downloadProgress);
       setDownloadInfo(localAIService.downloadInfo);
-      setRenderTick(t => t + 1);
       fetchState();
     });
 
@@ -61,42 +64,73 @@ export const LocalAISettings = () => {
     try {
       await localAIService.downloadModel(model);
       await localAIService.init();
+      toast.success(`${model.name} is ready to use.`);
     } catch (e: any) {
-      alert("Failed to download or initialize the model: " + e.message);
+      toast.error(`Failed to download ${model.name}: ${e.message}`);
     }
   };
 
   const handleDelete = async (modelId: string) => {
-    if (confirm("Are you sure you want to delete this model?")) {
-      await localAIService.deleteModel(modelId);
+    setDeleteModelId(modelId);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteModelId) return;
+    setIsDeletingModel(true);
+    try {
+      await localAIService.deleteModel(deleteModelId);
+      toast.success("Model file deleted.");
+      setDeleteModelId(null);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete model file.");
+    } finally {
+      setIsDeletingModel(false);
     }
   };
 
   const handleRemoveCustom = async (modelId: string) => {
-    if (confirm("Are you sure you want to fully remove this custom model from your library? (This will also delete the downloaded file if it exists).")) {
-      await localAIService.removeModelFromLibrary(modelId);
+    setRemoveModelId(modelId);
+  };
+
+  const confirmRemoveCustom = async () => {
+    if (!removeModelId) return;
+    setIsRemovingModel(true);
+    try {
+      await localAIService.removeModelFromLibrary(removeModelId);
       // Wait for it to drop, also let's just do a tiny local state cleanup so it vanishes instantly
       setInstalledModels(prev => {
         const next = {...prev};
-        delete next[modelId];
+        delete next[removeModelId];
         return next;
       });
+      toast.success("Custom model removed from your library.");
+      setRemoveModelId(null);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to remove custom model.");
+    } finally {
+      setIsRemovingModel(false);
     }
   };
 
   const handleSaveEdit = async () => {
     if (!editingParams) return;
     if (!editingParams.name.trim()) return;
-    await localAIService.updateModelMetadata(editingParams.id, editingParams.name.trim(), editingParams.description.trim());
-    setEditingParams(null);
+    try {
+      await localAIService.updateModelMetadata(editingParams.id, editingParams.name.trim(), editingParams.description.trim());
+      setEditingParams(null);
+      toast.success("Model details updated.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update model details.");
+    }
   };
 
   const handleSetActive = async (modelId: string) => {
     try {
       await localAIService.setActiveModel(modelId);
       await localAIService.init();
+      toast.success("Active model updated.");
     } catch (e: any) {
-      alert("Failed to set active model: " + e.message);
+      toast.error("Failed to set active model: " + e.message);
     }
   };
 
@@ -130,8 +164,9 @@ export const LocalAISettings = () => {
       setCustomUrl("");
       // Refresh to show newly added model
       setInstalledModels(prev => ({...prev, [newModel.id]: false}));
+      toast.success("Custom model added to your library.");
     } catch {
-      alert("Please enter a valid URL.");
+      toast.error("Please enter a valid direct GGUF URL.");
     }
   };
 
@@ -140,14 +175,22 @@ export const LocalAISettings = () => {
     return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
-  const handleCopyFolder = () => {
+  const handleCopyFolder = async () => {
     if (!downloadFolder) return;
-    navigator.clipboard.writeText(downloadFolder);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(downloadFolder);
+      setCopied(true);
+      toast.success("Download folder copied.");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy download folder", e);
+      toast.error("Failed to copy download folder.");
+    }
   };
 
   const allModels = [...RECOMMENDED_MODELS, ...localAIService.storedModels.filter((m: any) => !RECOMMENDED_MODELS.find((r: any) => r.id === m.id))];
+  const deleteTarget = allModels.find((model) => model.id === deleteModelId) || null;
+  const removeTarget = allModels.find((model) => model.id === removeModelId) || null;
 
   const folderDisplay = downloadFolder || '...';
 
@@ -241,32 +284,6 @@ export const LocalAISettings = () => {
             {formatBytes(downloadInfo.bytes)} / {formatBytes(downloadInfo.total)}
           </div>
         </div>
-      )}
-
-      {warningModel && (
-         <div style={{ marginBottom: "20px", padding: "16px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px" }}>
-            <h4 style={{ color: "#ef4444", margin: "0 0 8px 0" }}>⚠️ Large Model Warning</h4>
-            <p style={{ color: colors.text.primary, fontSize: "14px", margin: "0 0 16px 0", lineHeight: "1.5" }}>
-               You are about to download <strong>{warningModel.name}</strong>, which is <strong>{formatBytes(warningModel.sizeBytes)}</strong>. 
-               {warningModel.sizeBytes === 0 ? " Since its size is unknown, it could be very large and " : " Large models "}
-               may cause your device to run out of memory, crash the app, or drain your battery quickly. 
-               Are you sure you want to proceed?
-            </p>
-            <div style={{ display: "flex", gap: "10px" }}>
-               <button 
-                 onClick={() => startDownload(warningModel)}
-                 style={{ padding: "8px 16px", background: "#ef4444", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: 500 }}
-               >
-                 Yes, Download Anyway
-               </button>
-               <button 
-                 onClick={() => setWarningModel(null)}
-                 style={{ padding: "8px 16px", background: "transparent", color: colors.text.primary, border: `1px solid ${colors.border.subtle}`, borderRadius: "4px", cursor: "pointer" }}
-               >
-                 Cancel
-               </button>
-            </div>
-         </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -398,6 +415,53 @@ export const LocalAISettings = () => {
            </button>
         </div>
       </div>
+      <ConfirmDialog
+        open={!!warningModel}
+        title={`Download ${warningModel?.name || "this model"}?`}
+        description={
+          warningModel ? (
+            <>
+              This model is <strong>{formatBytes(warningModel.sizeBytes)}</strong>
+              {warningModel.sizeBytes === 0
+                ? ", or its size could not be determined."
+                : "."}{" "}
+              Large downloads can consume a lot of storage and memory on this device.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Download Anyway"
+        cancelLabel="Cancel"
+        tone="danger"
+        badgeLabel="Large Download"
+        onCancel={() => setWarningModel(null)}
+        onConfirm={() => {
+          if (warningModel) {
+            startDownload(warningModel);
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={`Delete ${deleteTarget?.name || "this model"}?`}
+        description="This removes the downloaded model file from this device. You can download it again later."
+        confirmLabel="Delete File"
+        tone="danger"
+        badgeLabel="Model File"
+        isLoading={isDeletingModel}
+        onCancel={() => setDeleteModelId(null)}
+        onConfirm={confirmDelete}
+      />
+      <ConfirmDialog
+        open={!!removeTarget}
+        title={`Remove ${removeTarget?.name || "this model"} from your library?`}
+        description="This removes the custom model entry and also deletes its downloaded file if it exists."
+        confirmLabel="Remove Model"
+        tone="danger"
+        badgeLabel="Custom Model"
+        isLoading={isRemovingModel}
+        onCancel={() => setRemoveModelId(null)}
+        onConfirm={confirmRemoveCustom}
+      />
     </div>
   );
 };

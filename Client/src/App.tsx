@@ -21,8 +21,6 @@ import { ThemeProvider } from "./theme/ThemeContext";
 import Home from "./pages/Home/Home";
 import { SecureChatWindow } from "./pages/SecureChat/SecureChatWindow";
 
-import ChatClient from "./services/core/ChatClient";
-
 setupIonicReact();
 
 const App: React.FC = () => {

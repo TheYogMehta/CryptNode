@@ -1,5 +1,4 @@
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
-import { Capacitor } from "@capacitor/core";
 import { executeDB, getCurrentDbKey } from "./sqliteService";
 import { VaultCrypto } from "./VaultCrypto";
 import {

@@ -101,4 +101,5 @@ export interface SessionData {
   isConnected?: boolean;
   notes?: string;
   isOwnDevice?: boolean;
+  deletedAt?: number;
 }

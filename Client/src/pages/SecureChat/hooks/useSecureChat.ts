@@ -252,6 +252,41 @@ export const useSecureChat = () => {
     [key, userEmail, addItemWithKey, loadItems],
   );
 
+  const updateTextItem = useCallback(
+    async (item: VaultItem, nextContent: string) => {
+      if (!key || !userEmail) throw new Error("Vault is locked");
+      if (item.type !== "text") {
+        throw new Error("Only text items can be edited");
+      }
+
+      const { content: encrypted, iv } = await encryptData(nextContent, key);
+      const base64 = bufferToBase64(encrypted);
+      const fileName = await StorageService.saveRawFile(
+        base64,
+        item.encryptedFilePath,
+      );
+
+      const trimmed = nextContent.trim();
+      const updatedItem: VaultItem = {
+        ...item,
+        encryptedFilePath: fileName,
+        iv,
+        metadata: {
+          ...item.metadata,
+          owner: userEmail,
+          title: trimmed ? trimmed.slice(0, 60) : item.metadata?.title,
+        },
+        timestamp: Date.now(),
+      };
+
+      await storeItem(updatedItem);
+      await loadItems();
+
+      return updatedItem;
+    },
+    [key, userEmail, loadItems],
+  );
+
   const removeItem = useCallback(
     async (id: string) => {
       await deleteItem(id);
@@ -286,6 +321,7 @@ export const useSecureChat = () => {
     setupVault,
     items,
     addItem,
+    updateTextItem,
     removeItem,
     decryptItemContent,
     error,

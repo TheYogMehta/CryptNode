@@ -2,13 +2,21 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import debounce from "lodash.debounce";
 import toast from "react-hot-toast";
 import ChatClient from "../../../services/core/ChatClient";
-import { queryDB, executeDB, setSessionAlias } from "../../../services/storage/sqliteService";
+import { queryDB, executeDB } from "../../../services/storage/sqliteService";
 import { SessionData, InboundReq } from "../types";
+
+type LinkedDeviceEntry = {
+  publicKey?: string;
+  lastActive?: string;
+  status?: string;
+};
 
 export const useSessionLogic = (shouldInit: boolean = true) => {
   const [view, setView] = useState<"chat" | "add" | "welcome">("welcome");
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [linkedDeviceCount, setLinkedDeviceCount] = useState(0);
+  const [onlineLinkedDeviceCount, setOnlineLinkedDeviceCount] = useState(0);
   const [isJoining, setIsJoining] = useState(false);
   const [targetEmail, setTargetEmail] = useState("");
   const [isWaiting, setIsWaiting] = useState(false);
@@ -33,13 +41,12 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       if (!ChatClient.userEmail) return;
 
       const rows = await queryDB(`
-      SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email,
+      SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email, s.notes, s.deleted_at,
              (SELECT text FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsg,
              (SELECT type FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsgType,
              (SELECT timestamp FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastTs,
              (SELECT COUNT(*) FROM messages WHERE sid = s.sid AND is_read = 0 AND sender != 'me') as unread
       FROM sessions s
-      WHERE s.deleted_at IS NULL OR s.deleted_at = 0
       ORDER BY lastTs DESC
     `);
 
@@ -56,29 +63,40 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
         console.warn("Failed to compute user hash for session logic", e);
       }
 
-      const formatted: SessionData[] = rows.map((r: any) => {
-        const peerHash = ChatClient.sessions[r.sid]?.peerEmailHash || "";
-        const isOwnDevice = Boolean(
-          userHash && peerHash && userHash.toLowerCase() === peerHash.toLowerCase()
-        );
+      const formatted: SessionData[] = rows
+        .map((r: any) => {
+          const peerHash = ChatClient.sessions[r.sid]?.peerEmailHash || "";
+          const isConnected = ChatClient.sessions[r.sid]?.isConnected ?? false;
+          const isDeleted = Boolean(r.deleted_at && Number(r.deleted_at) > 0);
+          const isOwnDevice = Boolean(
+            userHash &&
+              peerHash &&
+              userHash.toLowerCase() === peerHash.toLowerCase(),
+          );
 
-        return {
-          sid: r.sid,
-          alias_name: r.alias_name,
-          alias_avatar: r.alias_avatar,
-          peer_name: r.peer_name,
-          peer_avatar: r.peer_avatar,
-          peerEmail: r.peer_email,
-          peerEmailHash: peerHash,
-          isOwnDevice,
-          lastMsg: r.lastMsg || "",
-          lastMsgType: r.lastMsgType || "text",
-          lastTs: r.lastTs || 0,
-          unread: r.sid === activeChatRef.current ? 0 : r.unread || 0,
-          online: ChatClient.sessions[r.sid]?.online || false,
-          isConnected: ChatClient.sessions[r.sid]?.isConnected ?? false,
-        };
-      }).filter((s: SessionData) => !s.isOwnDevice);
+          return {
+            sid: r.sid,
+            alias_name: r.alias_name,
+            alias_avatar: r.alias_avatar,
+            peer_name: r.peer_name,
+            peer_avatar: r.peer_avatar,
+            peerEmail: r.peer_email,
+            peerEmailHash: peerHash,
+            notes: r.notes || undefined,
+            isOwnDevice,
+            lastMsg: r.lastMsg || "",
+            lastMsgType: r.lastMsgType || "text",
+            lastTs: r.lastTs || 0,
+            unread: r.sid === activeChatRef.current ? 0 : r.unread || 0,
+            online: ChatClient.sessions[r.sid]?.online || false,
+            isConnected,
+            deletedAt: isDeleted ? Number(r.deleted_at) : 0,
+          };
+        })
+        .filter(
+          (s: SessionData) =>
+            !s.isOwnDevice && (!s.deletedAt || s.isConnected !== false),
+        );
       setSessions(formatted);
     }, 500),
     [shouldInit],
@@ -97,6 +115,37 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setPeerOnline(false);
     }
   }, [activeChat, loadSessions]);
+
+  useEffect(() => {
+    if (!shouldInit || !userEmail) {
+      setLinkedDeviceCount(0);
+      setOnlineLinkedDeviceCount(0);
+      return;
+    }
+
+    const requestLinkedDevices = () => {
+      ChatClient.send({ t: "GET_DEVICES" });
+    };
+
+    const onDeviceList = (data: { devices?: LinkedDeviceEntry[] }) => {
+      const devices = Array.isArray(data?.devices) ? data.devices : [];
+      setLinkedDeviceCount(devices.length);
+      setOnlineLinkedDeviceCount(
+        devices.filter((device) => device.status?.toLowerCase() === "online")
+          .length,
+      );
+    };
+
+    ChatClient.on("device_list", onDeviceList);
+    requestLinkedDevices();
+
+    const intervalId = window.setInterval(requestLinkedDevices, 30_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      ChatClient.off("device_list", onDeviceList);
+    };
+  }, [shouldInit, userEmail]);
 
   useEffect(() => {
     if (!shouldInit) {
@@ -154,8 +203,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       loadSessions();
     };
 
-    const onInboundRequest = (req: InboundReq) => {
-    };
+    const onInboundRequest = (req: InboundReq) => {};
 
     const onAuthSuccess = (email: string) => {
       setUserEmail(email);
@@ -186,7 +234,8 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       ) {
         hasNotifiedPending.current = true;
         toast.success(
-          `You have ${data.length} pending friend ${data.length === 1 ? "request" : "requests"
+          `You have ${data.length} pending friend ${
+            data.length === 1 ? "request" : "requests"
           }. Check the Add Friend page.`,
         );
       }
@@ -196,7 +245,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       type: "info" | "success" | "warning" | "error";
       message: string;
     }) => {
-      setIsJoining(false); // Clear wait states on any notification toast (e.g., 'User not found' or 'Blocked')
+      setIsJoining(false);
       if (notif.type === "error") {
         toast.error(notif.message);
       } else if (notif.type === "success") {
@@ -283,30 +332,13 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
     }
   };
 
-  const handleSetAlias = async (sid: string, name: string) => {
-    try {
-      await setSessionAlias(sid, name, "");
-      loadSessions();
-      ChatClient.messageService.broadcastManifestToOwnDevices().catch(() => { });
-    } catch (e) {
-      console.error("Failed to set alias", e);
-    }
-  };
-
-  const handleDeleteChat = async (sid: string) => {
-    try {
-      await ChatClient.deleteChat(sid);
-    } catch (e) {
-      console.error("Failed to delete chat", e);
-      toast.error("Failed to delete chat");
-    }
-  };
-
   return {
     state: {
       view,
       activeChat,
       sessions,
+      linkedDeviceCount,
+      onlineLinkedDeviceCount,
       isJoining,
       targetEmail,
       isWaiting,
@@ -328,8 +360,6 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       setInboundReq,
       setIsWaiting,
       handleConnect,
-      handleSetAlias,
-      handleDeleteChat,
       loadSessions,
       login: (token: string) => ChatClient.login(token),
     },

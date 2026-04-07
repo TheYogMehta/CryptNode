@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
-import { Smartphone, Trash2, Key, Monitor, RefreshCw } from "lucide-react";
+import { Trash2, Key, Monitor, RefreshCw } from "lucide-react";
 import ChatClient from "../../../../services/core/ChatClient";
 import toast from "react-hot-toast";
 import { colors } from "../../../../theme/design-system";
+import { ConfirmDialog } from "../../../../components/ui/ConfirmDialog";
 
 const Container = styled.div`
   display: flex;
@@ -108,21 +109,39 @@ const RemoveButton = styled.button`
   }
 `;
 
-export const DeviceManager: React.FC = () => {
+interface DeviceManagerProps {
+  currentUserEmail?: string | null;
+}
+
+export const DeviceManager: React.FC<DeviceManagerProps> = ({
+  currentUserEmail = null,
+}) => {
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [localPubKey, setLocalPubKey] = useState<string>("");
+  const [revokeTarget, setRevokeTarget] = useState<any | null>(null);
 
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
+    if (!currentUserEmail) {
+      setDevices([]);
+      setLocalPubKey("");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+    setDevices([]);
+    try {
+      const pubKey = await ChatClient.getPublicKeyString();
+      setLocalPubKey(pubKey);
+    } catch (e) {
+      console.warn("[DeviceManager] Failed to resolve local public key", e);
+      setLocalPubKey("");
+    }
     ChatClient.send({ t: "GET_DEVICES" });
-    const pubKey = await ChatClient.getPublicKeyString();
-    setLocalPubKey(pubKey);
-  };
+  }, [currentUserEmail]);
 
   useEffect(() => {
-    fetchDevices();
-
     const onDeviceList = (data: any) => {
       if (data && data.devices) {
         setDevices(data.devices);
@@ -130,34 +149,45 @@ export const DeviceManager: React.FC = () => {
       setLoading(false);
     };
 
+    const onAuthSuccess = (email: string) => {
+      if (!currentUserEmail) return;
+      if (email.trim().toLowerCase() !== currentUserEmail.trim().toLowerCase()) {
+        return;
+      }
+      fetchDevices().catch((e) => {
+        console.warn("[DeviceManager] Failed to fetch devices after auth", e);
+        setLoading(false);
+      });
+    };
+
     ChatClient.on("device_list", onDeviceList);
+    ChatClient.on("auth_success", onAuthSuccess);
+    fetchDevices().catch((e) => {
+      console.warn("[DeviceManager] Failed to fetch devices", e);
+      setLoading(false);
+    });
     return () => {
       ChatClient.off("device_list", onDeviceList);
+      ChatClient.off("auth_success", onAuthSuccess);
     };
-  }, []);
+  }, [fetchDevices]);
 
   const handleRevoke = (pubKey: string) => {
-    if (
-      window.confirm(
-        "Are you sure you want to revoke access for this device? It will be logged out immediately.",
-      )
-    ) {
-      ChatClient.send({
-        t: "DEVICE_LINK_REJECT",
-        data: { targetPubKey: pubKey },
-      });
-      toast.success("Device revoked.");
-      // Optimistic updat
-      setDevices((prev) => prev.filter((d) => d.publicKey !== pubKey));
-    }
+    ChatClient.send({
+      t: "DELETE_DEVICE",
+      data: { targetPubKey: pubKey },
+    });
+    toast.success("Device deleted from your account.");
+    setRevokeTarget(null);
+    setDevices((prev) => prev.filter((d) => d.publicKey !== pubKey));
   };
 
   return (
     <Container>
       <Title>Linked Devices</Title>
       <Description>
-        Manage the devices that have access to your account. Revoking a device
-        will log it out and prevent it from decrypting new messages.
+        Manage the devices that have access to your account. Deleting a device
+        removes its public key from the server and logs it out.
       </Description>
 
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -226,10 +256,29 @@ export const DeviceManager: React.FC = () => {
                   </DeviceMeta>
                 </DeviceDetails>
               </DeviceInfo>
+              {!isMe && (
+                <RemoveButton
+                  onClick={() => setRevokeTarget(device)}
+                  title="Delete device"
+                  aria-label="Delete device"
+                >
+                  <Trash2 size={18} />
+                </RemoveButton>
+              )}
             </DeviceItem>
           );
         })}
       </DeviceList>
+      <ConfirmDialog
+        open={!!revokeTarget}
+        title="Delete this device?"
+        description="This removes the device public key from the server for your account and logs that device out."
+        confirmLabel="Delete Device"
+        tone="danger"
+        badgeLabel="Device Access"
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={() => revokeTarget && handleRevoke(revokeTarget.publicKey)}
+      />
     </Container>
   );
 };

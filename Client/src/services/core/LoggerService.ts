@@ -69,7 +69,6 @@ class LoggerService extends EventEmitter {
       originalWarn.apply(console, args);
     };
 
-    // Optional: Log info but maybe not persist?
     console.info = (...args: any[]) => {
       this.addLog("info", args);
       originalInfo.apply(console, args);
@@ -84,10 +83,63 @@ class LoggerService extends EventEmitter {
     });
   }
 
+  private serializeArg(arg: any): string {
+    if (arg instanceof Error) {
+      return arg.stack || `${arg.name}: ${arg.message}`;
+    }
+
+    if (typeof arg === "string") {
+      return arg;
+    }
+
+    if (
+      typeof arg === "number" ||
+      typeof arg === "boolean" ||
+      typeof arg === "bigint" ||
+      arg == null
+    ) {
+      return String(arg);
+    }
+
+    if (typeof arg === "function") {
+      return `[Function ${arg.name || "anonymous"}]`;
+    }
+
+    try {
+      const seen = new WeakSet<object>();
+      return JSON.stringify(arg, (_key, value) => {
+        if (value instanceof Error) {
+          return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack,
+          };
+        }
+
+        if (typeof value === "function") {
+          return `[Function ${value.name || "anonymous"}]`;
+        }
+
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) {
+            return "[Circular]";
+          }
+          seen.add(value);
+        }
+
+        return value;
+      });
+    } catch {
+      try {
+        return String(arg);
+      } catch {
+        return "[Unserializable]";
+      }
+    }
+  }
+
   private addLog(level: LogLevel, args: any[]) {
-    const message = args
-      .map((arg) => (typeof arg === "object" ? JSON.stringify(arg) : String(arg)))
-      .join(" ");
+    const message = args.map((arg) => this.serializeArg(arg)).join(" ");
 
     const entry: LogEntry = {
       id: Math.random().toString(36).substr(2, 9),
@@ -96,7 +148,6 @@ class LoggerService extends EventEmitter {
       message,
     };
 
-    // If the last argument looks like a stack trace or an error object, extract it
     const lastArg = args[args.length - 1];
     if (lastArg instanceof Error) {
       entry.stack = lastArg.stack;

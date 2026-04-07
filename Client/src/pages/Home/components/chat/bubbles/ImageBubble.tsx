@@ -42,7 +42,7 @@ export const ImageBubble: React.FC<ImageBubbleProps> = ({
 }) => {
   if (src || (mediaStatus === "uploading" && thumbnailSrc)) {
     return (
-      <MediaContainer>
+      <MediaContainer uniformFrame>
         <img
           src={src || thumbnailSrc || ""}
           alt="attachment"
@@ -106,8 +106,8 @@ export const ImageBubble: React.FC<ImageBubbleProps> = ({
 
   return (
     <MediaContainer 
+      uniformFrame
       onClick={!isDownloaded ? onDownload : undefined}
-      style={{ minWidth: "240px", minHeight: "240px", backgroundColor: "rgba(255,255,255,0.05)" }}
     >
       {thumbnailSrc && (
         <img

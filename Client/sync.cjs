@@ -1,4 +1,3 @@
-// run-sync-and-patch.js
 const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -13,7 +12,6 @@ try {
     "electron/src/rt/electron-plugins.js",
   );
 
-  // only replace the plugin entry, nothing else
   fs.writeFileSync(
     filePath,
     `const path = require("path");

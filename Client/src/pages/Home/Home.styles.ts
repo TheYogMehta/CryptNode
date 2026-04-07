@@ -19,6 +19,7 @@ export const AppContainer = styled.div`
 
 export const MainContent = styled.main`
   flex: 1;
+  min-width: 0;
   position: relative;
   display: flex;
   flex-direction: column;

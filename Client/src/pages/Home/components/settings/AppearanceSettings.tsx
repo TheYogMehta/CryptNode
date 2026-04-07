@@ -48,7 +48,7 @@ export const AppearanceSettings: React.FC = () => {
             onClick={() => setMessageLayout("bubble")}
           >
             <MessageSquareText size={24} />
-            <Label>Classic</Label>
+            <Label>Bubble</Label>
           </OptionCard>
           <OptionCard
             active={messageLayout === "modern"}

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import toast from "react-hot-toast";
 import { AccountService } from "../../../../services/auth/AccountService";
 import {
   getKeyFromSecureStorage,
@@ -16,6 +17,18 @@ import { colors } from "../../../../theme/design-system";
 import { getBlockedUsers } from "../../../../services/storage/sqliteService";
 import { BackupService } from "../../../../services/storage/BackupService";
 import ChatClient from "../../../../services/core/ChatClient";
+import { Button } from "../../../../components/ui/Button";
+import {
+  ModalOverlay,
+  DialogPanel,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+  DialogBadge,
+  InputField,
+} from "../overlays/Overlay.styles";
 
 interface SecuritySettingsProps {
   currentUserEmail: string | null;
@@ -42,6 +55,12 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
   const [restoreCode, setRestoreCode] = useState("");
   const [isRestoring, setIsRestoring] = useState(false);
 
+  const resetRestorePrompt = () => {
+    setShowRestorePrompt(false);
+    setRestoreBuffer(null);
+    setRestoreCode("");
+  };
+
   React.useEffect(() => {
     loadBlockedUsers();
   }, []);
@@ -59,8 +78,9 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
     try {
       await ChatClient.unblockUser(email);
       setBlockedUsers((prev) => prev.filter((u) => u.email !== email));
+      toast.success(`${email} unblocked.`);
     } catch (e) {
-      alert("Failed to unblock user");
+      toast.error("Failed to unblock user.");
     }
   };
 
@@ -86,7 +106,7 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
       setRestoreBuffer(arrayBuffer);
       setShowRestorePrompt(true);
     } catch (err) {
-      alert("Failed to read backup file.");
+      toast.error("Failed to read backup file.");
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -99,12 +119,13 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
         restoreBuffer,
         restoreCode,
       );
-      alert("Backup restored successfully!");
+      toast.success("Backup restored successfully.");
+      resetRestorePrompt();
       if (onRestoreSuccess) {
         onRestoreSuccess(restoredEmail);
       }
     } catch (err: any) {
-      alert(err.message || "Failed to restore backup.");
+      toast.error(err.message || "Failed to restore backup.");
     } finally {
       setIsRestoring(false);
     }
@@ -290,10 +311,10 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
               onClick={async () => {
                 try {
                   await Clipboard.write({ string: backupCode });
-                  alert("Copied to clipboard!");
+                  toast.success("Backup code copied to clipboard.");
                 } catch (err) {
                   console.error("Failed to copy to clipboard", err);
-                  alert("Failed to copy to clipboard. Please try manually.");
+                  toast.error("Failed to copy to clipboard. Please try manually.");
                 }
               }}
               style={{
@@ -374,9 +395,9 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
                   setShowPinPrompt(false);
                   setIsPinSetup(false);
                   setTempPin("");
-                  alert("PIN updated successfully");
+                  toast.success("PIN updated successfully.");
                 } else {
-                  alert("PINs do not match. Try again.");
+                  toast.error("PINs do not match. Try again.");
                   setTempPin("");
                 }
               }
@@ -420,10 +441,10 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
                 zipBlob,
                 `cryptnode_backup_${Date.now()}.zip`,
               );
-              alert("Backup exported successfully.");
+              toast.success("Backup exported successfully.");
             } catch (err) {
               console.error("Backup failed", err);
-              alert("Failed to generate backup.");
+              toast.error("Failed to generate backup.");
             } finally {
               setIsGenerating(false);
             }
@@ -432,100 +453,46 @@ export const SecuritySettings: React.FC<SecuritySettingsProps> = ({
       )}
 
       {showRestorePrompt && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.8)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 10000,
-          }}
-        >
-          <div
-            style={{
-              background: colors.background.secondary,
-              padding: "24px",
-              borderRadius: "12px",
-              width: "90%",
-              maxWidth: "400px",
-            }}
-          >
-            <h3 style={{ margin: "0 0 10px 0", color: colors.text.primary }}>
-              Enter Backup Code
-            </h3>
-            <p
-              style={{
-                color: colors.text.secondary,
-                fontSize: "14px",
-                marginBottom: "20px",
-              }}
-            >
-              Please enter the 12-word Master Backup Phrase to decrypt this
-              backup. Restoring will replace your current device data.
-            </p>
-            <input
-              type="text"
-              value={restoreCode}
-              onChange={(e) => setRestoreCode(e.target.value)}
-              placeholder="e.g. apple banana orange..."
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "rgba(0,0,0,0.2)",
-                color: colors.text.primary,
-                marginBottom: "20px",
-                boxSizing: "border-box",
-              }}
-            />
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                justifyContent: "flex-end",
-              }}
-            >
-              <button
-                onClick={() => {
-                  if (isRestoring) return;
-                  setShowRestorePrompt(false);
-                  setRestoreBuffer(null);
-                  setRestoreCode("");
-                }}
+        <ModalOverlay onClick={() => !isRestoring && resetRestorePrompt()}>
+          <DialogPanel onClick={(e) => e.stopPropagation()}>
+            <DialogHeader>
+              <DialogBadge tone="danger">Restore Backup</DialogBadge>
+              <DialogTitle>Enter Backup Code</DialogTitle>
+              <DialogDescription>
+                Enter your 12-word Master Backup Phrase to decrypt this backup.
+                Restoring replaces the current device data for this account.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <InputField
+                type="text"
+                value={restoreCode}
+                onChange={(e) => setRestoreCode(e.target.value)}
+                placeholder="e.g. apple banana orange..."
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="secondary"
+                fullWidth
+                onClick={resetRestorePrompt}
                 disabled={isRestoring}
-                style={{
-                  padding: "8px 16px",
-                  background: "transparent",
-                  color: colors.text.secondary,
-                  border: "none",
-                  cursor: isRestoring ? "not-allowed" : "pointer",
-                }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                fullWidth
                 onClick={handleRestoreSubmit}
-                disabled={isRestoring}
-                style={{
-                  padding: "8px 16px",
-                  background: colors.primary.main,
-                  color: "white",
-                  borderRadius: "6px",
-                  border: "none",
-                  cursor: isRestoring ? "not-allowed" : "pointer",
-                }}
+                disabled={isRestoring || !restoreCode.trim()}
               >
                 {isRestoring ? "Restoring..." : "Decrypt & Restore"}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </DialogFooter>
+          </DialogPanel>
+        </ModalOverlay>
       )}
     </div>
   );

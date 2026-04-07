@@ -123,6 +123,11 @@ export const IconButton = styled.button<IconButtonProps>`
   ${(props) => getVariantStyles(props.variant, props.isActive)}
   ${(props) => getSizeStyles(props.size)}
 
+  &:focus-visible {
+    outline: 2px solid transparent;
+    box-shadow: 0 0 0 3px ${colors.primary.subtle};
+  }
+
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;

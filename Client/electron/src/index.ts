@@ -14,15 +14,11 @@ import {
 } from "electron";
 import unhandled from "electron-unhandled";
 import keytar from "keytar";
-import {
-  ElectronCapacitorApp,
-  setupContentSecurityPolicy,
-} from "./setup";
+import { ElectronCapacitorApp, setupContentSecurityPolicy } from "./setup";
 import fetch from "node-fetch";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
-
 
 app.commandLine.appendSwitch("disable-http-cache");
 app.commandLine.appendSwitch("plugins");
@@ -181,9 +177,14 @@ ipcMain.handle("open-external-url", async (_event, url: string) => {
 
 ipcMain.handle(
   "save-to-downloads",
-  async (_event, { base64Data, originalName }: { base64Data: string; originalName: string }) => {
+  async (
+    _event,
+    { base64Data, originalName }: { base64Data: string; originalName: string },
+  ) => {
     try {
-      const safeOriginalName = path.basename((originalName || "").trim() || "download");
+      const safeOriginalName = path.basename(
+        (originalName || "").trim() || "download",
+      );
       const normalizedBase64 = (base64Data || "").includes(",")
         ? base64Data.split(",").pop() || ""
         : base64Data || "";
@@ -441,7 +442,8 @@ ipcMain.handle("llama:init", async (event, { modelPath }) => {
         });
         contextCreated = true;
         console.log(
-          `[Main] Context created with size ${ctxSize}${usedCpuFallback ? " (CPU mode)" : ""
+          `[Main] Context created with size ${ctxSize}${
+            usedCpuFallback ? " (CPU mode)" : ""
           }`,
         );
         break;
@@ -543,7 +545,7 @@ ipcMain.handle("llama:checkData", async (event, { filename }) => {
       const stats = fs.statSync(filePath);
       return { exists: true, size: stats.size, path: filePath };
     }
-  } catch (err) { }
+  } catch (err) {}
   return { exists: false, size: 0, path: filePath };
 });
 
@@ -612,13 +614,13 @@ ipcMain.handle("llama:download", async (event, { url, filename, id }) => {
 
       file.on("error", (err: any) => {
         activeDownloads[id] = null;
-        fs.unlink(partPath, () => { });
+        fs.unlink(partPath, () => {});
         resolve({ success: false, error: err.message });
       });
 
       res.body.on("error", (err: any) => {
         file.close();
-        fs.unlink(partPath, () => { });
+        fs.unlink(partPath, () => {});
         activeDownloads[id] = null;
         resolve({ success: false, error: err.message });
       });

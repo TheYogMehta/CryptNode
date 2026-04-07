@@ -27,13 +27,19 @@ class SocketManager extends EventEmitter {
 
       console.log("Proceeding with WebSocket connection...");
 
-      if (
-        this.ws &&
-        (this.ws.readyState === WebSocket.OPEN ||
-          this.ws.readyState === WebSocket.CONNECTING)
-      ) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.emit("WS_CONNECTED");
         return;
       }
+
+      if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.onopen = null;
+        this.ws.onerror = null;
+        this.ws.onclose = null;
+        this.ws.close();
+        this.ws = null;
+      }
+
       this.clearReconnectTimer();
 
       await new Promise((resolve, reject) => {
@@ -107,7 +113,9 @@ class SocketManager extends EventEmitter {
         return;
       }
       if (retryCount >= 5) {
-        console.warn("WebSocket not connected. Dropping message after retries.");
+        console.warn(
+          "WebSocket not connected. Dropping message after retries.",
+        );
         this.emit("error", new Error("WebSocket send retries exhausted"));
         return;
       }

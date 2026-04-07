@@ -79,18 +79,40 @@ export const SessionList = styled.div`
   padding: ${spacing[4]};
 `;
 
+export const SectionHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${spacing[2]};
+  margin-top: ${spacing[6]};
+  margin-bottom: ${spacing[3]};
+  padding-left: ${spacing[2]};
+
+  &:first-of-type {
+    margin-top: 0;
+  }
+`;
+
 export const SectionLabel = styled.p`
   font-size: ${typography.fontSize.xs};
   font-weight: ${typography.fontWeight.bold};
   color: ${colors.text.tertiary};
   letter-spacing: 1px;
-  margin-bottom: ${spacing[3]};
-  padding-left: ${spacing[2]};
-  margin-top: ${spacing[6]};
+  margin: 0;
+`;
 
-  &:first-of-type {
-    margin-top: 0;
-  }
+export const SectionCount = styled.span`
+  min-width: 22px;
+  height: 22px;
+  padding: 0 ${spacing[2]};
+  border-radius: ${radii.full};
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: ${colors.background.tertiary};
+  color: ${colors.text.secondary};
+  font-size: ${typography.fontSize.xs};
+  font-weight: ${typography.fontWeight.semibold};
 `;
 
 export const EmptyText = styled.p`

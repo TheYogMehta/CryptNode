@@ -11,11 +11,10 @@ import toast, { Toaster } from "react-hot-toast";
 import { SettingsOverlay } from "./components/overlays/SettingsOverlay";
 import { ProfileSetup } from "./components/overlays/ProfileSetup";
 import { AppLockScreen } from "./components/overlays/AppLockScreen";
-import LoadingScreen from "../LoadingScreen";
 import { ConnectionBanner } from "./components/overlays/ConnectionBanner";
+import { BlockingProgressOverlay } from "./components/overlays/BlockingProgressOverlay";
 import { AccountService } from "../../services/auth/AccountService";
 import ChatClient from "../../services/core/ChatClient";
-import { RenameModal } from "./components/overlays/RenameModal";
 import { SidebarSkeleton } from "../../components/ui/Skeleton";
 import {
   SidebarContainer,
@@ -26,7 +25,10 @@ import {
 } from "./components/sidebar/Sidebar.styles";
 
 import { SecureChatWindow } from "../../pages/SecureChat/SecureChatWindow";
-import { LocalLLMChatWindow } from "../../pages/LocalLLM/LocalLLMChatWindow";
+import {
+  LocalLLMChatWindow,
+  type Message as LocalLLMMessage,
+} from "../../pages/LocalLLM/LocalLLMChatWindow";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { Capacitor } from "@capacitor/core";
 import {
@@ -77,11 +79,11 @@ const Home = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<any>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(true);
+  const [isCallOverlayMinimized, setIsCallOverlayMinimized] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [storedAccounts, setStoredAccounts] = useState<any[]>([]);
-  const [renameTarget, setRenameTarget] = useState<{
-    sid: string;
-    name: string;
-  } | null>(null);
+  const [localAiMessages, setLocalAiMessages] = useState<LocalLLMMessage[]>([]);
+  const [localAiDraft, setLocalAiDraft] = useState("");
   const {
     isSummarizing,
     isInitializingModel,
@@ -107,7 +109,7 @@ const Home = () => {
         try {
           localStorage.removeItem("OAUTH_STATE_KEY");
           localStorage.removeItem("oauth_state");
-        } catch (_e) { }
+        } catch (_e) {}
         setSocialLoginInitialized(true);
         return;
       }
@@ -133,15 +135,24 @@ const Home = () => {
     }
   };
 
+  const completeGoogleSignIn = async (idToken: string) => {
+    setIsCreatingAccount(true);
+    try {
+      await actions.login(idToken);
+      setIsLocked(false);
+      setShowSettings(false);
+      setShowProfileSetup(true);
+    } finally {
+      setIsCreatingAccount(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     try {
       if (hasElectronGoogleLogin) {
         const result = await window.SafeStorage.googleLogin();
         if (result && result.idToken) {
-          await actions.login(result.idToken);
-          setIsLocked(false);
-          setShowSettings(false);
-          setShowProfileSetup(true);
+          await completeGoogleSignIn(result.idToken);
         } else {
           toast.error("Google sign-in was cancelled.");
         }
@@ -177,10 +188,7 @@ const Home = () => {
           "idToken" in response.result &&
           response.result.idToken
         ) {
-          await actions.login(response.result.idToken);
-          setIsLocked(false);
-          setShowSettings(false);
-          setShowProfileSetup(true);
+          await completeGoogleSignIn(response.result.idToken);
         } else {
           toast.error("Failed to get Google ID token. Try again.");
         }
@@ -204,23 +212,30 @@ const Home = () => {
     checkInitialState();
   }, []);
 
+  useEffect(() => {
+    if (!state.activeCall || state.activeCall.status === "idle") {
+      setIsCallOverlayMinimized(false);
+    }
+  }, [state.activeCall?.sid, state.activeCall?.status]);
+
   const contextRef = useRef({
     isSidebarOpen: state.isSidebarOpen,
     view: state.view,
     showSettings,
-    renameTarget,
     isLocked,
     inboundReq: state.inboundReq,
     isWaiting: state.isWaiting,
     showProfileSetup,
   });
 
+  const isCallActive = !!state.activeCall && state.activeCall.status !== "idle";
+  const isFullscreenCallVisible = isCallActive && !isCallOverlayMinimized;
+
   useEffect(() => {
     contextRef.current = {
       isSidebarOpen: state.isSidebarOpen,
       view: state.view,
       showSettings,
-      renameTarget,
       isLocked,
       inboundReq: state.inboundReq,
       isWaiting: state.isWaiting,
@@ -230,7 +245,6 @@ const Home = () => {
     state.isSidebarOpen,
     state.view,
     showSettings,
-    renameTarget,
     isLocked,
     state.inboundReq,
     state.isWaiting,
@@ -244,7 +258,9 @@ const Home = () => {
         setIsLocked(true);
         return;
       }
-      console.log("[Home] auth_error event received. Forcing AppLock and triggering login if not locked.");
+      console.log(
+        "[Home] auth_error event received. Forcing AppLock and triggering login if not locked.",
+      );
       setIsLocked(true);
       if (!isLocked) {
         toast.error("Session expired. Please sign in again.");
@@ -273,10 +289,6 @@ const Home = () => {
             return;
           }
 
-          if (ctx.renameTarget) {
-            setRenameTarget(null);
-            return;
-          }
           if (ctx.showSettings) {
             setShowSettings(false);
             return;
@@ -333,20 +345,19 @@ const Home = () => {
     try {
       console.log("[Home] handleUnlock called for:", email);
       const { pubKey, token } = await ChatClient.switchAccountLocal(email);
-
       ChatClient.switchAccountConnect(email, pubKey, token).catch(() => {});
-
       setIsLocked(false);
     } catch (e) {
       console.error("Unlock failed", e);
       const msg = e instanceof Error ? e.message : String(e || "");
-      if (msg.includes("Session expired")) {
+      if (
+        msg.includes("Session expired") ||
+        msg.includes("Authentication failed") ||
+        msg.includes("Authentication timed out")
+      ) {
         toast.error("Session expired. Opening login...");
         handleGoogleSignIn();
-      } else if (
-        msg.includes("Authentication failed") ||
-        msg.includes("WebSocket timeout")
-      ) {
+      } else if (msg.includes("WebSocket timeout")) {
         setIsLocked(true);
       }
     }
@@ -478,15 +489,25 @@ const Home = () => {
     actions.setIsSidebarOpen(false);
   }, [actions]);
 
-  const onRename = useCallback((sid: string, currentName: string) => {
-    setRenameTarget({ sid, name: currentName });
-  }, []);
-
   const onOpenVault = useCallback(() => {
     actions.setActiveChat("secure-vault");
     actions.setView("chat");
     actions.setIsSidebarOpen(false);
   }, [actions]);
+
+  const resetAccountScopedUi = useCallback(() => {
+    actions.setView("welcome");
+    actions.setActiveChat(null);
+    actions.setTargetEmail("");
+    actions.setInboundReq(null);
+    actions.setIsWaiting(false);
+    actions.setIsSidebarOpen(false);
+    setLocalAiMessages([]);
+    setLocalAiDraft("");
+    closeSummary();
+  }, [actions, closeSummary]);
+
+  const profileSetupEmail = state.userEmail || ChatClient.userEmail;
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -515,14 +536,22 @@ const Home = () => {
 
   if (isLocked) {
     return (
-      <AppLockScreen
-        mode="lock_screen"
-        accounts={storedAccounts}
-        userEmail={ChatClient.userEmail}
-        onUnlockAccount={handleUnlock}
-        onAddAccount={handleGoogleSignIn}
-        onSuccess={() => { }}
-      />
+      <>
+        <AppLockScreen
+          mode="lock_screen"
+          accounts={storedAccounts}
+          userEmail={ChatClient.userEmail}
+          onUnlockAccount={handleUnlock}
+          onAddAccount={handleGoogleSignIn}
+          fullscreen
+          onSuccess={() => {}}
+        />
+        <BlockingProgressOverlay
+          open={isCreatingAccount}
+          title="Creating account..."
+          description="Please wait and do not close the app while CryptNode prepares your account."
+        />
+      </>
     );
   }
 
@@ -570,7 +599,7 @@ const Home = () => {
                   gap: "10px",
                 }}
               >
-                <span style={{ fontSize: "1.5rem" }}>✨</span> Daily Digest
+                Daily Digest
               </h2>
               <button
                 onClick={closeSummary}
@@ -594,7 +623,6 @@ const Home = () => {
                   color: "#ccc",
                 }}
               >
-                <div style={{ fontSize: "1.5rem", marginBottom: "10px" }}>⚙️</div>
                 <p>Initialising model...</p>
               </div>
             ) : isSummarizing ? (
@@ -605,9 +633,6 @@ const Home = () => {
                   color: "#ccc",
                 }}
               >
-                <div className="spinner" style={{ marginBottom: "10px" }}>
-                  ✨
-                </div>
                 <p>Generating...</p>
               </div>
             ) : (
@@ -647,7 +672,30 @@ const Home = () => {
       >
         <ConnectionBanner />
         {state.error && <ErrorToast>{state.error}</ErrorToast>}
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 3200,
+            style: {
+              background: "var(--surface-primary)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-subtle)",
+              boxShadow: "var(--shadow-lg)",
+            },
+            success: {
+              iconTheme: {
+                primary: "var(--status-success)",
+                secondary: "var(--text-inverse)",
+              },
+            },
+            error: {
+              iconTheme: {
+                primary: "var(--status-error)",
+                secondary: "var(--text-inverse)",
+              },
+            },
+          }}
+        />
 
         <Sidebar
           sessions={state.sessions}
@@ -659,78 +707,101 @@ const Home = () => {
           onClose={onCloseSidebar}
           onLogoClick={onLogoClick}
           onSettings={onOpenSettings}
-          onRename={onRename}
-          onDelete={actions.handleDeleteChat}
           onOpenVault={onOpenVault}
           onGlobalSummary={generateGlobalSummary}
         />
 
         <MainContent>
-          {isMobile && state.view !== "chat" && (
-            <MobileHeader>
-              <MenuButton onClick={() => actions.setIsSidebarOpen(true)}>
-                <Menu size={24} />
-              </MenuButton>
-              <div style={{ flex: 1 }}>
-                <HeaderTitle onClick={() => actions.setView("welcome")}>
-                  CryptNode
-                </HeaderTitle>
-              </div>
-            </MobileHeader>
-          )}
+          {!isFullscreenCallVisible && (
+            <>
+              {isMobile && state.view !== "chat" && (
+              <MobileHeader>
+                <MenuButton onClick={() => actions.setIsSidebarOpen(true)}>
+                  <Menu size={24} />
+                </MenuButton>
+                <div style={{ flex: 1 }}>
+                  <HeaderTitle onClick={() => actions.setView("welcome")}>
+                    CryptNode
+                  </HeaderTitle>
+                </div>
+              </MobileHeader>
+              )}
 
-          {state.view === "chat" && state.activeChat === "secure-vault" ? (
-            <SecureChatWindow
-              onBack={() => {
-                actions.setActiveChat(null);
-                actions.setView("welcome");
-                if (isMobile) {
-                  actions.setIsSidebarOpen(true);
+              {state.view === "chat" && state.activeChat === "secure-vault" ? (
+              <SecureChatWindow
+                onBack={() => {
+                  actions.setActiveChat(null);
+                  actions.setView("welcome");
+                  if (isMobile) {
+                    actions.setIsSidebarOpen(true);
+                  }
+                }}
+              />
+              ) : state.view === "chat" && state.activeChat === "local-llm" ? (
+              <LocalLLMChatWindow
+                messages={localAiMessages}
+                setMessages={setLocalAiMessages}
+                draft={localAiDraft}
+                setDraft={setLocalAiDraft}
+                onBack={() => {
+                  actions.setActiveChat(null);
+                  actions.setView("welcome");
+                  if (isMobile) {
+                    actions.setIsSidebarOpen(true);
+                  }
+                }}
+                onOpenSettings={() => {
+                  setSettingsTab("Local AI");
+                  setShowSettings(true);
+                }}
+              />
+              ) : state.view === "chat" && state.activeChat ? (
+              <ChatWindow
+                key={state.activeChat}
+                messages={state.messages}
+                onSend={actions.handleSend}
+                activeChat={state.activeChat}
+                session={state.sessions.find((s) => s.sid === state.activeChat)}
+                onFileSelect={actions.handleFile}
+                peerOnline={state.peerOnline}
+                onStartCall={(mode: "Audio" | "Video") =>
+                  actions.startCall(mode)
                 }
-              }}
-            />
-          ) : state.view === "chat" && state.activeChat === "local-llm" ? (
-            <LocalLLMChatWindow
-              onBack={() => {
-                actions.setActiveChat(null);
-                actions.setView("welcome");
-                if (isMobile) {
-                  actions.setIsSidebarOpen(true);
+                onBack={
+                  isMobile ? () => actions.setIsSidebarOpen(true) : undefined
                 }
-              }}
-              onOpenSettings={() => {
-                setSettingsTab("Local AI");
-                setShowSettings(true);
-              }}
-            />
-          ) : state.view === "chat" && state.activeChat ? (
-            <ChatWindow
-              messages={state.messages}
-              onSend={actions.handleSend}
-              activeChat={state.activeChat}
-              session={state.sessions.find((s) => s.sid === state.activeChat)}
-              onFileSelect={actions.handleFile}
-              peerOnline={state.peerOnline}
-              onStartCall={(mode: any) => actions.startCall(mode)}
-              onBack={
-                isMobile ? () => actions.setIsSidebarOpen(true) : undefined
-              }
-              replyingTo={state.replyingTo}
-              setReplyingTo={actions.setReplyingTo}
-              onLoadMore={actions.loadMoreHistory}
-              isRateLimited={state.isRateLimited}
-              isLoadingHistory={state.isLoadingHistory}
-              firstItemIndex={state.firstItemIndex}
-            />
-          ) : state.view === "add" ? (
-            <ConnectionSetup
-              targetEmail={state.targetEmail}
-              setTargetEmail={actions.setTargetEmail}
-              onConnect={actions.handleConnect}
-              isJoining={state.isJoining}
-            />
-          ) : (
-            <WelcomeView onAddFriend={() => actions.setView("add")} />
+                replyingTo={state.replyingTo}
+                setReplyingTo={actions.setReplyingTo}
+                onLoadMore={actions.loadMoreHistory}
+                isRateLimited={state.isRateLimited}
+                isLoadingHistory={state.isLoadingHistory}
+                firstItemIndex={state.firstItemIndex}
+              />
+              ) : state.view === "add" ? (
+              <ConnectionSetup
+                targetEmail={state.targetEmail}
+                setTargetEmail={actions.setTargetEmail}
+                onConnect={actions.handleConnect}
+                isJoining={state.isJoining}
+              />
+              ) : (
+              <WelcomeView
+                onAddFriend={() => actions.setView("add")}
+                onOpenSettings={onOpenSettings}
+                onOpenVault={onOpenVault}
+                sessionCount={state.sessions.length}
+                onlineCount={
+                  state.sessions.filter((session) => session.online).length
+                }
+                unreadCount={state.sessions.reduce(
+                  (total, session) => total + (session.unread || 0),
+                  0,
+                )}
+                linkedDeviceCount={state.linkedDeviceCount}
+                onlineLinkedDeviceCount={state.onlineLinkedDeviceCount}
+              />
+              )}
+            </>
           )}
 
           {state.activeCall && state.activeCall.status !== "idle" && (
@@ -738,14 +809,16 @@ const Home = () => {
               key={state.activeCall.sid}
               callState={state.activeCall}
               localStream={state.localStream}
+              isMobile={isMobile}
+              isMinimized={isCallOverlayMinimized}
               onAccept={actions.acceptCall}
               onReject={actions.rejectCall}
               onHangup={actions.endCall}
+              onMinimize={() => setIsCallOverlayMinimized(true)}
+              onMaximize={() => setIsCallOverlayMinimized(false)}
             />
           )}
         </MainContent>
-
-
 
         {(state.inboundReq || state.isWaiting) && (
           <RequestModal
@@ -776,44 +849,40 @@ const Home = () => {
             }}
             onSwitchAccount={async (email) => {
               try {
-                actions.setView("welcome");
-                actions.setActiveChat(null);
-                actions.setIsSidebarOpen(false);
-                // Phase 1: Unlock local DB only. Do NOT connect to WebSocket yet.
+                resetAccountScopedUi();
                 await ChatClient.switchAccountLocal(email);
                 setShowSettings(false);
-                // Require the user to unlock the newly switched account for security.
-                // The WS reconnection will happen after they successfully enter the PIN in AppLockScreen.
                 setIsLocked(true);
               } catch (e) {
                 console.error("Account switch failed", e);
-                // If it failed (e.g. timeout or expired session), we stay within the app
                 setShowSettings(false);
+                const msg = e instanceof Error ? e.message : String(e || "");
+                if (msg.includes("Session expired")) {
+                  toast.error("Session expired. Opening login...");
+                  await handleGoogleSignIn();
+                  return;
+                }
                 setIsLocked(true);
               }
             }}
           />
         )}
 
-        {renameTarget && (
-          <RenameModal
-            currentName={renameTarget.name}
-            onRename={(newName) => {
-              actions.handleSetAlias(renameTarget.sid, newName);
-              setRenameTarget(null);
-            }}
-            onCancel={() => setRenameTarget(null)}
-          />
-        )}
-
-        {showProfileSetup && state.userEmail && (
+        {showProfileSetup && profileSetupEmail && (
           <ProfileSetup
-            userEmail={state.userEmail}
+            userEmail={profileSetupEmail}
             onComplete={() => setShowProfileSetup(false)}
           />
         )}
 
-        {isLocked && <AppLockScreen onSuccess={() => setIsLocked(false)} />}
+        {isLocked && (
+          <AppLockScreen fullscreen onSuccess={() => setIsLocked(false)} />
+        )}
+        <BlockingProgressOverlay
+          open={isCreatingAccount}
+          title="Creating account..."
+          description="Please wait and do not close the app while CryptNode prepares your account."
+        />
       </AppContainer>
     </ErrorBoundary>
   );

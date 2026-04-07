@@ -11,26 +11,7 @@ export default defineConfig({
   resolve: {
     dedupe: ["konva"],
   },
-  plugins: [
-
-    react(),
-    legacy({
-      targets: [
-        "chrome >= 64",
-        "edge >= 79",
-        "firefox >= 67",
-        "safari >= 11.1",
-      ],
-      additionalLegacyPolyfills: ["regenerator-runtime/runtime"],
-      renderLegacyChunks: false,
-      modernPolyfills: true,
-    }),
-  ],
-  test: {
-    globals: true,
-    environment: "jsdom",
-    setupFiles: "./src/setupTests.ts",
-  },
+  plugins: [react()],
   build: {
     target: "es2020",
     rollupOptions: {

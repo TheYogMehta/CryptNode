@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import toast from "react-hot-toast";
 import {
   AccountService,
   StoredAccount,
@@ -125,13 +126,13 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
       await onReloadAccounts();
     } catch (e) {
       console.error("Failed to save profile", e);
-      alert("Failed to save profile");
+      toast.error("Failed to save profile.");
     }
   };
 
   return (
-    <div>
-      <h3 style={{ marginTop: 0, color: colors.text.primary }}>Profile</h3>
+    <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
+      <h3 style={{ margin: 0, color: colors.text.primary }}>Profile</h3>
 
       {isEditingProfile ? (
         <EditProfileContainer>
@@ -297,10 +298,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({
         </ProfileSection>
       )}
 
-      <h3 style={{ marginTop: "30px", color: colors.text.primary }}>
+      <h3 style={{ margin: 0, color: colors.text.primary }}>
         Manage Accounts
       </h3>
-      <div style={{ marginBottom: "20px" }}>
+      <div>
         {accounts.map((acc) => (
           <AccountItem
             key={acc.email}

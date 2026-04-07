@@ -3,18 +3,23 @@ import { SidebarItem } from "./SidebarItem";
 import { SessionData } from "../../types";
 import ChatClient from "../../../../services/core/ChatClient";
 import {
+  Sparkles,
+} from "lucide-react";
+import {
   SidebarContainer,
   MobileOverlay,
   SidebarHeader,
   Logo,
   CloseButton,
   SessionList,
+  SectionHeader,
   SectionLabel,
+  SectionCount,
   EmptyText,
   SidebarFooter,
 } from "./Sidebar.styles";
 import { Button } from "../../../../components/ui/Button";
-import { SidebarSkeleton } from "../../../../components/ui/Skeleton";
+import { IconButton } from "../../../../components/ui/IconButton";
 
 import { useAIStatus } from "../../hooks/useAIStatus";
 import { Capacitor } from "@capacitor/core";
@@ -30,8 +35,6 @@ export const Sidebar = React.memo(
     onClose,
     onLogoClick,
     onSettings,
-    onRename,
-    onDelete,
     onOpenVault,
     onGlobalSummary,
   }: {
@@ -44,13 +47,12 @@ export const Sidebar = React.memo(
     onClose: () => void;
     onLogoClick: () => void;
     onSettings: () => void;
-    onRename: (sid: string, currentName: string) => void;
-    onDelete: (sid: string) => void;
     onOpenVault: () => void;
     onGlobalSummary: () => void;
   }) => {
-    const { isLoaded } = useAIStatus();
+    const { isInstalled } = useAIStatus();
     const isAndroid = Capacitor.getPlatform() === "android";
+    const toolsCount = isAndroid ? 1 : 2;
 
     return (
       <>
@@ -62,27 +64,26 @@ export const Sidebar = React.memo(
               Crypt<span>Node</span>
             </Logo>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              {isLoaded && !isAndroid && (
-                <button
+              {isInstalled && !isAndroid && (
+                <IconButton
                   title="Catch Up"
+                  aria-label="Catch Up"
                   onClick={onGlobalSummary}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "1.2rem",
-                    padding: "0 5px",
-                  }}
+                  variant="ghost"
+                  size="sm"
                 >
-                  ✨
-                </button>
+                  <Sparkles size={16} />
+                </IconButton>
               )}
               {isMobile && <CloseButton onClick={onClose}>✕</CloseButton>}
             </div>
           </SidebarHeader>
 
           <SessionList>
-            <SectionLabel>PINNED</SectionLabel>
+            <SectionHeader>
+              <SectionLabel>TOOLS</SectionLabel>
+              <SectionCount>{toolsCount}</SectionCount>
+            </SectionHeader>
             <SidebarItem
               key="secure-chat"
               data={{
@@ -100,7 +101,6 @@ export const Sidebar = React.memo(
               }}
               isActive={activeChat === "secure-vault"}
               onSelect={() => onOpenVault()}
-              onRename={() => {}}
             />
 
             {!isAndroid && (
@@ -121,11 +121,13 @@ export const Sidebar = React.memo(
                 }}
                 isActive={activeChat === "local-llm"}
                 onSelect={() => onSelect("local-llm")}
-                onRename={() => {}}
               />
             )}
 
-            <SectionLabel>SECURE SESSIONS</SectionLabel>
+            <SectionHeader>
+              <SectionLabel>SECURE SESSIONS</SectionLabel>
+              <SectionCount>{sessions.length}</SectionCount>
+            </SectionHeader>
 
             {sessions.length === 0 ? (
                <EmptyText>No connected users. Add a friend to start chatting!</EmptyText>
@@ -136,8 +138,6 @@ export const Sidebar = React.memo(
                   data={session}
                   isActive={activeChat === session.sid}
                   onSelect={onSelect}
-                  onRename={onRename}
-                  onDelete={onDelete}
                 />
               ))
             )}

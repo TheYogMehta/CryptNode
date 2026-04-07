@@ -17,9 +17,13 @@ import "./LocalLLMChatWindow.css";
 interface LocalLLMChatWindowProps {
   onBack?: () => void;
   onOpenSettings: () => void;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  draft: string;
+  setDraft: React.Dispatch<React.SetStateAction<string>>;
 }
 
-interface Message {
+export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -30,11 +34,13 @@ interface Message {
 export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   onBack,
   onOpenSettings,
+  messages,
+  setMessages,
+  draft,
+  setDraft,
 }) => {
   const [isInstalled, setIsInstalled] = useState<boolean | null>(null);
   const [hasAnyDownloaded, setHasAnyDownloaded] = useState<boolean | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -97,6 +103,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
   const clearChat = async () => {
     if (confirm("Clear this chat session?")) {
       setMessages([]);
+      setDraft("");
       setIsGenerating(false);
       setIsInitializing(false);
       try {
@@ -129,10 +136,15 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
         setIsInitializing(false);
       }
 
-      const conversation = [newMessage].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const conversation = [...messages, newMessage]
+        .filter((m) => m.content.trim().length > 0)
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+      
+      await localAIService.clearSession();
 
       const tempId = (Date.now() + 1).toString();
 
@@ -310,7 +322,7 @@ export const LocalLLMChatWindow: React.FC<LocalLLMChatWindowProps> = ({
                 <p className="local-llm-empty-title">Start a Conversation</p>
                 <p className="local-llm-empty-subtitle">
                   Feel free to ask {activeModel.name} anything.
-                  <br />Note: Your messages are only saved until you close the chat.
+                  <br />Your messages stay here until you clear this chat.
                 </p>
               </div>
             ) : (

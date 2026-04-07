@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import toast from "react-hot-toast";
 import {
   LogsContainer,
   LogsHeader,
@@ -17,10 +18,12 @@ import {
   NoLogs,
 } from "./LogSettings.styles";
 import { logger, LogEntry } from "../../../../services/core/LoggerService";
+import { ConfirmDialog } from "../../../../components/ui/ConfirmDialog";
 
 export const LogSettings: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>(logger.getLogs());
   const logsListRef = useRef<HTMLDivElement>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     const handleLogsUpdate = (newLogs: LogEntry[]) => {
@@ -34,9 +37,9 @@ export const LogSettings: React.FC = () => {
   }, []);
 
   const handleClearLogs = () => {
-    if (window.confirm("Are you sure you want to clear all logs?")) {
-      logger.clearLogs();
-    }
+    logger.clearLogs();
+    setShowClearConfirm(false);
+    toast.success("Logs cleared.");
   };
 
   const handleCopyLogs = () => {
@@ -50,10 +53,11 @@ export const LogSettings: React.FC = () => {
     navigator.clipboard
       .writeText(logText)
       .then(() => {
-        alert("Logs copied to clipboard!");
+        toast.success("Logs copied to clipboard.");
       })
       .catch((err) => {
         console.error("Failed to copy logs", err);
+        toast.error("Failed to copy logs.");
       });
   };
 
@@ -77,7 +81,7 @@ export const LogSettings: React.FC = () => {
           </Button>
           <Button
             variant="danger"
-            onClick={handleClearLogs}
+            onClick={() => setShowClearConfirm(true)}
             disabled={logs.length === 0}
           >
             Clear
@@ -105,6 +109,16 @@ export const LogSettings: React.FC = () => {
           ))
         )}
       </LogsList>
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Clear all logs?"
+        description="This removes the locally stored log history used for debugging and troubleshooting."
+        confirmLabel="Clear Logs"
+        tone="danger"
+        badgeLabel="Diagnostics"
+        onCancel={() => setShowClearConfirm(false)}
+        onConfirm={handleClearLogs}
+      />
     </LogsContainer>
   );
 };

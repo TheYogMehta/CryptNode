@@ -139,6 +139,20 @@ const SCHEMA = {
     `,
     indices: [],
   },
+  request_history: {
+    columns: `
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL,
+      targetHash TEXT,
+      status TEXT DEFAULT 'pending',
+      sentAt INTEGER,
+      updatedAt INTEGER
+    `,
+    indices: [
+      "CREATE INDEX IF NOT EXISTS idx_request_history_target_hash ON request_history(targetHash);",
+      "CREATE INDEX IF NOT EXISTS idx_request_history_sent_at ON request_history(sentAt DESC);",
+    ],
+  },
 };
 
 export const tableOrder = [
@@ -151,7 +165,23 @@ export const tableOrder = [
   "queue",
   "blocked_users",
   "pending_requests",
+  "request_history",
 ];
+
+export type OutboundRequestStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "blocked";
+
+export interface OutboundRequestHistoryEntry {
+  id: number;
+  email: string;
+  targetHash: string;
+  status: OutboundRequestStatus;
+  sentAt: number;
+  updatedAt: number;
+}
 
 export const getCurrentDbName = () => currentDbName;
 export const getCurrentDbKey = () => currentKey;
@@ -600,7 +630,7 @@ export const getBlockedUsers = async (): Promise<
   { email: string; timestamp: number }[]
 > => {
   const rows = await queryDB(
-    "SELECT email, timestamp FROM blocked_users WHERE action = 'block' ORDER BY timestamp DESC",
+    "SELECT email, timestamp FROM blocked_users WHERE action = 'block' AND instr(email, '@') > 0 ORDER BY timestamp DESC",
   );
   return rows.map((r: any) => ({ email: r.email, timestamp: r.timestamp }));
 };
@@ -705,6 +735,61 @@ export const acceptPendingRequest = async (email: string) => {
     "UPDATE pending_requests SET action = 'accepted', timestamp = ? WHERE email = ?",
     [Date.now(), email],
   );
+};
+
+export const addOutboundRequestHistory = async (
+  email: string,
+  targetHash?: string,
+) => {
+  const timestamp = Date.now();
+  await executeDB(
+    "INSERT INTO request_history (email, targetHash, status, sentAt, updatedAt) VALUES (?, ?, 'pending', ?, ?)",
+    [email, targetHash || null, timestamp, timestamp],
+  );
+};
+
+export const updateOutboundRequestHistoryStatus = async (
+  status: Exclude<OutboundRequestStatus, "pending">,
+  identifiers: { email?: string; targetHash?: string },
+): Promise<boolean> => {
+  const lookupValue = identifiers.targetHash || identifiers.email;
+  const lookupColumn = identifiers.targetHash ? "targetHash" : "email";
+
+  if (!lookupValue) {
+    return false;
+  }
+
+  const rows = await queryDB(
+    `SELECT id FROM request_history WHERE ${lookupColumn} = ? AND status = 'pending'`,
+    [lookupValue],
+  );
+
+  if (rows.length === 0) {
+    return false;
+  }
+
+  await executeDB(
+    `UPDATE request_history SET status = ?, updatedAt = ? WHERE ${lookupColumn} = ? AND status = 'pending'`,
+    [status, Date.now(), lookupValue],
+  );
+  return true;
+};
+
+export const getOutboundRequestHistory = async (): Promise<
+  OutboundRequestHistoryEntry[]
+> => {
+  const rows = await queryDB(
+    "SELECT id, email, targetHash, status, sentAt, updatedAt FROM request_history ORDER BY sentAt DESC, id DESC",
+  );
+
+  return rows.map((row: any) => ({
+    id: row.id,
+    email: row.email || "",
+    targetHash: row.targetHash || "",
+    status: row.status as OutboundRequestStatus,
+    sentAt: row.sentAt || 0,
+    updatedAt: row.updatedAt || row.sentAt || 0,
+  }));
 };
 
 export const updateSessionNotes = async (sid: string, notes: string) => {

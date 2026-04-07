@@ -25,6 +25,10 @@ import {
   searchOutline,
 } from "ionicons/icons";
 import { FileUploadPreview } from "../Home/components/overlays/FileUploadPreview";
+import {
+  darkFilePreviewTheme,
+  FilePreviewPane,
+} from "../../components/files/FilePreviewPane";
 import { useSecureChat } from "./hooks/useSecureChat";
 import SavePasswordModal from "./SavePasswordModal";
 import { colors } from "../../theme/design-system";
@@ -49,6 +53,7 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
     items,
     error: vaultError,
     addItem,
+    updateTextItem,
     removeItem,
     decryptItemContent,
     mfaOnboarding,
@@ -64,12 +69,51 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
   const [searchContentById, setSearchContentById] = useState<
     Record<string, string>
   >({});
+  const [isEditingTextItem, setIsEditingTextItem] = useState(false);
+  const [editingTextValue, setEditingTextValue] = useState("");
+  const [isSavingTextItem, setIsSavingTextItem] = useState(false);
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [mfaToken, setMfaToken] = useState("");
   const [canOpenOtpLink, setCanOpenOtpLink] = useState(false);
   const [autoOpenTriggered, setAutoOpenTriggered] = useState(false);
   const MFA_SETUP_SENTINEL = "__setup__";
   const handleBack = () => onBack?.();
+
+  const resetAccessFlow = () => {
+    setPendingPin(null);
+    setMfaToken("");
+    setAutoOpenTriggered(false);
+    clearMfaOnboarding();
+  };
+
+  const handleAccessBack = () => {
+    if (pendingPin) {
+      resetAccessFlow();
+      return;
+    }
+    handleBack();
+  };
+
+  const beginVaultAccess = () => {
+    const task = isSetup ? unlock("", undefined, true) : setupVault("");
+    task.then((result) => {
+      if (result.requiresMfa) {
+        setPendingPin(MFA_SETUP_SENTINEL);
+        setMfaToken("");
+        setAutoOpenTriggered(false);
+      }
+    });
+  };
+
+  const verifyVaultAccess = async () => {
+    const result =
+      pendingPin === MFA_SETUP_SENTINEL
+        ? await unlock("", mfaToken, true)
+        : await unlock(pendingPin || "", mfaToken, true);
+    if (result.ok) {
+      resetAccessFlow();
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -153,10 +197,16 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
       const decrypted = await decryptItemContent(item);
       if (item.type === "password") {
         const data = JSON.parse(decrypted as string);
+        setIsEditingTextItem(false);
+        setEditingTextValue("");
         setViewingItem({ ...item, content: data });
       } else if (item.type === "text") {
+        setIsEditingTextItem(false);
+        setEditingTextValue(typeof decrypted === "string" ? decrypted : "");
         setViewingItem({ ...item, content: decrypted });
       } else if (item.type === "file") {
+        setIsEditingTextItem(false);
+        setEditingTextValue("");
         const decryptedBytes = decrypted as Uint8Array;
         const fileBuffer = decryptedBytes.buffer.slice(
           decryptedBytes.byteOffset,
@@ -182,7 +232,59 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
     if (viewingItem?.contentUrl) {
       URL.revokeObjectURL(viewingItem.contentUrl);
     }
+    setIsEditingTextItem(false);
+    setEditingTextValue("");
+    setIsSavingTextItem(false);
     setViewingItem(null);
+  };
+
+  const startEditingTextItem = () => {
+    if (viewingItem?.type !== "text" || typeof viewingItem.content !== "string") {
+      return;
+    }
+
+    setEditingTextValue(viewingItem.content);
+    setIsEditingTextItem(true);
+  };
+
+  const cancelEditingTextItem = () => {
+    setEditingTextValue(
+      viewingItem?.type === "text" && typeof viewingItem.content === "string"
+        ? viewingItem.content
+        : "",
+    );
+    setIsEditingTextItem(false);
+  };
+
+  const saveEditingTextItem = async () => {
+    if (
+      !viewingItem ||
+      viewingItem.type !== "text" ||
+      typeof viewingItem.content !== "string"
+    ) {
+      return;
+    }
+
+    if (!editingTextValue.trim()) {
+      alert("Saved message cannot be empty.");
+      return;
+    }
+
+    setIsSavingTextItem(true);
+    try {
+      const updatedItem = await updateTextItem(viewingItem, editingTextValue);
+      setViewingItem({
+        ...viewingItem,
+        ...updatedItem,
+        content: editingTextValue,
+      });
+      setIsEditingTextItem(false);
+    } catch (e) {
+      console.error("Failed to update saved message", e);
+      alert("Failed to update saved message.");
+    } finally {
+      setIsSavingTextItem(false);
+    }
   };
 
   const handleStoreMessage = async () => {
@@ -266,144 +368,129 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
   } as React.CSSProperties;
 
   if (!isUnlocked) {
-    if (pendingPin) {
-      return (
-        <div className="secure-chat-mfa" style={themeVars}>
-          <button
-            onClick={() => {
-              setPendingPin(null);
-              setMfaToken("");
-              setAutoOpenTriggered(false);
-              clearMfaOnboarding();
-            }}
-            className="secure-chat-back-btn"
-          >
-            Back
-          </button>
-          <h2 className="sc-title">Two-Factor Verification</h2>
-          <p className="sc-subtitle">Enter your 6-digit authenticator code.</p>
-
-          {(Capacitor.getPlatform() === "android" || canOpenOtpLink) &&
-            mfaOnboarding?.otpAuthUri && (
-              <button
-                onClick={async () => {
-                  const opened = await platformLaunchService.openOtpAuthUri(
-                    mfaOnboarding.otpAuthUri,
-                  );
-                  if (!opened) {
-                    alert(
-                      "Could not open authenticator app. Use QR/manual setup.",
-                    );
-                  }
-                }}
-                className="secure-chat-primary-btn"
-              >
-                Open Authenticator App
-              </button>
-            )}
-
-          {mfaOnboarding && (
-            <>
-              {mfaOnboarding.qrDataUrl && (
-                <div className="secure-chat-card secure-chat-qr-wrap">
-                  <img
-                    src={mfaOnboarding.qrDataUrl}
-                    alt="MFA QR"
-                    className="secure-chat-qr"
-                  />
-                </div>
-              )}
-              <div className="secure-chat-card">
-                <div className="secure-chat-secret-label">Secret (Base32)</div>
-                <div className="secure-chat-secret-row">
-                  <code className="secure-chat-secret-code">
-                    {mfaOnboarding.secret}
-                  </code>
-                  <button
-                    onClick={() => copyText(mfaOnboarding.secret)}
-                    aria-label="Copy secret"
-                    className="secure-chat-icon-btn"
-                  >
-                    <IonIcon icon={copyOutline} />
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-
-          <input
-            value={mfaToken}
-            onChange={(e) =>
-              setMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))
-            }
-            placeholder="Enter 6-digit code"
-            inputMode="numeric"
-            className="secure-chat-otp-input"
-          />
-          <button
-            onClick={async () => {
-              const result =
-                pendingPin === MFA_SETUP_SENTINEL
-                  ? await unlock("", mfaToken, true)
-                  : await unlock(pendingPin, mfaToken);
-              if (result.ok) {
-                setPendingPin(null);
-                setMfaToken("");
-                setAutoOpenTriggered(false);
-                clearMfaOnboarding();
-              }
-            }}
-            disabled={mfaToken.length !== 6}
-            className={`secure-chat-verify-btn ${
-              mfaToken.length === 6 ? "enabled" : "disabled"
-            }`}
-          >
-            Verify & Unlock
-          </button>
-          {vaultError && <p className="secure-chat-error">{vaultError}</p>}
-        </div>
-      );
-    }
+    const accessTitle = pendingPin
+      ? "Two-Factor Verification"
+      : isSetup
+        ? "Secure Vault Locked"
+        : "Set Up Secure Vault";
+    const accessSubtitle = pendingPin
+      ? "Enter the 6-digit code from your authenticator app to continue."
+      : isSetup
+        ? "Unlock your encrypted vault using the authenticator already linked to your account."
+        : "Protect your vault with your master key and one-time authenticator verification.";
 
     return (
-      <div className="secure-chat-locked" style={themeVars}>
-        <div className="secure-chat-locked-inner">
-          <h2 className="sc-title">
-            {isSetup ? "Secure Vault Locked" : "Secure Vault Setup"}
-          </h2>
-          <p className="sc-subtitle">
-            {isSetup
-              ? "Use your authenticator app to unlock."
-              : "Set up authenticator to secure your vault."}
-          </p>
-          <div className="secure-chat-row">
-            <button onClick={handleBack} className="secure-chat-btn-secondary">
-              Back
-            </button>
-            <button
-              onClick={() => {
-                const task = isSetup
-                  ? unlock("", undefined, true)
-                  : setupVault("");
-                task.then((result) => {
-                  if (result.requiresMfa) {
-                    setPendingPin(MFA_SETUP_SENTINEL);
-                    setMfaToken("");
-                    setAutoOpenTriggered(false);
-                  }
-                });
-              }}
-              className="secure-chat-btn-primary"
-            >
-              {isSetup ? "Unlock" : "Start Setup"}
-            </button>
+      <div className="secure-chat-access" style={themeVars}>
+        <button
+          onClick={handleAccessBack}
+          className="secure-chat-back-btn secure-chat-access-back"
+        >
+          Back
+        </button>
+
+        <div className="secure-chat-access-panel">
+          <div className="secure-chat-access-badge">
+            <IonIcon icon={shieldCheckmarkOutline} className="icon-18" />
+            Secure Vault
           </div>
+
+          <div className="secure-chat-access-icon">
+            <IonIcon
+              icon={pendingPin ? shieldCheckmarkOutline : lockClosedOutline}
+              className="icon-32 icon-white"
+            />
+          </div>
+
+          <h1 className="secure-chat-access-panel-title">{accessTitle}</h1>
+          <p className="secure-chat-access-panel-subtitle">{accessSubtitle}</p>
+
+          {!pendingPin ? (
+            <div className="secure-chat-access-actions">
+              <button
+                onClick={beginVaultAccess}
+                className="secure-chat-btn-primary secure-chat-access-primary"
+              >
+                {isSetup ? "Unlock Vault" : "Start Vault Setup"}
+              </button>
+            </div>
+          ) : (
+            <div className="secure-chat-access-verification">
+              {(Capacitor.getPlatform() === "android" || canOpenOtpLink) &&
+                mfaOnboarding?.otpAuthUri && (
+                  <button
+                    onClick={async () => {
+                      const opened = await platformLaunchService.openOtpAuthUri(
+                        mfaOnboarding.otpAuthUri,
+                      );
+                      if (!opened) {
+                        alert(
+                          "Could not open authenticator app. Use QR/manual setup.",
+                        );
+                      }
+                    }}
+                    className="secure-chat-primary-btn"
+                  >
+                    Open Authenticator App
+                  </button>
+                )}
+
+              <input
+                value={mfaToken}
+                onChange={(e) =>
+                  setMfaToken(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                placeholder="Enter 6-digit code"
+                inputMode="numeric"
+                className="secure-chat-otp-input"
+              />
+
+              <button
+                onClick={verifyVaultAccess}
+                disabled={mfaToken.length !== 6}
+                className={`secure-chat-verify-btn ${
+                  mfaToken.length === 6 ? "enabled" : "disabled"
+                }`}
+              >
+                Verify & Unlock
+              </button>
+
+              {mfaOnboarding && (
+                <div className="secure-chat-access-onboarding">
+                  {mfaOnboarding.qrDataUrl && (
+                    <div className="secure-chat-card secure-chat-qr-wrap secure-chat-access-qr">
+                      <img
+                        src={mfaOnboarding.qrDataUrl}
+                        alt="MFA QR"
+                        className="secure-chat-qr"
+                      />
+                    </div>
+                  )}
+                  <div className="secure-chat-card">
+                    <div className="secure-chat-secret-label">Authenticator Secret</div>
+                    <div className="secure-chat-secret-row">
+                      <code className="secure-chat-secret-code">
+                        {mfaOnboarding.secret}
+                      </code>
+                      <button
+                        onClick={() => copyText(mfaOnboarding.secret)}
+                        aria-label="Copy secret"
+                        className="secure-chat-icon-btn"
+                      >
+                        <IonIcon icon={copyOutline} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {vaultError && (
+            <div className="secure-chat-access-error">
+              <p>{vaultError}</p>
+            </div>
+          )}
         </div>
-        {vaultError && (
-          <div className="secure-chat-locked-error">
-            <p>{vaultError}</p>
-          </div>
-        )}
       </div>
     );
   }
@@ -628,6 +715,25 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
                 : "File Preview"}
             </IonTitle>
             <IonButtons slot="end">
+              {viewingItem?.type === "text" && !isEditingTextItem && (
+                <IonButton onClick={startEditingTextItem} color="light">
+                  Edit
+                </IonButton>
+              )}
+              {viewingItem?.type === "text" && isEditingTextItem && (
+                <IonButton onClick={cancelEditingTextItem} color="light">
+                  Cancel
+                </IonButton>
+              )}
+              {viewingItem?.type === "text" && isEditingTextItem && (
+                <IonButton
+                  onClick={saveEditingTextItem}
+                  color="primary"
+                  disabled={!editingTextValue.trim() || isSavingTextItem}
+                >
+                  {isSavingTextItem ? "Saving..." : "Save"}
+                </IonButton>
+              )}
               <IonButton onClick={closeView} color="light">
                 Close
               </IonButton>
@@ -703,35 +809,31 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
             viewingItem.type === "file" &&
             viewingItem.contentUrl && (
               <div className="secure-chat-file-preview">
-                {viewingItem.mimeType?.startsWith("image/") ? (
-                  <img
-                    src={viewingItem.contentUrl}
-                    alt="preview"
-                    className="secure-chat-media-preview"
+                <div className="secure-chat-file-preview-pane">
+                  <FilePreviewPane
+                    fileUrl={viewingItem.contentUrl}
+                    fileName={viewingItem.metadata.filename}
+                    mimeType={viewingItem.mimeType}
+                    theme={{
+                      ...darkFilePreviewTheme,
+                      panelBackground: "rgba(255, 255, 255, 0.04)",
+                      toolbarBackground: "rgba(255, 255, 255, 0.08)",
+                      borderColor: "rgba(255, 255, 255, 0.1)",
+                      textColor: colors.text.primary,
+                      mutedTextColor: colors.text.secondary,
+                      errorColor: colors.status.error,
+                    }}
+                    loadingLabel="Loading file preview..."
+                    style={{ width: "100%", height: "100%" }}
+                    mediaStyle={{
+                      maxWidth: "100%",
+                      maxHeight: "100%",
+                      objectFit: "contain",
+                      borderRadius: "8px",
+                    }}
+                    audioStyle={{ width: "100%" }}
                   />
-                ) : viewingItem.mimeType?.startsWith("video/") ? (
-                  <video
-                    controls
-                    src={viewingItem.contentUrl}
-                    className="secure-chat-media-preview"
-                  />
-                ) : viewingItem.mimeType?.startsWith("audio/") ? (
-                  <audio
-                    controls
-                    src={viewingItem.contentUrl}
-                    className="secure-chat-audio-preview"
-                  />
-                ) : (
-                  <div className="secure-chat-file-fallback">
-                    <IonIcon
-                      icon={documentTextOutline}
-                      className="secure-chat-file-fallback-icon"
-                    />
-                    <p className="secure-chat-file-fallback-name">
-                      {viewingItem.metadata.filename}
-                    </p>
-                  </div>
-                )}
+                </div>
 
                 <IonButton
                   href={viewingItem.contentUrl}
@@ -747,9 +849,20 @@ export const SecureChatWindow: React.FC<SecureChatWindowProps> = ({
           {viewingItem &&
             viewingItem.type === "text" &&
             typeof viewingItem.content === "string" && (
-              <div className="secure-chat-text-preview">
-                {viewingItem.content}
-              </div>
+              isEditingTextItem ? (
+                <div className="secure-chat-text-edit-wrap">
+                  <textarea
+                    value={editingTextValue}
+                    onChange={(e) => setEditingTextValue(e.target.value)}
+                    className="secure-chat-text-editor"
+                    placeholder="Edit saved message..."
+                  />
+                </div>
+              ) : (
+                <div className="secure-chat-text-preview">
+                  {viewingItem.content}
+                </div>
+              )
             )}
         </IonContent>
       </IonModal>

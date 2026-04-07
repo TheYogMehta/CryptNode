@@ -3,8 +3,8 @@
 interface Window {
   React?: typeof import("react");
   electron?: {
-    getDesktopSources: () => Promise<any[]>;
     openExternal: (url: string) => Promise<boolean>;
+    saveToDownloads: (base64Data: string, originalName: string) => Promise<string>;
   };
 }
 

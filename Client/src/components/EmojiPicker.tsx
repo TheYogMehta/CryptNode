@@ -1,21 +1,33 @@
 import React from "react";
 import EmojiPickerReact, { EmojiClickData, Theme } from "emoji-picker-react";
 import styled from "styled-components";
+import { colors, radii, shadows } from "../theme/design-system";
+import { useTheme } from "../theme/ThemeContext";
 
 const PickerWrapper = styled.div`
   position: absolute;
   bottom: 60px;
   right: 20px;
   z-index: 1000;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-  border-radius: 12px;
+  box-shadow: ${shadows.xl};
+  border-radius: ${radii.lg};
+  overflow: hidden;
 
   .EmojiPickerReact {
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    background: #1a1a1a !important;
-    --epr-category-label-bg-color: #1a1a1a !important;
-    --epr-body-background-color: #1a1a1a !important;
-    --epr-picker-border-color: #333 !important;
+    border: 1px solid ${colors.border.subtle} !important;
+    background: ${colors.surface.primary} !important;
+    --epr-bg-color: ${colors.surface.primary} !important;
+    --epr-category-label-bg-color: ${colors.surface.primary} !important;
+    --epr-body-background-color: ${colors.surface.primary} !important;
+    --epr-picker-border-color: ${colors.border.subtle} !important;
+    --epr-hover-bg-color: ${colors.background.tertiary} !important;
+    --epr-focus-bg-color: ${colors.primary.subtle} !important;
+    --epr-search-input-bg-color: ${colors.background.tertiary} !important;
+    --epr-search-border-color: ${colors.border.subtle} !important;
+    --epr-text-color: ${colors.text.primary} !important;
+    --epr-search-input-text-color: ${colors.text.primary} !important;
+    --epr-category-icon-active-color: ${colors.primary.DEFAULT} !important;
+    --epr-highlight-color: ${colors.primary.DEFAULT} !important;
   }
 `;
 
@@ -28,6 +40,8 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
   onEmojiClick,
   onClose,
 }) => {
+  const { theme } = useTheme();
+
   return (
     <PickerWrapper>
       <div
@@ -35,7 +49,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
         onClick={onClose}
       />
       <EmojiPickerReact
-        theme={Theme.DARK}
+        theme={theme === "light" ? Theme.LIGHT : Theme.DARK}
         onEmojiClick={onEmojiClick}
         lazyLoadEmojis={true}
         autoFocusSearch={false}

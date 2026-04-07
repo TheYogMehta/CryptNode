@@ -109,6 +109,11 @@ export const Button = styled.button<ButtonProps>`
   ${(props) => getVariantStyles(props.variant)}
   ${(props) => getSizeStyles(props.size)}
 
+  &:focus-visible {
+    outline: 2px solid transparent;
+    box-shadow: 0 0 0 3px ${colors.primary.subtle};
+  }
+
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;

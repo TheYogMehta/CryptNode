@@ -10,10 +10,8 @@ export interface ElectronSafeStorage {
 
 declare global {
 interface ElectronBridge {
-  getDesktopSources: () => Promise<
-    Array<{ id: string; name: string; thumbnail: string }>
-  >;
   openExternal: (url: string) => Promise<boolean>;
+  saveToDownloads: (base64Data: string, originalName: string) => Promise<string>;
 }
 
   interface Window {

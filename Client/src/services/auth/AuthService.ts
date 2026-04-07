@@ -9,12 +9,18 @@ import { switchDatabase } from "../storage/sqliteService";
 import socket from "../core/SocketManager";
 import * as bip39 from "bip39";
 
+type AuthProfileClaims = {
+  name?: string;
+  picture?: string;
+};
+
 export class AuthService extends EventEmitter {
   public userEmail: string | null = null;
   private authToken: string | null = null;
   public identityKeyPair: CryptoKeyPair | null = null;
   private _loginInFlight: Promise<string> | null = null;
-  /** True once the local DB is unlocked for the current user (server may still be connecting). */
+  private pendingProfileClaims: AuthProfileClaims | null = null;
+
   public isLocallyReady: boolean = false;
 
   constructor() {
@@ -38,15 +44,18 @@ export class AuthService extends EventEmitter {
       throw new Error("Missing Google id token");
     }
 
-    // Deduplicate concurrent calls (e.g. React StrictMode double-invoke)
+
     if (this._loginInFlight) {
-      console.warn("[AuthService] login() called while already in flight, deduplicating");
+      console.warn(
+        "[AuthService] login() called while already in flight, deduplicating",
+      );
       return this._loginInFlight;
     }
 
     this._loginInFlight = (async () => {
       try {
         this.authToken = token;
+        this.pendingProfileClaims = this.parseGoogleIdTokenClaims(token);
         const email = this.extractEmailFromToken(token);
         if (!email) throw new Error("Could not extract email from token");
         this.userEmail = email.toLowerCase().trim();
@@ -55,10 +64,8 @@ export class AuthService extends EventEmitter {
 
         const pubKey = await this.setupDeviceKeys(this.userEmail);
 
-        if (socket.isConnected()) {
-          socket.disconnect();
-          await new Promise((res) => setTimeout(res, 100));
-        }
+        socket.disconnect();
+        await new Promise((res) => setTimeout(res, 150));
 
         const isDev =
           import.meta.env.VITE_DEV_SOCKET ||
@@ -67,8 +74,6 @@ export class AuthService extends EventEmitter {
           ? "ws://localhost:9000"
           : "wss://socket.cryptnode.theyogmehta.online";
 
-        // Connecting the socket will trigger the WS_CONNECTED listener in ChatClient,
-        // which will automatically send the AUTH packet with the latest token.
         await socket.connect(wsUrl);
 
         return pubKey;
@@ -86,7 +91,6 @@ export class AuthService extends EventEmitter {
       if (parts.length >= 3) return parts[2];
       return null;
     }
-    const claims = this.parseGoogleIdTokenClaims(token);
     try {
       const parts = token.split(".");
       if (parts.length < 2) return null;
@@ -104,15 +108,18 @@ export class AuthService extends EventEmitter {
   }
 
   private async setupDeviceKeys(email: string): Promise<string> {
-    let key = await getKeyFromSecureStorage(
-      await AccountService.getStorageKey(email, "MASTER_KEY"),
+    const masterKeyStorageKey = await AccountService.getStorageKey(
+      email,
+      "MASTER_KEY",
     );
+    let key = await getKeyFromSecureStorage(masterKeyStorageKey);
     if (!key) {
       console.log("[AuthService] Generating new MASTER_KEY for user");
       key = bip39.generateMnemonic(128);
+      await setKeyFromSecureStorage(masterKeyStorageKey, key);
       await setKeyFromSecureStorage(
-        await AccountService.getStorageKey(email, "MASTER_KEY"),
-        key,
+        await AccountService.getStorageKey(email, "MASTER_KEY_PENDING_REVEAL"),
+        "1",
       );
     }
     const dbName = await AccountService.getDbName(email);
@@ -134,6 +141,7 @@ export class AuthService extends EventEmitter {
     this.authToken = null;
     this.userEmail = null;
     this.identityKeyPair = null;
+    this.pendingProfileClaims = null;
     socket.disconnect();
     this.emit("auth_error", { isManualLogout });
   }
@@ -143,7 +151,9 @@ export class AuthService extends EventEmitter {
    * Resolves immediately without touching the network — call this to unblock the UI.
    * Follow up with switchAccountConnect() in the background.
    */
-  public async switchAccountLocal(email: string): Promise<{ pubKey: string; token: string }> {
+  public async switchAccountLocal(
+    email: string,
+  ): Promise<{ pubKey: string; token: string }> {
     const accounts = await AccountService.getAccounts();
     const account = accounts.find((a) => a.email === email);
     if (!account) throw new Error("Account not found");
@@ -168,9 +178,12 @@ export class AuthService extends EventEmitter {
   /**
    * Phase 2 (background): Connect the WebSocket and authenticate with the server.
    * Safe to call fire-and-forget — errors are caught and logged, not thrown.
-   * On success emits "auth_success"; on failure emits "auth_error".
    */
-  public async switchAccountConnect(email: string, pubKey?: string, token?: string): Promise<void> {
+  public async switchAccountConnect(
+    email: string,
+    pubKey?: string,
+    token?: string,
+  ): Promise<void> {
     try {
       // If phase 1 wasn't called separately (e.g. internal use), resolve credentials now.
       if (!pubKey || !token) {
@@ -179,10 +192,8 @@ export class AuthService extends EventEmitter {
         token = result.token;
       }
 
-      if (socket.isConnected()) {
-        socket.disconnect();
-        await new Promise((res) => setTimeout(res, 100));
-      }
+      socket.disconnect();
+      await new Promise((res) => setTimeout(res, 150));
 
       const isDev =
         import.meta.env.VITE_DEV_SOCKET ||
@@ -190,12 +201,7 @@ export class AuthService extends EventEmitter {
       const wsUrl = isDev
         ? "ws://localhost:9000"
         : "wss://socket.cryptnode.theyogmehta.online";
-
-      // Connecting the socket will trigger the WS_CONNECTED listener in ChatClient,
-      // which will automatically send the AUTH packet with the latest token.
       await socket.connect(wsUrl);
-
-      // Wait for server confirmation (best-effort, 15s timeout).
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           cleanup();
@@ -220,9 +226,10 @@ export class AuthService extends EventEmitter {
         this.on("auth_error", onError);
       });
     } catch (err) {
-      console.warn("[AuthService] Background server auth failed (will retry via WS reconnect):", err);
-      // Do not re-throw — this runs fire-and-forget from Home.tsx.
-      // SocketManager's reconnect loop will re-establish the connection.
+      console.warn(
+        "[AuthService] Background server auth failed (will retry via WS reconnect):",
+        err,
+      );
     }
   }
 
@@ -237,7 +244,7 @@ export class AuthService extends EventEmitter {
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error("Authentication timed out"));
-      }, 10000);
+      }, 20000);
 
       const onSuccess = (authedEmail: string) => {
         if (authedEmail !== email) return;
@@ -257,7 +264,7 @@ export class AuthService extends EventEmitter {
       this.on("auth_error", onError);
 
       // Kick off connection after listeners are registered.
-      this.switchAccountConnect(email, pubKey, token).catch(() => { });
+      this.switchAccountConnect(email, pubKey, token).catch(() => {});
     });
   }
 
@@ -356,13 +363,18 @@ export class AuthService extends EventEmitter {
       await setKeyFromSecureStorage(tokenKey, data.token);
       console.log("[AuthService] Session token saved/refreshed");
 
-      const claims = this.parseGoogleIdTokenClaims(data.token);
+      const tokenClaims = this.parseGoogleIdTokenClaims(data.token);
+      const claims: AuthProfileClaims = {
+        name: tokenClaims.name || this.pendingProfileClaims?.name,
+        picture: tokenClaims.picture || this.pendingProfileClaims?.picture,
+      };
       await AccountService.addAccount(
         data.email,
         data.token,
         claims.name,
         claims.picture,
       );
+      this.pendingProfileClaims = null;
       await setActiveUser(data.email);
 
       this.emit("auth_success", data.email);

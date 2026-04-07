@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import styled from "styled-components";
 import { Search, ArrowLeft, Loader2 } from "lucide-react";
+import { colors, radii, shadows } from "../theme/design-system";
 
 const PickerContainer = styled.div`
   width: 320px;
   height: 400px;
-  background: #1a1a1a;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: ${colors.surface.primary};
+  border-radius: ${radii.lg};
+  border: 1px solid ${colors.border.subtle};
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -15,28 +16,33 @@ const PickerContainer = styled.div`
   bottom: 60px;
   right: 20px;
   z-index: 1000;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: ${shadows.xl};
 `;
 
 const SearchBar = styled.div`
   padding: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid ${colors.border.subtle};
   display: flex;
   align-items: center;
   gap: 8px;
 `;
 
 const Input = styled.input`
-  background: rgba(255, 255, 255, 0.05);
-  border: none;
+  background: ${colors.background.tertiary};
+  border: 1px solid transparent;
   border-radius: 6px;
   padding: 8px 12px;
-  color: white;
+  color: ${colors.text.primary};
   flex: 1;
   outline: none;
 
+  &::placeholder {
+    color: ${colors.text.tertiary};
+  }
+
   &:focus {
-    background: rgba(255, 255, 255, 0.1);
+    background: ${colors.background.secondary};
+    border-color: ${colors.primary.DEFAULT};
   }
 `;
 
@@ -56,7 +62,7 @@ const GifImage = styled.img`
   border-radius: 6px;
   cursor: pointer;
   transition: transform 0.2s;
-  background: #2a2a2a;
+  background: ${colors.background.tertiary};
 
   &:hover {
     transform: scale(1.05);
@@ -70,7 +76,7 @@ const CategoryItem = styled.div`
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.2s;
-  background: #2a2a2a;
+  background: ${colors.background.tertiary};
 
   &:hover {
     transform: scale(1.05);
@@ -88,7 +94,7 @@ const CategoryName = styled.div`
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: white;
+  color: ${colors.text.inverse};
   font-weight: bold;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
   font-size: 1.1rem;
@@ -100,14 +106,14 @@ const CategoryName = styled.div`
 const BackBtn = styled.button`
   background: none;
   border: none;
-  color: #aaa;
+  color: ${colors.text.secondary};
   cursor: pointer;
   padding: 4px;
   display: flex;
   align-items: center;
 
   &:hover {
-    color: white;
+    color: ${colors.text.primary};
   }
 `;
 
@@ -402,7 +408,7 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
             <ArrowLeft size={16} />
           </BackBtn>
         )}
-        <Search size={16} color="#aaa" />
+        <Search size={16} color={colors.text.secondary} />
         <Input
           placeholder="Search GIFs..."
           value={search}
@@ -419,7 +425,7 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
               padding: "20px",
             }}
           >
-            <Loader2 className="animate-spin" color="#aaa" />
+            <Loader2 className="animate-spin" color={colors.text.secondary} />
           </div>
         )}
 
@@ -436,7 +442,7 @@ export const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose }) => {
         {!loading && view === "gifs" && displayedGifs.length === 0 && (
           <div
             style={{
-              color: "#aaa",
+              color: colors.text.secondary,
               gridColumn: "span 2",
               textAlign: "center",
               padding: "20px",
