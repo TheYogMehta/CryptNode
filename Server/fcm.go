@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -73,7 +72,7 @@ func allowPush(emailHash string) bool {
 	return true
 }
 
-func sendPushNotification(fcmTokens []string, emailHash string, unreadCount int) {
+func sendPushNotification(fcmTokens []string, emailHash string, title string, body string) {
 	if fcmClient == nil || len(fcmTokens) == 0 {
 		return
 	}
@@ -83,17 +82,10 @@ func sendPushNotification(fcmTokens []string, emailHash string, unreadCount int)
 		return
 	}
 
-	var messageText string
-	if unreadCount > 1 {
-		messageText = fmt.Sprintf("You have %d new messages", unreadCount)
-	} else {
-		messageText = "You have a new message"
-	}
-
 	message := &messaging.MulticastMessage{
 		Notification: &messaging.Notification{
-			Title: "CryptNode",
-			Body:  messageText,
+			Title: title,
+			Body:  body,
 		},
 		Tokens: fcmTokens,
 	}

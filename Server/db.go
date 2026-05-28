@@ -96,6 +96,7 @@ func (s *Server) startMonthlyCleanupWorker() {
 		s.db.Exec("DELETE FROM devices WHERE last_active < ?", thirtyDaysAgo)
 		s.db.Exec("DELETE FROM requests WHERE timestamp < ?", thirtyDaysAgo)
 		s.db.Exec("DELETE FROM offline_notifications WHERE timestamp < ?", thirtyDaysAgo)
+		s.db.Exec("DELETE FROM fcm_tokens WHERE last_updated < ?", thirtyDaysAgo)
 		s.logger.Println("Monthly database cleanup finished.")
 	}
 }

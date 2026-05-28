@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -498,6 +499,23 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		case "UNREGISTER_FCM_TOKEN":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				Token string `json:"token"`
+			}
+			json.Unmarshal(frame.Data, &d)
+			if d.Token != "" {
+				eh := emailHash(client.email)
+				_, err := s.db.Exec("DELETE FROM fcm_tokens WHERE email_hash = ? AND token = ?", eh, d.Token)
+				if err != nil {
+					log.Printf("[FCM] Error deleting token for %s: %v", eh, err)
+				}
+			}
+
 		case "GET_DEVICES":
 			eh := emailHash(client.email)
 			rows, err := s.db.Query(`
@@ -702,7 +720,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if !hasSockets {
 				// Send Push Notification since target is completely offline
 				tokens := fetchFCMTokens(s.db, targetHash)
-				go sendPushNotification(tokens, targetHash, 1)
+				go sendPushNotification(tokens, targetHash, "CryptNode", "New connection request")
 			}
 
 			respData, _ := json.Marshal(map[string]any{
@@ -1282,11 +1300,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				SH:   emailHash(client.email),
 				Data: json.RawMessage(relayData),
 			}
+			deliveredToRecipient := false
 			for _, c := range sess.clients {
 				if c.id != client.id {
 					recipientCount++
 					if err := s.send(c, relayFrame); err == nil {
 						delivered = true
+						if emailHash(c.email) != senderHash {
+							deliveredToRecipient = true
+						}
 					} else {
 						log.Printf("[Error] Failed to send to %s: %v", c.id, err)
 					}
@@ -1296,7 +1318,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[Server] Relayed MSG in %s to %d recipients (Delivered: %v) | Latency: %v", frame.SID, recipientCount, delivered, time.Since(start))
 			sess.mu.Unlock()
 
-			if !delivered {
+			if !deliveredToRecipient {
 				// Fetch target hashes associated with this session (excluding sender)
 				rows, err := s.db.Query("SELECT user1_hash, user2_hash FROM friends WHERE sid = ?", frame.SID)
 				if err == nil {
@@ -1308,13 +1330,22 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 							targetHash = u2
 						}
 
-						// Get unread messages count approx (including this one which isn't saved as offline_notifications anymore usually, but they get the MSG frame)
-						var unreadCount int
-						s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
+						if targetHash != senderHash {
+							// Get unread messages count approx (including this one which isn't saved as offline_notifications anymore usually, but they get the MSG frame)
+							var unreadCount int
+							s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
 
-						// Fetch tokens & push
-						tokens := fetchFCMTokens(s.db, targetHash)
-						go sendPushNotification(tokens, targetHash, unreadCount+1)
+							var messageText string
+							if unreadCount > 0 {
+								messageText = fmt.Sprintf("You have %d new messages", unreadCount+1)
+							} else {
+								messageText = "You have a new message"
+							}
+
+							// Fetch tokens & push
+							tokens := fetchFCMTokens(s.db, targetHash)
+							go sendPushNotification(tokens, targetHash, "CryptNode", messageText)
+						}
 					}
 					rows.Close()
 				}
@@ -1359,6 +1390,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			}
 
 			sess.mu.Lock()
+			relayed := false
 			for _, c := range sess.clients {
 				if c.id != client.id {
 					isTarget := false
@@ -1369,11 +1401,23 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 					if isTarget {
-						s.send(c, frame)
+						if err := s.send(c, frame); err == nil {
+							relayed = true
+						}
 					}
 				}
 			}
 			sess.mu.Unlock()
+
+			if !relayed {
+				// The targeted device is offline. Send a push notification.
+				var targetHash string
+				err := s.db.QueryRow("SELECT email_hash FROM devices WHERE public_key = ?", frame.TargetPubKey).Scan(&targetHash)
+				if err == nil && targetHash != "" && targetHash != emailHash(client.email) {
+					tokens := fetchFCMTokens(s.db, targetHash)
+					go sendPushNotification(tokens, targetHash, "CryptNode", "Incoming call")
+				}
+			}
 
 		case "RTC_ANSWER":
 			if client.email == "" {

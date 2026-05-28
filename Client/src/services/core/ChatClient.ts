@@ -30,6 +30,7 @@ import { FileTransferService } from "../media/FileTransferService";
 import { CallService } from "../media/CallService";
 import { MessageService } from "../messaging/MessageService";
 import { IChatClient } from "./interfaces";
+import { PushNotificationService } from "./PushNotificationService";
 
 export class ChatClient extends EventEmitter implements IChatClient {
   private static instance: ChatClient;
@@ -135,6 +136,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
       console.error("[ChatClient] Socket Error:", err);
       // No toast — SocketManager auto-reconnects silently.
     });
+
+    PushNotificationService.getInstance().init(this);
   }
 
   static getInstance() {
@@ -716,6 +719,11 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async logout(isManualLogout = false) {
+    try {
+      await PushNotificationService.getInstance().unregisterTokenFromServer();
+    } catch (e) {
+      console.warn("[ChatClient] Failed to unregister push token during logout:", e);
+    }
     return this.authService.logout(isManualLogout);
   }
 
@@ -743,6 +751,11 @@ export class ChatClient extends EventEmitter implements IChatClient {
   }
 
   public async switchAccount(email: string) {
+    try {
+      await PushNotificationService.getInstance().unregisterTokenFromServer();
+    } catch (e) {
+      console.warn("[ChatClient] Failed to unregister push token during switchAccount:", e);
+    }
     return this.authService.switchAccount(email);
   }
 

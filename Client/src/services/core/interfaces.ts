@@ -22,4 +22,7 @@ export interface IChatClient {
   getPublicKeyString(): Promise<string>;
   broadcastSyncCallAccept?(callSid: string): Promise<void>;
   broadcastSyncCallEnd?(callSid: string): Promise<void>;
+  isConnected: boolean;
+  hasToken(): boolean;
+  on(event: string, listener: (...args: any[]) => void): this;
 }
