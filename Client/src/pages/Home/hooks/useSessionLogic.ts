@@ -41,7 +41,7 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
       if (!ChatClient.userEmail) return;
 
       const rows = await queryDB(`
-      SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email, s.notes, s.deleted_at,
+      SELECT s.sid, s.alias_name, s.alias_avatar, s.peer_name, s.peer_avatar, s.peer_email, s.notes, s.deleted_at, s.is_group, s.group_members,
              (SELECT text FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsg,
              (SELECT type FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastMsgType,
              (SELECT timestamp FROM messages WHERE sid = s.sid ORDER BY timestamp DESC LIMIT 1) as lastTs,
@@ -91,6 +91,8 @@ export const useSessionLogic = (shouldInit: boolean = true) => {
             online: ChatClient.sessions[r.sid]?.online || false,
             isConnected,
             deletedAt: isDeleted ? Number(r.deleted_at) : 0,
+            isGroup: Boolean(r.is_group),
+            groupMembers: r.group_members ? JSON.parse(r.group_members) : [],
           };
         })
         .filter(

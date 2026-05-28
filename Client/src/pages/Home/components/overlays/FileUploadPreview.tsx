@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import DOMPurify from "dompurify";
 import styled from "@emotion/styled";
 import {
   X,
@@ -316,6 +317,22 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
       caption: "",
     })),
   );
+
+  const sanitizeUrl = useCallback((url: string): string => {
+    if (!url) return "";
+    const lower = url.trim().toLowerCase();
+    if (
+      lower.startsWith("blob:") ||
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("data:")
+    ) {
+      return DOMPurify.sanitize(url, {
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|data|blob):|[^&:\/?#]*(?:[\/?#]|$))/i,
+      });
+    }
+    return "";
+  }, []);
 
   // Sync files when new ones are added
   React.useEffect(() => {
@@ -682,9 +699,9 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                   onClick={() => setCurrentIndex(i)}
                 >
                   {f.type === "image" ? (
-                    <img src={f.previewUrl.startsWith("blob:") ? f.previewUrl : ""} alt="" />
+                    <img src={sanitizeUrl(f.previewUrl)} alt="" />
                   ) : f.type === "video" ? (
-                    <video src={f.previewUrl.startsWith("blob:") ? f.previewUrl : ""} />
+                    <video src={sanitizeUrl(f.previewUrl)} />
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' }}>
                       <FileText size={24} color="white" />
