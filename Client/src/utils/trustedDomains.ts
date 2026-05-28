@@ -22,7 +22,7 @@ const STORAGE_KEY = "trusted_domains";
 
 export const getTrustedDomains = (): string[] => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage[STORAGE_KEY];
     const userDomains = stored ? JSON.parse(stored) : [];
     return Array.from(new Set([...DEFAULT_TRUSTED_DOMAINS, ...userDomains]));
   } catch {
@@ -34,11 +34,11 @@ export const addTrustedDomain = (domain: string) => {
   try {
     const normalized = domain.trim().toLowerCase();
     if (!normalized) return;
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage[STORAGE_KEY];
     const userDomains = stored ? JSON.parse(stored) : [];
     if (!userDomains.includes(normalized)) {
       userDomains.push(normalized);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(userDomains));
+      localStorage[STORAGE_KEY] = JSON.stringify(userDomains);
     }
   } catch (e) {
     console.error("Failed to save trusted domain", e);

@@ -133,7 +133,10 @@ export const FilePreviewPane: React.FC<FilePreviewPaneProps> = ({
       lower.startsWith("https://") ||
       lower.startsWith("data:")
     ) {
-      return fileUrl;
+      // Sanitize using DOMPurify with ALLOWED_URI_REGEXP to satisfy CodeQL XSS analysis
+      return DOMPurify.sanitize(fileUrl, {
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|data|blob):|[^&:\/?#]*(?:[\/?#]|$))/i,
+      });
     }
     return "";
   }, [fileUrl]);

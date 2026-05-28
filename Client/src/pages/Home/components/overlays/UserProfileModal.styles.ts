@@ -458,3 +458,129 @@ export const SendRequestButton = styled.button`
     border-color: ${colors.border.subtle};
   }
 `;
+
+export const MembersSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: ${colors.background.secondary};
+  border: 1px solid ${colors.border.subtle};
+  border-radius: 14px;
+  padding: 14px;
+`;
+
+export const MemberRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+
+  &:hover {
+    background: ${colors.surface.highlight};
+  }
+`;
+
+export const MemberAvatar = styled.div`
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, ${colors.primary.main}, ${colors.primary.hover});
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+`;
+
+export const MemberInfo = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+`;
+
+export const MemberName = styled.span`
+  color: ${colors.text.primary};
+  font-weight: 500;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+export const MemberEmail = styled.span`
+  color: ${colors.text.tertiary};
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+export const RemoveMemberButton = styled.button`
+  background: transparent;
+  border: none;
+  color: ${colors.text.tertiary};
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+
+  &:hover {
+    color: ${colors.status.error};
+    background: rgba(239, 68, 68, 0.08);
+  }
+`;
+
+export const AddMemberSection = styled.div`
+  position: relative;
+  margin-top: 4px;
+`;
+
+export const AddMemberDropdown = styled.div`
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  background: ${colors.surface.primary};
+  border: 1px solid ${colors.border.subtle};
+  border-radius: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: ${colors.border.subtle};
+    border-radius: 2px;
+  }
+`;
+
+export const AddMemberRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: ${colors.surface.highlight};
+  }
+`;
+

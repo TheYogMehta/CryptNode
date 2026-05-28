@@ -89,6 +89,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         console.warn("[ChatClient] Failed to sync manifest to own devices", e),
       );
     });
+    this.sessionService.on("session_metadata_changed", (sid) => {
+      console.log("[ChatClient] session_metadata_changed event received from Service:", sid);
+      this.messageService.broadcastManifestToOwnDevices().catch((e) =>
+        console.warn("[ChatClient] Failed to sync manifest on session metadata change", e),
+      );
+    });
     this.sessionService.on("request_history_changed", () => {
       this.emit("request_history_changed");
     });
@@ -189,6 +195,9 @@ export class ChatClient extends EventEmitter implements IChatClient {
     senderHash?: string,
   ): Promise<boolean> {
     if (!senderHash) return false;
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return false;
+    }
     const myEmail = this.normalizeEmail(this.authService.userEmail);
     if (myEmail) {
       const myEmailHash = await sha256(myEmail);
@@ -205,6 +214,15 @@ export class ChatClient extends EventEmitter implements IChatClient {
     }
 
     if (!session) return false;
+
+    if (session.isGroup) {
+      if (!session.groupMembers) return false;
+      for (const m of session.groupMembers) {
+        const h = await sha256(this.normalizeEmail(m));
+        if (h.toLowerCase() === senderHash.toLowerCase()) return true;
+      }
+      return false;
+    }
 
     if (session.peerEmailHash) {
       return session.peerEmailHash.toLowerCase() === senderHash.toLowerCase();
@@ -398,6 +416,12 @@ export class ChatClient extends EventEmitter implements IChatClient {
         }
         break;
       }
+      case "GROUP_KEY":
+        await this.sessionService.handleGroupKey(sid, data);
+        break;
+      case "REMOVED_FROM_GROUP":
+        await this.sessionService.handleRemovedFromGroup(sid);
+        break;
       case "FRIEND_DENIED":
       case "FRIEND_DENY":
         await this.sessionService.handleFriendDeny(data);
@@ -528,11 +552,15 @@ export class ChatClient extends EventEmitter implements IChatClient {
 
         let myPayload: string | undefined;
         if (data.payloads) {
-          const myPubKey = await this.getPublicKeyString();
-          myPayload = data.payloads[myPubKey];
+          if (data.payloads["group"]) {
+            myPayload = data.payloads["group"];
+          } else {
+            const myPubKey = await this.getPublicKeyString();
+            myPayload = data.payloads[myPubKey];
+          }
           if (!myPayload) {
             console.warn(
-              `[ChatClient] Dropped MSG for ${sid}: missing payload for our pubkey.`,
+              `[ChatClient] Dropped MSG for ${sid}: missing payload for our pubkey/group.`,
             );
             return;
           }
