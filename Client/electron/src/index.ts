@@ -108,7 +108,13 @@ app.on("activate", async function () {
 // Google Login
 // ============================================================================
 ipcMain.handle("GoogleLogin", async () => {
-  return new Promise((resolve, reject) => {
+  if (myCapacitorApp.pendingGoogleLoginResolve) {
+    myCapacitorApp.pendingGoogleLoginResolve(null);
+    myCapacitorApp.pendingGoogleLoginResolve = null;
+  }
+  myCapacitorApp.isGoogleLoginPending = true;
+
+  return new Promise((resolve) => {
     const googleLoginUrl =
       "https://accounts.google.com/o/oauth2/v2/auth?" +
       "scope=openid%20email%20profile&" +
@@ -119,50 +125,15 @@ ipcMain.handle("GoogleLogin", async () => {
       "redirect_uri=http://localhost:5173&" +
       "client_id=588653192623-aqs0s01hv62pbp5p7pe3r0h7mce8m10l.apps.googleusercontent.com";
 
-    const authWindow = new BrowserWindow({
-      width: 500,
-      height: 600,
-      show: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        devTools: false,
-      },
-    });
+    myCapacitorApp.pendingGoogleLoginResolve = (result) => {
+      myCapacitorApp.isGoogleLoginPending = false;
+      resolve(result);
+    };
 
-    authWindow.loadURL(googleLoginUrl);
-
-    authWindow.webContents.on("before-input-event", (event, input) => {
-      if ((input.control && input.shift && input.key.toLowerCase() === "i") || input.key === "F12") {
-        event.preventDefault();
-      }
-    });
-
-    authWindow.webContents.on("will-redirect", (event, url) => {
-      handleNavigation(url);
-    });
-
-    authWindow.webContents.on("will-navigate", (event, url) => {
-      handleNavigation(url);
-    });
-
-    function handleNavigation(url: string) {
-      if (url.includes("access_token=") || url.includes("id_token=")) {
-        const rawCode = /access_token=([^&]*)/.exec(url) || null;
-        const accessToken = rawCode && rawCode.length > 1 ? rawCode[1] : null;
-
-        const rawIdToken = /id_token=([^&]*)/.exec(url) || null;
-        const idToken =
-          rawIdToken && rawIdToken.length > 1 ? rawIdToken[1] : null;
-
-        if (accessToken || idToken) {
-          resolve({ accessToken, idToken });
-          authWindow.close();
-        }
-      }
-    }
-
-    authWindow.on("closed", () => {
+    shell.openExternal(googleLoginUrl).catch((err) => {
+      console.error("Failed to open external browser:", err);
+      myCapacitorApp.isGoogleLoginPending = false;
+      myCapacitorApp.pendingGoogleLoginResolve = null;
       resolve(null);
     });
   });

@@ -21,7 +21,7 @@
   "dependencies": {
     "@cantoo/capacitor-llama": "^0.1.2",
     "@capacitor-community/electron": "^5.0.1",
-    "@capacitor-community/sqlite": "^7.0.2",
+    "@capacitor-community/sqlite": "^7.0.3",
     "better-sqlite3-multiple-ciphers": "^12.5.0",
     "crypto": "^1.0.1",
     "crypto-js": "^4.2.0",

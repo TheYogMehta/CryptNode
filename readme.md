@@ -69,7 +69,7 @@ npm run electron:start
 
 ```bash
 cd Server
-go run socket.go
+go run .
 ```
 
 Server runs on port 9000

@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 try {
-  execSync("tsc && vite build", { stdio: "inherit", cwd: process.cwd() });
+  execSync("npx tsc && npx vite build", { stdio: "inherit", cwd: process.cwd() });
   execSync("npx cap sync", { stdio: "inherit", cwd: process.cwd() });
   execSync("npx cap sync electron", { stdio: "inherit", cwd: process.cwd() });
 

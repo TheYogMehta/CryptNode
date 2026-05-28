@@ -36,6 +36,8 @@ export class ElectronCapacitorApp {
   private mainWindowState;
   private loadWebApp;
   private customScheme: string;
+  public isGoogleLoginPending = false;
+  public pendingGoogleLoginResolve: ((value: any) => void) | null = null;
 
   constructor(
     capacitorFileConfig: CapacitorElectronConfig,
@@ -67,6 +69,99 @@ export class ElectronCapacitorApp {
   private async loadMainWindow(thisRef: any) {
     // await thisRef.loadWebApp(thisRef.MainWindow);
     const server = createServer((request, response) => {
+      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+
+      if (request.method === "POST" && url.pathname === "/api/oauth-callback") {
+        let body = "";
+        request.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+        request.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            if (thisRef.pendingGoogleLoginResolve) {
+              thisRef.pendingGoogleLoginResolve(data);
+              thisRef.pendingGoogleLoginResolve = null;
+            }
+            response.writeHead(200, { "Content-Type": "application/json" });
+            response.end(JSON.stringify({ success: true }));
+          } catch (e) {
+            response.writeHead(400, { "Content-Type": "text/plain" });
+            response.end("Invalid JSON");
+          }
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/" && thisRef.isGoogleLoginPending) {
+        response.writeHead(200, { "Content-Type": "text/html" });
+        response.end(`
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Authentication Complete</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #121214;
+      color: #e1e1e6;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background-color: #202024;
+      padding: 32px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 400px;
+    }
+    h1 { color: #00b0ff; margin-top: 0; }
+    p { line-height: 1.5; color: #a8a8b2; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>CryptNode</h1>
+    <p id="msg">Completing sign-in, please wait...</p>
+  </div>
+  <script>
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const idToken = params.get('id_token');
+    const accessToken = params.get('access_token');
+    
+    if (idToken || accessToken) {
+      fetch('/api/oauth-callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, accessToken })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          document.getElementById('msg').innerHTML = 'Authentication successful!<br/><br/>You can now safely close this tab and return to the CryptNode app.';
+        } else {
+          document.getElementById('msg').innerText = 'Failed to complete sign-in. Please try again.';
+        }
+      })
+      .catch(err => {
+        document.getElementById('msg').innerText = 'Connection error. Please try again.';
+      });
+    } else {
+      document.getElementById('msg').innerText = 'No credentials found in the URL.';
+    }
+  </script>
+</body>
+</html>
+        `);
+        return;
+      }
+
       return handler(request, response, {
         public: join(app.getAppPath(), "app"),
         rewrites: [{ source: "**", destination: "/index.html" }],

@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node sync.cjs",
     "preview": "vite preview",
     "test.e2e": "cypress run",
     "test.unit": "vitest",
     "lint": "eslint",
     "sync": "node sync.cjs",
-    "electron:start": "cd electron && npm run electron:start",
+    "electron:start": "node sync.cjs && cd electron && npm run electron:start",
     "electron:pack": "cd electron && npm run electron:pack",
     "android:start": "npx cap open android",
     "android:pack": "cd android && ./gradlew clean assembleRelease -x lint --parallel && ./gradlew --stop"
