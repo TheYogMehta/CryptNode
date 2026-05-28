@@ -30,6 +30,8 @@ export interface ChatSession {
   peerPubKeys?: string[];
   ownPubKeys?: string[];
   notes?: string;
+  isGroup?: boolean;
+  groupMembers?: string[];
 }
 
 export class SessionService extends EventEmitter {
@@ -143,6 +145,8 @@ export class SessionService extends EventEmitter {
           peerPubKeys: peerPubKeysList,
           ownPubKeys: ownPubKeysList,
           notes: row.notes || undefined,
+          isGroup: Boolean(row.is_group),
+          groupMembers: row.group_members ? JSON.parse(row.group_members) : [],
         };
 
         // Don't await worker init blindly, do it synchronously or let it buffer?
@@ -938,6 +942,9 @@ export class SessionService extends EventEmitter {
               this.sessions[sid].peer_avatar_ver,
               this.sessions[sid].ownPubKeys,
             );
+            if (this.sessions[sid].peerEmail) {
+              await this.handlePeerDeviceKeysChanged(this.sessions[sid].peerEmail!);
+            }
           } catch (e) {
             console.error(
               "Failed to re-derive session key on PEER_ONLINE pubKey rotation:",
@@ -985,6 +992,7 @@ export class SessionService extends EventEmitter {
             undefined, // ownPubKeys will be picked up properly
             true,
           );
+          await this.handleOwnDeviceKeysChanged();
         } catch (e) {
           console.error(
             "Failed to derive session for newly online own device",
@@ -1002,6 +1010,7 @@ export class SessionService extends EventEmitter {
       peerHash: string;
       peerPubKeys?: string[];
       ownPubKeys?: string[];
+      isGroup?: boolean;
     }[],
   ) {
     let changed = false;
@@ -1017,6 +1026,13 @@ export class SessionService extends EventEmitter {
     const promises: Promise<any>[] = [];
 
     for (const item of list) {
+      if (this.sessions[item.sid]?.isGroup || item.isGroup) {
+        if (this.sessions[item.sid]) {
+          this.sessions[item.sid].online = item.online;
+          this.sessions[item.sid].isConnected = this.connectedSids.has(item.sid);
+        }
+        continue;
+      }
       if (this.sessions[item.sid]) {
         if (this.sessions[item.sid].online !== item.online) {
           this.sessions[item.sid].online = item.online;
@@ -1051,7 +1067,18 @@ export class SessionService extends EventEmitter {
               this.sessions[item.sid].peer_avatar_ver,
               item.ownPubKeys || this.sessions[item.sid].ownPubKeys,
               item.online,
-            ).catch((e) =>
+            ).then(async () => {
+              const session = this.sessions[item.sid];
+              if (session) {
+                const myEmail = this.normalizeEmail(this.authService.userEmail);
+                const ownSid = await sha256(myEmail + ":" + myEmail);
+                if (item.sid === ownSid) {
+                  await this.handleOwnDeviceKeysChanged();
+                } else if (session.peerEmail) {
+                  await this.handlePeerDeviceKeysChanged(session.peerEmail);
+                }
+              }
+            }).catch((e) =>
               console.error(
                 "Failed to re-derive session key on pubKey rotation:",
                 e,
@@ -1118,5 +1145,348 @@ export class SessionService extends EventEmitter {
       this.sessions[sid].notes = notes;
       this.emit("session_updated");
     }
+  }
+
+  public async createGroup(groupName: string, memberEmails: string[]) {
+    const myEmail = this.normalizeEmail(this.authService.userEmail || "");
+    const allMembers = Array.from(new Set([myEmail, ...memberEmails.map(m => this.normalizeEmail(m))]));
+
+    const groupSid = crypto.randomUUID();
+    const groupKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    const jwk = await crypto.subtle.exportKey("jwk", groupKey);
+    const jwksMap = { group: jwk };
+
+    await executeDB(
+      "INSERT OR REPLACE INTO sessions (sid, keyJWK, alias_name, alias_timestamp, is_group, group_members) VALUES (?, ?, ?, ?, ?, ?)",
+      [groupSid, JSON.stringify(jwksMap), groupName, Date.now(), 1, JSON.stringify(allMembers)]
+    );
+
+    this.sessions[groupSid] = {
+      cryptoKeys: { group: groupKey },
+      online: true,
+      isConnected: true,
+      isGroup: true,
+      groupMembers: allMembers,
+      peerName: groupName,
+    };
+
+    await WorkerManager.getInstance().initSession(groupSid, jwksMap);
+
+    this.emit("session_created", groupSid);
+    this.emit("session_updated");
+
+    socket.send({
+      t: "CREATE_GROUP",
+      data: {
+        groupSid,
+        name: groupName,
+        members: memberEmails,
+      },
+      c: true,
+      p: 0,
+    });
+
+    await this.distributeGroupKey(groupSid, groupName, jwk, memberEmails);
+    return groupSid;
+  }
+
+  private async getPubKeysForEmail(email: string): Promise<string[]> {
+    const norm = this.normalizeEmail(email);
+    const myEmail = this.normalizeEmail(this.authService.userEmail);
+    if (norm === myEmail) {
+      const ownSid = await sha256(norm + ":" + norm);
+      const session = this.sessions[ownSid];
+      return session?.peerPubKeys || [];
+    } else {
+      const session = Object.values(this.sessions).find(
+        s => s.peerEmail && this.normalizeEmail(s.peerEmail) === norm
+      );
+      return session?.peerPubKeys || [];
+    }
+  }
+
+  public async distributeGroupKey(
+    groupSid: string,
+    groupName: string,
+    groupKeyJwk: JsonWebKey,
+    members: string[]
+  ) {
+    const myEmail = this.normalizeEmail(this.authService.userEmail || "");
+    const targets = new Set(members.map(m => this.normalizeEmail(m)));
+    targets.add(myEmail);
+
+    for (const targetEmail of targets) {
+      const pubKeys = await this.getPubKeysForEmail(targetEmail);
+      if (pubKeys.length === 0) {
+        console.warn(`[SessionService] No public keys found for key distribution target: ${targetEmail}`);
+        continue;
+      }
+
+      const payloads: { publicKey: string; encryptedPacket: string }[] = [];
+      const packetData = JSON.stringify({
+        groupSid,
+        groupName,
+        groupKey: groupKeyJwk,
+        members,
+        timestamp: Date.now(),
+      });
+
+      for (const pubKey of pubKeys) {
+        if (!pubKey) continue;
+        try {
+          const sharedKey = await this.deriveSharedKey(pubKey);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const encrypted = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            sharedKey,
+            new TextEncoder().encode(packetData)
+          );
+
+          const ivB64 = bufferToBase64(new Uint8Array(iv));
+          const cipherB64 = bufferToBase64(new Uint8Array(encrypted));
+          payloads.push({
+            publicKey: pubKey,
+            encryptedPacket: `${ivB64}.${cipherB64}`,
+          });
+        } catch (err) {
+          console.warn(`[SessionService] Failed to encrypt group key for target ${targetEmail} key ${pubKey}:`, err);
+        }
+      }
+
+      if (payloads.length > 0) {
+        socket.send({
+          t: "GROUP_KEY",
+          sid: groupSid,
+          data: {
+            targetEmail,
+            payloads,
+          },
+          c: true,
+          p: 0,
+        });
+      }
+    }
+  }
+
+  public async decryptGroupKeyPacket(
+    encryptedPacket: string,
+    senderHash: string
+  ): Promise<any | null> {
+    const senderSession = Object.values(this.sessions).find(
+      s => s.peerEmailHash && senderHash && s.peerEmailHash.toLowerCase() === senderHash.toLowerCase()
+    );
+    
+    let keysToTry: string[] = [];
+    if (senderSession) {
+      keysToTry = senderSession.peerPubKeys || [];
+    }
+    
+    const myEmail = this.normalizeEmail(this.authService.userEmail);
+    const myHash = await sha256(myEmail);
+    if (senderHash.toLowerCase() === myHash.toLowerCase()) {
+      const ownSid = await sha256(myEmail + ":" + myEmail);
+      const ownSession = this.sessions[ownSid];
+      if (ownSession) {
+        keysToTry = Array.from(new Set([...keysToTry, ...(ownSession.peerPubKeys || [])]));
+      }
+    }
+
+    for (const pubKey of keysToTry) {
+      if (!pubKey) continue;
+      try {
+        const sharedKey = await this.deriveSharedKey(pubKey);
+        const [ivB64, cipherB64] = encryptedPacket.split(".");
+        if (!ivB64 || !cipherB64) continue;
+
+        const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+        const cipher = Uint8Array.from(atob(cipherB64), (c) => c.charCodeAt(0));
+
+        const decrypted = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv },
+          sharedKey,
+          cipher
+        );
+
+        const jsonStr = new TextDecoder().decode(decrypted);
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  public async handleGroupKey(sid: string, data: any) {
+    const packet = await this.decryptGroupKeyPacket(data.encryptedPacket, data.senderHash);
+    if (!packet) {
+      console.warn("[SessionService] Failed to decrypt group key packet.");
+      return;
+    }
+
+    const { groupSid, groupName, groupKey, members } = packet;
+    const importedKey = await crypto.subtle.importKey(
+      "jwk",
+      groupKey,
+      { name: "AES-GCM" },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    const jwksMap = { group: groupKey };
+    await executeDB(
+      "INSERT OR REPLACE INTO sessions (sid, keyJWK, alias_name, alias_timestamp, is_group, group_members) VALUES (?, ?, ?, ?, ?, ?)",
+      [groupSid, JSON.stringify(jwksMap), groupName, Date.now(), 1, JSON.stringify(members)]
+    );
+
+    this.sessions[groupSid] = {
+      cryptoKeys: { group: importedKey },
+      online: true,
+      isConnected: true,
+      isGroup: true,
+      groupMembers: members,
+      peerName: groupName,
+    };
+
+    await WorkerManager.getInstance().initSession(groupSid, jwksMap);
+    this.emit("session_created", groupSid);
+    this.emit("session_updated");
+  }
+
+  public async handleRemovedFromGroup(sid: string) {
+    await executeDB("UPDATE sessions SET deleted_at = ? WHERE sid = ?", [Date.now(), sid]);
+    delete this.sessions[sid];
+    this.connectedSids.delete(sid);
+    this.emit("session_updated");
+  }
+
+  public async rotateGroupKey(groupSid: string) {
+    const session = this.sessions[groupSid];
+    if (!session || !session.isGroup) return;
+
+    console.log(`[SessionService] Rotating group key for session ${groupSid}`);
+    const newKey = await crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+    const jwk = await crypto.subtle.exportKey("jwk", newKey);
+    const jwksMap = { group: jwk };
+
+    await executeDB(
+      "UPDATE sessions SET keyJWK = ?, alias_timestamp = ? WHERE sid = ?",
+      [JSON.stringify(jwksMap), Date.now(), groupSid]
+    );
+
+    session.cryptoKeys = { group: newKey };
+    await WorkerManager.getInstance().initSession(groupSid, jwksMap);
+
+    this.emit("session_updated");
+    this.emit("session_metadata_changed", groupSid);
+
+    if (session.groupMembers) {
+      await this.distributeGroupKey(groupSid, session.peerName || "Group", jwk, session.groupMembers);
+    }
+  }
+
+  public async handlePeerDeviceKeysChanged(peerEmail: string) {
+    const normEmail = this.normalizeEmail(peerEmail);
+    for (const [groupSid, session] of Object.entries(this.sessions)) {
+      if (session.isGroup && session.groupMembers) {
+        const hasMember = session.groupMembers.some(
+          m => this.normalizeEmail(m) === normEmail
+        );
+        if (hasMember) {
+          await this.rotateGroupKey(groupSid);
+        }
+      }
+    }
+  }
+
+  public async handleOwnDeviceKeysChanged() {
+    for (const [groupSid, session] of Object.entries(this.sessions)) {
+      if (session.isGroup) {
+        await this.rotateGroupKey(groupSid);
+      }
+    }
+  }
+
+  public async addGroupMembers(groupSid: string, memberEmails: string[]) {
+    const session = this.sessions[groupSid];
+    if (!session || !session.isGroup) return;
+
+    const currentMembers = session.groupMembers || [];
+    const updatedMembers = Array.from(new Set([...currentMembers, ...memberEmails]));
+    session.groupMembers = updatedMembers;
+
+    await executeDB(
+      "UPDATE sessions SET group_members = ? WHERE sid = ?",
+      [JSON.stringify(updatedMembers), groupSid]
+    );
+
+    this.emit("session_updated");
+
+    socket.send({
+      t: "ADD_GROUP_MEMBERS",
+      data: {
+        groupSid,
+        members: memberEmails,
+      },
+      c: true,
+      p: 0,
+    });
+
+    await this.rotateGroupKey(groupSid);
+  }
+
+  public async removeGroupMember(groupSid: string, memberEmail: string) {
+    const session = this.sessions[groupSid];
+    if (!session || !session.isGroup) return;
+
+    const currentMembers = session.groupMembers || [];
+    const normMember = this.normalizeEmail(memberEmail);
+    const updatedMembers = currentMembers.filter(m => this.normalizeEmail(m) !== normMember);
+    session.groupMembers = updatedMembers;
+
+    await executeDB(
+      "UPDATE sessions SET group_members = ? WHERE sid = ?",
+      [JSON.stringify(updatedMembers), groupSid]
+    );
+
+    this.emit("session_updated");
+
+    socket.send({
+      t: "REMOVE_GROUP_MEMBER",
+      data: {
+        groupSid,
+        member: memberEmail,
+      },
+      c: true,
+      p: 0,
+    });
+
+    await this.rotateGroupKey(groupSid);
+  }
+
+  public async leaveGroup(groupSid: string) {
+    const session = this.sessions[groupSid];
+    if (!session || !session.isGroup) return;
+
+    const myEmail = this.normalizeEmail(this.authService.userEmail || "");
+
+    socket.send({
+      t: "REMOVE_GROUP_MEMBER",
+      data: {
+        groupSid,
+        member: myEmail,
+      },
+      c: true,
+      p: 0,
+    });
+
+    await this.handleRemovedFromGroup(groupSid);
   }
 }

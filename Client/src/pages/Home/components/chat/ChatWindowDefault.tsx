@@ -1553,8 +1553,10 @@ export const ChatWindowDefault = ({
           onSave={async (aliasName, notes) => {
             await setSessionAlias(session.sid, aliasName, session.alias_avatar || "");
             await updateSessionNotes(session.sid, notes);
+            await ChatClient.sessionService.loadSessions();
             ChatClient.sessionService.updateSessionNotes(session.sid, notes);
             ChatClient.sessionService.emit("session_updated");
+            ChatClient.messageService.broadcastManifestToOwnDevices().catch(() => {});
           }}
           onGoToMessage={(msgId) => {
             setShowProfileModal(false);

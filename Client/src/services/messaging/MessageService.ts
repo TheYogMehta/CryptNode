@@ -217,6 +217,10 @@ export class MessageService extends EventEmitter {
         return;
       }
 
+      const session = this.client.sessionService.sessions[sid];
+      const isGroup = session?.isGroup;
+      const myEmail = this.client.authService.userEmail || "";
+
       const normalizedType = type === "text" ? "TEXT" : type.toUpperCase();
       if (
         (normalizedType === "TEXT" || normalizedType === "GIF") &&
@@ -224,20 +228,24 @@ export class MessageService extends EventEmitter {
       ) {
         const chunks = this.splitTextIntoChunks(text, TEXT_CHUNK_SIZE_CHARS);
         for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+          const payloadData: any = {
+            type: "TEXT_CHUNK",
+            id,
+            chunkIndex,
+            totalChunks: chunks.length,
+            chunkType: normalizedType,
+            textChunk: chunks[chunkIndex],
+            timestamp,
+            replyTo,
+          };
+          if (isGroup) {
+            payloadData.sender = myEmail;
+          }
           const payloads = await this.client.encryptForSession(
             sid,
             JSON.stringify({
               t: "MSG",
-              data: {
-                type: "TEXT_CHUNK",
-                id,
-                chunkIndex,
-                totalChunks: chunks.length,
-                chunkType: normalizedType,
-                textChunk: chunks[chunkIndex],
-                timestamp,
-                replyTo,
-              },
+              data: payloadData,
             }),
             1,
           );
@@ -250,17 +258,21 @@ export class MessageService extends EventEmitter {
           });
         }
       } else {
+        const payloadData: any = {
+          type: normalizedType,
+          text,
+          id,
+          timestamp,
+          replyTo,
+        };
+        if (isGroup) {
+          payloadData.sender = myEmail;
+        }
         const payloads = await this.client.encryptForSession(
           sid,
           JSON.stringify({
             t: "MSG",
-            data: {
-              type: normalizedType,
-              text,
-              id,
-              timestamp,
-              replyTo,
-            },
+            data: payloadData,
           }),
           1,
         );
@@ -617,7 +629,11 @@ export class MessageService extends EventEmitter {
           isOwnDeviceSession = true;
         }
       }
-      const senderString = isOwnMessage ? "me" : "other";
+      let senderString = isOwnMessage ? "me" : "other";
+      const session = this.client.sessionService.sessions[sid];
+      if (session?.isGroup && !isOwnMessage && data.sender) {
+        senderString = data.sender;
+      }
 
       switch (data.type) {
         case "MIC_STATUS":
@@ -1072,14 +1088,21 @@ export class MessageService extends EventEmitter {
 
                   // Ensure the session row exists — INSERT OR IGNORE creates a stub;
                   // subsequent UPDATE fills in the details.
-                  if (entry.peerEmail || entry.peerHash) {
+                  if (entry.peerEmail || entry.peerHash || entry.isGroup) {
                     const beforeCount = await queryDB(
                       "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
                       [entry.sid],
                     );
                     await executeDB(
-                      "INSERT OR IGNORE INTO sessions (sid, peer_email, peer_hash) VALUES (?, ?, ?)",
-                      [entry.sid, entry.peerEmail || null, entry.peerHash || null],
+                      "INSERT OR IGNORE INTO sessions (sid, peer_email, peer_hash, is_group, group_members, keyJWK) VALUES (?, ?, ?, ?, ?, ?)",
+                      [
+                        entry.sid,
+                        entry.peerEmail || null,
+                        entry.peerHash || null,
+                        entry.isGroup || 0,
+                        entry.groupMembers || null,
+                        entry.keyJWK || null
+                      ],
                     );
                     const afterCount = await queryDB(
                       "SELECT COUNT(*) as n FROM sessions WHERE sid = ?",
@@ -1099,10 +1122,25 @@ export class MessageService extends EventEmitter {
                     const current = existing[0];
 
                     if (entry.timestamp && entry.timestamp > (current.alias_timestamp ?? 0)) {
-                      await executeDB(
-                        "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
-                        [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
-                      );
+                      if (entry.isGroup) {
+                        await executeDB(
+                          "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ?, is_group = ?, group_members = ?, keyJWK = ? WHERE sid = ?",
+                          [
+                            entry.aliasName,
+                            entry.aliasAvatar,
+                            entry.timestamp,
+                            entry.isGroup,
+                            entry.groupMembers || null,
+                            entry.keyJWK || null,
+                            entry.sid,
+                          ],
+                        );
+                      } else {
+                        await executeDB(
+                          "UPDATE sessions SET alias_name = ?, alias_avatar = ?, alias_timestamp = ? WHERE sid = ?",
+                          [entry.aliasName, entry.aliasAvatar, entry.timestamp, entry.sid],
+                        );
+                      }
                       changed = true;
                     }
 
@@ -1152,6 +1190,13 @@ export class MessageService extends EventEmitter {
                         "UPDATE sessions SET peer_hash = ? WHERE sid = ?",
                         [entry.peerHash, entry.sid],
                       );
+                    }
+                    if (entry.isGroup && !current.is_group) {
+                      await executeDB(
+                        "UPDATE sessions SET is_group = ?, group_members = ?, keyJWK = ? WHERE sid = ?",
+                        [entry.isGroup, entry.groupMembers || null, entry.keyJWK || null, entry.sid],
+                      );
+                      changed = true;
                     }
                   }
                 }
@@ -1234,9 +1279,23 @@ export class MessageService extends EventEmitter {
                 const deletedAt = deletedAtMap.get(msg.sid) || 0;
                 if (msg.timestamp <= deletedAt) continue;
 
-                const senderValue = (!isOwnDevice)
-                  ? (msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender))
-                  : (msg.sender || "unknown");
+                let senderValue = msg.sender || "unknown";
+                if (!isOwnDevice) {
+                  if (session?.isGroup) {
+                    const normMyEmail = myEmail ? myEmail.trim().toLowerCase() : "";
+                    const peerSession = Object.values(this.client.sessionService.sessions).find(
+                      s => s.peerEmailHash && senderHash && s.peerEmailHash.toLowerCase() === senderHash.toLowerCase()
+                    );
+                    const peerEmail = peerSession?.peerEmail || "other";
+                    if (msg.sender === "me") {
+                      senderValue = peerEmail;
+                    } else if (msg.sender && msg.sender.trim().toLowerCase() === normMyEmail) {
+                      senderValue = "me";
+                    }
+                  } else {
+                    senderValue = msg.sender === "me" ? "other" : (msg.sender === "other" ? "me" : msg.sender);
+                  }
+                }
 
                 statements.push({
                   statement: "INSERT OR IGNORE INTO messages (id, sid, sender, text, type, timestamp, status, _ver, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?, 2, ?)",

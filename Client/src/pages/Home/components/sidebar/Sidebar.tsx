@@ -30,6 +30,7 @@ export const Sidebar = React.memo(
     activeChat,
     onSelect,
     onAddPeer,
+    onAddGroup,
     isOpen,
     isMobile,
     onClose,
@@ -43,6 +44,7 @@ export const Sidebar = React.memo(
     activeChat: string | null;
     onSelect: (sid: string) => void;
     onAddPeer: () => void;
+    onAddGroup: () => void;
     isOpen: boolean;
     isMobile: boolean;
     onClose: () => void;
@@ -146,9 +148,14 @@ export const Sidebar = React.memo(
           </SessionList>
 
           <SidebarFooter>
-            <Button onClick={onAddPeer} fullWidth variant="secondary">
-              + Connect
-            </Button>
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <Button onClick={onAddPeer} style={{ flex: 1 }} variant="secondary">
+                + Connect
+              </Button>
+              <Button onClick={onAddGroup} style={{ flex: 1 }} variant="secondary">
+                + Group
+              </Button>
+            </div>
             <Button onClick={onSettings} fullWidth variant="secondary">
               ⚙ Settings
             </Button>
