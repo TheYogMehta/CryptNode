@@ -272,127 +272,7 @@ export class MessageService extends EventEmitter {
     this.broadcastManifestToOwnDevices(false).catch(() => { });
   }
 
-  public async requestSync(
-    sid: string,
-    timestamp: number,
-    direction: "ASC" | "DESC" = "ASC",
-    limit: number = 50,
-    targetPubKey?: string,
-  ) {
-    if (!this.client.sessionService.sessions[sid]) return;
 
-    try {
-      const payloadObj = {
-        t: "MSG",
-        data: {
-          type: "SYNC_REQ",
-          timestamp,
-          direction,
-          limit,
-        },
-      };
-
-      let payloads;
-      if (targetPubKey) {
-        // Encrypt only for the specific target device
-        payloads = await this.client.encryptForSession(
-          sid,
-          JSON.stringify(payloadObj),
-          1,
-        );
-        // Filter out other keys
-        const filteredPayloads: Record<string, string> = {};
-        if (payloads[targetPubKey]) {
-          filteredPayloads[targetPubKey] = payloads[targetPubKey];
-        }
-        payloads = filteredPayloads;
-      } else {
-        payloads = await this.client.encryptForSession(
-          sid,
-          JSON.stringify(payloadObj),
-          1,
-        );
-      }
-
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads },
-        c: true,
-        p: 1,
-      });
-    } catch (e) {
-      console.error("[MessageService] Failed to request cross-device sync:", e);
-    }
-  }
-
-  public async requestSyncInfo(sid: string, targetPubKey?: string) {
-    if (!this.client.sessionService.sessions[sid]) return;
-
-    try {
-      const payloadObj = {
-        t: "MSG",
-        data: { type: "SYNC_INFO_REQ" },
-      };
-
-      let payloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify(payloadObj),
-        1,
-      );
-
-      if (targetPubKey && payloads[targetPubKey]) {
-        payloads = { [targetPubKey]: payloads[targetPubKey] };
-      }
-
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads },
-        c: true,
-        p: 1,
-      });
-    } catch (e) {
-      console.error("[MessageService] Failed to request SYNC_INFO:", e);
-    }
-  }
-
-  public async broadcastSyncState(sid: string) {
-    if (!this.client.sessionService.sessions[sid]) return;
-
-    try {
-      const row = await queryDB(
-        "SELECT COUNT(*) as total, MAX(timestamp) as maxTs, MIN(timestamp) as minTs FROM messages WHERE sid = ?",
-        [sid],
-      );
-      const total = row[0]?.total || 0;
-      const maxTs = row[0]?.maxTs || 0;
-      const minTs = row[0]?.minTs || 0;
-
-      const payloads = await this.client.encryptForSession(
-        sid,
-        JSON.stringify({
-          t: "MSG",
-          data: {
-            type: "SYNC_STATE_BROADCAST",
-            total,
-            maxTs,
-            minTs,
-          },
-        }),
-        1,
-      );
-      this.client.send({
-        t: "MSG",
-        sid,
-        data: { payloads },
-        c: true,
-        p: 1,
-      });
-    } catch (e) {
-      console.error("[MessageService] Failed to broadcast sync state:", e);
-    }
-  }
 
   public async editMessage(sid: string, messageId: string, newText: string) {
     if (!this.client.sessionService.sessions[sid])
@@ -630,134 +510,50 @@ export class MessageService extends EventEmitter {
           this.client.emit("call_mode_changed", { sid, mode: data.mode });
           break;
 
-        case "SYNC_STATE_BROADCAST": {
-          if (isOwnMessage && !isOwnDeviceSession) break;
+        case "SYNC_RECONCILE": {
           try {
-            const peerTotal = Number(data.total) || 0;
-            const res = await queryDB("SELECT COUNT(*) as c FROM messages WHERE sid = ?", [sid]);
-            const localTotal = res[0]?.c || 0;
-            if (localTotal < peerTotal) {
-              console.log(`[MessageService] Sync gap detected. Local: ${localTotal}, Peer: ${peerTotal}. Forcing full SYNC...`);
-              this.client.send({
-                t: "MSG", sid,
-                data: {
-                  payloads: await this.client.encryptForSession(sid, JSON.stringify({
-                    t: "MSG", data: { type: "SYNC_REQ", timestamp: Date.now(), direction: "DESC", limit: Math.min(peerTotal, 500) }
-                  }), 0)
-                }, c: false, p: 0
-              });
-            }
-          } catch (e) {
-            console.warn(`[MessageService] Error handling SYNC_STATE_BROADCAST`, e);
-          }
-          break;
-        }
+            const peerIds: string[] = Array.isArray(data.ids) ? data.ids : [];
+            const isOwnDevice: boolean = !!data.isOwnDevice;
+            console.log(`[MessageService] Handling SYNC_RECONCILE for ${sid}. Peer has ${peerIds.length} messages.`);
 
-        case "SYNC_REQ": {
-          try {
-            console.log(`[MessageService] Handling SYNC_REQ from ${sid}. Sending MANIFEST of our messages...`);
-            // We'll send our messages up to reasonable limit to fill their gap.
-            const missing = await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender = 'me' ORDER BY timestamp DESC LIMIT 300",
-              [sid]
-            );
-            // Also include anything they sent that we successfully stored, in case they lost their own messages.
-            const missingTheirs = await queryDB(
-              "SELECT * FROM messages WHERE sid = ? AND sender != 'me' ORDER BY timestamp DESC LIMIT 300",
-              [sid]
-            );
-            const combined = [...missing, ...missingTheirs].sort((a, b) => a.timestamp - b.timestamp);
-            const messageIds = combined.map(m => m.id);
-            let media: any[] = [];
-            if (messageIds.length > 0) {
-              const placeholders = messageIds.map(() => "?").join(",");
-              media = await queryDB(`SELECT * FROM media WHERE message_id IN (${placeholders})`, messageIds);
-              media = this.dedupeMediaRows(media);
-            }
-            const payloads = await this.client.encryptForSession(
-              sid,
-              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: combined, media } } }), 0
-            );
-            this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-          } catch (e) {
-            console.warn(`[MessageService] Failed to handle SYNC_REQ`, e);
-          }
-          break;
-        }
-
-        // ── Efficient peer sync handshake ──────────────────────────────────────
-        // Step 1: peer A calls sendManifestToPeer → sends SYNC_HINT with the
-        //         latest timestamp of messages A has received FROM B.
-        // Step 2: peer B receives SYNC_HINT → queries its own messages sent
-        //         after that timestamp → replies with only the delta MANIFEST.
-        // Result: B never re-sends what A already has. Zero double-bandwidth.
-        case "SYNC_HINT": {
-          try {
-            const peerLatestFromYou: number = Number(data.latestFromYou) || 0;
-            const peerLatestFromMe: number = Number(data.latestFromMe) || 0;
-
-            console.log(`[MessageService] Handling SYNC_HINT from ${sid}: peerLatestFromYou=${peerLatestFromYou}, peerLatestFromMe=${peerLatestFromMe}, isOwnMessage=${isOwnMessage}`);
-
-            // To the remote peer, "from you" means messages WE sent (sender='me' locally)
-            // and "from me" means messages THEY sent (sender='other' locally)
-
-            let missing: any[] = [];
-
-            if (isOwnMessage) {
-              // For own-device sync, we want a full mirror of the database (all sessions, all senders).
-              const queryTime = Math.max(peerLatestFromYou, peerLatestFromMe);
-              missing = await queryDB(
-                "SELECT * FROM messages WHERE timestamp > ? ORDER BY timestamp ASC",
-                [queryTime],
-              );
+            // Query our own local IDs
+            let localRows: any[] = [];
+            if (isOwnDevice) {
+              localRows = await queryDB("SELECT id FROM messages");
             } else {
-              // For regular friends, we only send messages from this specific session.
-              const missingYou = await queryDB(
-                "SELECT * FROM messages WHERE sid = ? AND sender = 'me' AND timestamp > ? ORDER BY timestamp ASC",
-                [sid, peerLatestFromYou],
-              );
-
-              // Only query 'other' messages if the peer explicitly gave a latestFromMe hint.
-              const missingMe = (data.latestFromMe !== undefined) ? await queryDB(
-                "SELECT * FROM messages WHERE sid = ? AND sender != 'me' AND timestamp > ? ORDER BY timestamp ASC",
-                [sid, peerLatestFromMe],
-              ) : [];
-
-              missing = [...missingYou, ...missingMe].sort((a, b) => a.timestamp - b.timestamp);
+              localRows = await queryDB("SELECT id FROM messages WHERE sid = ?", [sid]);
             }
+            const localIds = new Set<string>(localRows.map((r: any) => r.id));
+            const peerIdsSet = new Set<string>(peerIds);
 
-            const messageIds = missing.map((m) => m.id);
-            let media: any[] = [];
-            if (messageIds.length > 0) {
-              const placeholders = messageIds.map(() => "?").join(",");
-              media = await queryDB(
-                `SELECT * FROM media WHERE message_id IN (${placeholders})`,
-                messageIds,
-              );
-              media = this.dedupeMediaRows(media);
-            }
+            const missingFromMe: string[] = peerIds.filter(id => !localIds.has(id));
+            const missingFromPeer: string[] = Array.from(localIds).filter(id => !peerIdsSet.has(id));
 
-            let manifestData: any = { messages: missing, media };
+            console.log(`[MessageService] SYNC_RECONCILE comparison: missingFromMe=${missingFromMe.length}, missingFromPeer=${missingFromPeer.length}`);
 
-            // If this is our own device asking for sync, include full metadata too,
-            // BUT only if we are the PRIMARY sync device. This prevents both devices
-            // from redundantly full-syncing metadata to each other simultaneously.
-            let isPrimarySyncDevice = false;
+            // Step A: Send what peer is missing
+            if (missingFromPeer.length > 0 || isOwnDevice) {
+              let missingMessages: any[] = [];
+              let media: any[] = [];
 
-            if (isOwnMessage) {
-              const myPubKey = await this.client.authService.exportPub();
-              const session = this.client.sessionService.sessions[sid] as any;
-              const peerPubKeys = session?.peerPubKeys || [];
-
-              isPrimarySyncDevice = true;
-              for (const pk of peerPubKeys) {
-                if (pk < myPubKey) {
-                  isPrimarySyncDevice = false;
-                  break;
-                }
+              if (missingFromPeer.length > 0) {
+                // Batch query the missing messages
+                const placeholders = missingFromPeer.map(() => "?").join(",");
+                missingMessages = await queryDB(
+                  `SELECT * FROM messages WHERE id IN (${placeholders})`,
+                  missingFromPeer
+                );
+                media = await queryDB(
+                  `SELECT * FROM media WHERE message_id IN (${placeholders})`,
+                  missingFromPeer
+                );
+                media = this.dedupeMediaRows(media);
               }
 
-              if (isPrimarySyncDevice) {
+              let manifestData: any = { messages: missingMessages, media };
+
+              if (isOwnDevice) {
+                // Always include metadata for own device to keep it in sync
                 const [blocks, requests, aliases, profile] = await Promise.all([
                   getAllBlockEntries(),
                   getAllPendingRequestsEntries(),
@@ -772,24 +568,65 @@ export class MessageService extends EventEmitter {
                   profile: profile || undefined
                 };
               }
+
+              const payloads = await this.client.encryptForSession(
+                sid,
+                JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: manifestData } }),
+                0
+              );
+              if (Object.keys(payloads).length > 0) {
+                this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+                console.log(`[MessageService] Sent MANIFEST with ${missingMessages.length} messages and metadata to ${sid}`);
+              }
             }
 
-            // If we have no missing messages:
-            // - Break if it's NOT an own device (we only sync messages with regular peers)
-            // - Break if it IS an own device BUT we are NOT the primary device (we aren't sending metadata)
-            if (missing.length === 0 && (!isOwnMessage || !isPrimarySyncDevice)) break;
+            // Step B: Request what we are missing
+            if (missingFromMe.length > 0) {
+              const payloads = await this.client.encryptForSession(
+                sid,
+                JSON.stringify({ t: "MSG", data: { type: "SYNC_RECONCILE_REQ", ids: missingFromMe } }),
+                0
+              );
+              if (Object.keys(payloads).length > 0) {
+                this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
+                console.log(`[MessageService] Sent SYNC_RECONCILE_REQ for ${missingFromMe.length} messages to ${sid}`);
+              }
+            }
+
+          } catch (e) {
+            console.warn(`[MessageService] Failed to handle SYNC_RECONCILE for ${sid}`, e);
+          }
+          break;
+        }
+
+        case "SYNC_RECONCILE_REQ": {
+          try {
+            const requestedIds: string[] = Array.isArray(data.ids) ? data.ids : [];
+            console.log(`[MessageService] Handling SYNC_RECONCILE_REQ for ${sid} with ${requestedIds.length} requested IDs.`);
+            if (requestedIds.length === 0) break;
+
+            const placeholders = requestedIds.map(() => "?").join(",");
+            const missingMessages = await queryDB(
+              `SELECT * FROM messages WHERE id IN (${placeholders})`,
+              requestedIds
+            );
+            let media = await queryDB(
+              `SELECT * FROM media WHERE message_id IN (${placeholders})`,
+              requestedIds
+            );
+            media = this.dedupeMediaRows(media);
 
             const payloads = await this.client.encryptForSession(
               sid,
-              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: manifestData } }),
-              0,
+              JSON.stringify({ t: "MSG", data: { type: "MANIFEST", manifest: { messages: missingMessages, media } } }),
+              0
             );
             if (Object.keys(payloads).length > 0) {
               this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-              console.log(`[MessageService] SYNC_HINT → sent MANIFEST (incl ${missing.length} messages) to ${sid}`);
+              console.log(`[MessageService] Sent requested ${missingMessages.length} messages as MANIFEST to ${sid}`);
             }
           } catch (e) {
-            console.warn(`[MessageService] Failed to respond to SYNC_HINT for ${sid}`, e);
+            console.warn(`[MessageService] Failed to handle SYNC_RECONCILE_REQ for ${sid}`, e);
           }
           break;
         }
@@ -2136,14 +1973,7 @@ export class MessageService extends EventEmitter {
     }
   }
 
-  /**
-   * Initiates an efficient peer-to-peer sync handshake.
-   * Instead of blindly pushing messages, we first send a SYNC_HINT telling the
-   * peer the latest timestamp of THEIR messages we already have.  The peer then
-   * responds with only the delta — messages we are missing. This prevents
-   * double-bandwidth even after key rotation or on a device with a full history.
-   */
-  public async sendManifestToPeer(sid: string) {
+  public async sendSyncReconcile(sid: string) {
     try {
       const session = this.client.sessionService.sessions[sid] as any;
       if (!session || !session.online) return;
@@ -2162,44 +1992,26 @@ export class MessageService extends EventEmitter {
         isOwnDevice = (session.peerEmailHash.toLowerCase() === myHash.toLowerCase());
       }
 
-      let latestFromYou = 0;
-      let latestFromMe = 0;
-
+      let localRows: any[] = [];
       if (isOwnDevice) {
-        // For own-device sessions, find the overall latest timestamp across ALL messages.
-        const row = await queryDB(
-          "SELECT MAX(timestamp) as ts FROM messages",
-        );
-        latestFromMe = Number(row?.[0]?.ts) || 0;
-        latestFromYou = latestFromMe;
+        localRows = await queryDB("SELECT id FROM messages");
       } else {
-        // Find the latest timestamp of messages we received FROM this peer (sender != 'me').
-        const rowsYou = await queryDB(
-          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender != 'me'",
-          [sid],
-        );
-        latestFromYou = Number(rowsYou?.[0]?.ts) || 0;
-
-        // Find the latest timestamp of messages we sent TO this peer (sender == 'me').
-        const rowsMe = await queryDB(
-          "SELECT MAX(timestamp) as ts FROM messages WHERE sid = ? AND sender = 'me'",
-          [sid],
-        );
-        latestFromMe = Number(rowsMe?.[0]?.ts) || 0;
+        localRows = await queryDB("SELECT id FROM messages WHERE sid = ?", [sid]);
       }
+      const localIds = localRows.map((r: any) => r.id);
 
       const payloads = await this.client.encryptForSession(
         sid,
-        JSON.stringify({ t: "MSG", data: { type: "SYNC_HINT", latestFromYou, latestFromMe } }),
-        0,
+        JSON.stringify({ t: "MSG", data: { type: "SYNC_RECONCILE", sid, isOwnDevice, ids: localIds } }),
+        0
       );
 
       if (Object.keys(payloads).length > 0) {
         this.client.send({ t: "MSG", sid, data: { payloads }, c: false, p: 0 });
-        console.log(`[MessageService] Sent SYNC_HINT to ${sid} (latestFromYou=${latestFromYou}, latestFromMe=${latestFromMe})`);
+        console.log(`[MessageService] Sent SYNC_RECONCILE to ${sid} (isOwnDevice=${isOwnDevice}, ids count=${localIds.length})`);
       }
     } catch (e) {
-      console.warn(`[MessageService] Failed to send SYNC_HINT to peer ${sid}`, e);
+      console.warn(`[MessageService] Failed to send SYNC_RECONCILE to peer ${sid}`, e);
     }
   }
 
@@ -2249,9 +2061,8 @@ export class MessageService extends EventEmitter {
     }
 
     if (!isOwnDevice) {
-      // For normal friends, just do a regular sync handshake
-      this.sendManifestToPeer(sid).catch(() => { });
-      this.broadcastSyncState(sid).catch(() => { });
+      // For normal friends, just do a regular sync handshake using ID reconciliation
+      this.sendSyncReconcile(sid).catch(() => { });
       return;
     }
 
@@ -2261,8 +2072,6 @@ export class MessageService extends EventEmitter {
     const myPubKey = await this.client.authService.exportPub();
     const peerPubKeys = session.peerPubKeys || [];
 
-    // We only care about the specific socket we are talking to, but for simplicity
-    // we check all active peer keys.
     let isPrimarySyncDevice = true;
     for (const pk of peerPubKeys) {
       if (pk < myPubKey) {
@@ -2273,12 +2082,9 @@ export class MessageService extends EventEmitter {
 
     if (isPrimarySyncDevice) {
       console.log(`[MessageService] Coordination: We are PRIMARY sync device for ${sid}. Initiating sync...`);
-      this.sendManifestToPeer(sid).catch(() => { });
+      this.sendSyncReconcile(sid).catch(() => { });
     } else {
-      console.log(`[MessageService] Coordination: Peer is PRIMARY sync device for ${sid}. Waiting for their MANIFEST.`);
-      // We still send a SYNC_HINT so they know what we are missing,
-      // but we don't blindly push our full state to them yet.
-      this.sendManifestToPeer(sid).catch(() => { });
+      console.log(`[MessageService] Coordination: Peer is PRIMARY sync device for ${sid}. Waiting for their SYNC_RECONCILE.`);
     }
   }
 }
