@@ -2011,7 +2011,7 @@ export class MessageService extends EventEmitter {
         console.log(`[MessageService] Sent SYNC_RECONCILE to ${sid} (isOwnDevice=${isOwnDevice}, ids count=${localIds.length})`);
       }
     } catch (e) {
-      console.warn(`[MessageService] Failed to send SYNC_RECONCILE to peer ${sid}`, e);
+      console.warn("[MessageService] Failed to send SYNC_RECONCILE to peer %s", sid, e);
     }
   }
 

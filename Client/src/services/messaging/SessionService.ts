@@ -259,6 +259,9 @@ export class SessionService extends EventEmitter {
     ownPubKeys?: string[],
     online: boolean = true,
   ) {
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return;
+    }
     const runFinalize = async () => {
       const pendingPresence = this.consumePendingPresence(
         sid,
@@ -348,7 +351,8 @@ export class SessionService extends EventEmitter {
           cryptoKeysMap[pubB64] = sharedKey;
         } catch (e) {
           console.warn(
-            `[SessionService] Failed to derive key for ${pubB64}`,
+            "[SessionService] Failed to derive key for %s",
+            pubB64,
             e,
           );
         }
@@ -542,7 +546,8 @@ export class SessionService extends EventEmitter {
           });
         } catch (err) {
           console.warn(
-            `[SessionService] Failed to encrypt handshake for key ${pubB64}`,
+            "[SessionService] Failed to encrypt handshake for key %s",
+            pubB64,
             err,
           );
         }
@@ -745,6 +750,9 @@ export class SessionService extends EventEmitter {
   }
 
   public getSession(sid: string) {
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return undefined;
+    }
     return this.sessions[sid];
   }
 
@@ -883,6 +891,9 @@ export class SessionService extends EventEmitter {
     sid: string,
     skipNetwork?: boolean,
   ) {
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return;
+    }
     if (!skipNetwork) {
       socket.send({
         t: "UNFRIEND",
@@ -910,6 +921,9 @@ export class SessionService extends EventEmitter {
     isOnline: boolean,
     newPeerPubKeys?: string[],
   ) {
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return;
+    }
     if (this.sessions[sid]) {
       this.sessions[sid].online = isOnline;
       this.emit("session_updated");
@@ -1017,6 +1031,9 @@ export class SessionService extends EventEmitter {
     const promises: Promise<any>[] = [];
 
     for (const item of list) {
+      if (item.sid === "__proto__" || item.sid === "constructor" || item.sid === "prototype") {
+        continue;
+      }
       if (this.sessions[item.sid]) {
         if (this.sessions[item.sid].online !== item.online) {
           this.sessions[item.sid].online = item.online;
@@ -1114,6 +1131,9 @@ export class SessionService extends EventEmitter {
   }
 
   public async updateSessionNotes(sid: string, notes: string) {
+    if (sid === "__proto__" || sid === "constructor" || sid === "prototype") {
+      return;
+    }
     if (this.sessions[sid]) {
       this.sessions[sid].notes = notes;
       this.emit("session_updated");

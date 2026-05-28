@@ -517,7 +517,8 @@ export class ChatClient extends EventEmitter implements IChatClient {
             );
             if (isBlocked) {
               console.log(
-                `[ChatClient] Dropping ${t} frame from blocked user:`,
+                "[ChatClient] Dropping %s frame from blocked user:",
+                t,
                 session.peerEmail,
               );
               return;

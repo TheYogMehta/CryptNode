@@ -682,9 +682,9 @@ export const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({
                   onClick={() => setCurrentIndex(i)}
                 >
                   {f.type === "image" ? (
-                    <img src={f.previewUrl} alt="" />
+                    <img src={f.previewUrl.startsWith("blob:") ? f.previewUrl : ""} alt="" />
                   ) : f.type === "video" ? (
-                    <video src={f.previewUrl} />
+                    <video src={f.previewUrl.startsWith("blob:") ? f.previewUrl : ""} />
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.1)' }}>
                       <FileText size={24} color="white" />

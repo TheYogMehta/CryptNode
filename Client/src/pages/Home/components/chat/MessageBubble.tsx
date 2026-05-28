@@ -514,8 +514,9 @@ export const MessageBubble = React.memo(
         try {
           const { pathname, hostname } = new URL(url);
           const path = pathname.toLowerCase();
+          const host = hostname.toLowerCase();
           // Tenor media served as mp4, giphy .gif, discord CDN .gif
-          if (hostname.includes("tenor.com") && /\.mp4$/i.test(path)) return true;
+          if ((host === "tenor.com" || host.endsWith(".tenor.com")) && /\.mp4$/i.test(path)) return true;
           if (/\.gif$/i.test(path)) return true;
           return false;
         } catch {
@@ -541,9 +542,13 @@ export const MessageBubble = React.memo(
       const isAllowedMediaUrl = (url: string): boolean => {
         try {
           const hostname = new URL(url).hostname.toLowerCase();
-          return DEFAULT_TRUSTED_DOMAINS.some((domain) =>
-            hostname.endsWith(domain),
-          );
+          return DEFAULT_TRUSTED_DOMAINS.some((domain) => {
+            const normalizedDomain = domain.trim().toLowerCase();
+            return (
+              hostname === normalizedDomain ||
+              hostname.endsWith(`.${normalizedDomain}`)
+            );
+          });
         } catch {
           return false;
         }

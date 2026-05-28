@@ -6,25 +6,25 @@ import {
 
 type WorkerMessage =
   | {
-    type: "INIT_SESSION";
-    sid: string;
-    jwksMap: Record<string, JsonWebKey>;
-    id: string;
-  }
+      type: "INIT_SESSION";
+      sid: string;
+      jwksMap: Record<string, JsonWebKey>;
+      id: string;
+    }
   | {
-    type: "ENCRYPT";
-    sid: string;
-    data: string | ArrayBuffer;
-    id: string;
-    priority: number;
-  }
+      type: "ENCRYPT";
+      sid: string;
+      data: string | ArrayBuffer;
+      id: string;
+      priority: number;
+    }
   | {
-    type: "DECRYPT";
-    sid: string;
-    data: string;
-    id: string;
-    priority: number;
-  };
+      type: "DECRYPT";
+      sid: string;
+      data: string;
+      id: string;
+      priority: number;
+    };
 
 const sessions: Record<string, Record<string, CryptoKey>> = {};
 
@@ -36,8 +36,26 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     switch (type) {
       case "INIT_SESSION": {
         const { sid, jwksMap, id } = msg;
+        if (
+          sid === "__proto__" ||
+          sid === "constructor" ||
+          sid === "prototype"
+        ) {
+          self.postMessage({
+            type: "INIT_SESSION_RESULT",
+            id,
+            error: "Invalid session ID",
+          });
+          break;
+        }
         const keysMap: Record<string, CryptoKey> = sessions[sid] || {};
         for (const [pubKey, jwk] of Object.entries(jwksMap)) {
+          if (
+            pubKey === "__proto__" ||
+            pubKey === "constructor" ||
+            pubKey === "prototype"
+          )
+            continue;
           if (!jwk || typeof jwk !== "object") continue;
           try {
             keysMap[pubKey] = await crypto.subtle.importKey(
@@ -48,7 +66,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
               ["encrypt", "decrypt"],
             );
           } catch (e) {
-            console.warn(`[Worker] Skipping bad JWK import for ${pubKey}`, e);
+            console.warn("[Worker] Skipping bad JWK import for %s", pubKey, e);
           }
         }
         sessions[sid] = keysMap;
@@ -87,7 +105,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           try {
             decrypted = await decryptFromPackedString(data, key);
             if (decrypted) break;
-          } catch (e) { }
+          } catch (e) {}
         }
 
         if (!decrypted) throw new Error("Decryption failed for all known keys");

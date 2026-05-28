@@ -124,6 +124,20 @@ export const FilePreviewPane: React.FC<FilePreviewPaneProps> = ({
     return "unsupported";
   }, [file]);
 
+  const safeFileUrl = useMemo(() => {
+    if (!fileUrl) return "";
+    const lower = fileUrl.trim().toLowerCase();
+    if (
+      lower.startsWith("blob:") ||
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("data:")
+    ) {
+      return fileUrl;
+    }
+    return "";
+  }, [fileUrl]);
+
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -349,7 +363,7 @@ export const FilePreviewPane: React.FC<FilePreviewPaneProps> = ({
         ) : previewKind === "image" ? (
           <div style={centeredStyle}>
             <img
-              src={fileUrl}
+              src={safeFileUrl}
               alt={fileName}
               style={{
                 maxWidth: "100%",
@@ -363,7 +377,7 @@ export const FilePreviewPane: React.FC<FilePreviewPaneProps> = ({
           <div style={centeredStyle}>
             <video
               controls
-              src={fileUrl}
+              src={safeFileUrl}
               style={{
                 maxWidth: "100%",
                 maxHeight: "100%",
@@ -380,7 +394,7 @@ export const FilePreviewPane: React.FC<FilePreviewPaneProps> = ({
             </div>
             <audio
               controls
-              src={fileUrl}
+              src={safeFileUrl}
               style={{
                 width: "min(100%, 420px)",
                 ...audioStyle,
