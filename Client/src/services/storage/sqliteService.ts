@@ -40,7 +40,9 @@ const SCHEMA = {
       last_manifest_sync INTEGER DEFAULT 0,
       notes TEXT,
       deleted_at INTEGER DEFAULT 0,
-      own_pub_keys TEXT
+      own_pub_keys TEXT,
+      is_group INTEGER DEFAULT 0,
+      group_members TEXT
     `,
     indices: [],
   },
@@ -560,9 +562,12 @@ export const getAllAliasesEntries = async (): Promise<{
   peerEmail: string;
   peerHash: string;
   deletedAt: number;
+  isGroup?: number;
+  groupMembers?: string;
+  keyJWK?: string | null;
 }[]> => {
   const rows = await queryDB(
-    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver, peer_email, peer_hash, deleted_at FROM sessions",
+    "SELECT sid, alias_name, alias_avatar, alias_timestamp, peer_name, peer_avatar, peer_name_ver, peer_avatar_ver, peer_email, peer_hash, deleted_at, is_group, group_members, keyJWK FROM sessions",
   );
   return rows.map((r: any) => ({
     sid: r.sid,
@@ -576,6 +581,9 @@ export const getAllAliasesEntries = async (): Promise<{
     peerEmail: r.peer_email || "",
     peerHash: r.peer_hash || "",
     deletedAt: r.deleted_at || 0,
+    isGroup: r.is_group || 0,
+    groupMembers: r.group_members || "",
+    keyJWK: r.keyJWK || null,
   }));
 };
 

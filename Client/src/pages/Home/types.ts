@@ -102,4 +102,6 @@ export interface SessionData {
   notes?: string;
   isOwnDevice?: boolean;
   deletedAt?: number;
+  isGroup?: boolean;
+  groupMembers?: string[];
 }
