@@ -4,6 +4,7 @@ import { useChatLogic } from "./hooks/useChatLogic";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { ChatWindow } from "./components/chat/ChatWindowContainer";
 import { ConnectionSetup } from "./components/overlays/ConnectionSetup";
+import { GroupSetup } from "./components/overlays/GroupSetup";
 import { RequestModal } from "./components/overlays/RequestModal";
 import { CallOverlay } from "./components/overlays/CallOverlay";
 import { WelcomeView } from "./components/views/WelcomeView";
@@ -78,6 +79,7 @@ const Home = () => {
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
   const [showSettings, setShowSettings] = useState(false);
+  const [showGroupSetup, setShowGroupSetup] = useState(false);
   const [settingsTab, setSettingsTab] = useState<any>(null);
   const [showProfileSetup, setShowProfileSetup] = useState(true);
   const [isCallOverlayMinimized, setIsCallOverlayMinimized] = useState(false);
@@ -238,6 +240,7 @@ const Home = () => {
     isSidebarOpen: state.isSidebarOpen,
     view: state.view,
     showSettings,
+    showGroupSetup,
     isLocked,
     inboundReq: state.inboundReq,
     isWaiting: state.isWaiting,
@@ -252,6 +255,7 @@ const Home = () => {
       isSidebarOpen: state.isSidebarOpen,
       view: state.view,
       showSettings,
+      showGroupSetup,
       isLocked,
       inboundReq: state.inboundReq,
       isWaiting: state.isWaiting,
@@ -261,6 +265,7 @@ const Home = () => {
     state.isSidebarOpen,
     state.view,
     showSettings,
+    showGroupSetup,
     isLocked,
     state.inboundReq,
     state.isWaiting,
@@ -307,6 +312,10 @@ const Home = () => {
 
           if (ctx.showSettings) {
             setShowSettings(false);
+            return;
+          }
+          if (ctx.showGroupSetup) {
+            setShowGroupSetup(false);
             return;
           }
           if (ctx.inboundReq || ctx.isWaiting) {
@@ -720,6 +729,10 @@ const Home = () => {
           isMobile={isMobile}
           onSelect={onSelectChat}
           onAddPeer={onAddPeer}
+          onAddGroup={() => {
+            setShowGroupSetup(true);
+            actions.setIsSidebarOpen(false);
+          }}
           onClose={onCloseSidebar}
           onLogoClick={onLogoClick}
           onSettings={onOpenSettings}
@@ -890,6 +903,15 @@ const Home = () => {
           <ProfileSetup
             userEmail={profileSetupEmail}
             onComplete={() => setShowProfileSetup(false)}
+          />
+        )}
+
+        {showGroupSetup && (
+          <GroupSetup
+            onClose={() => setShowGroupSetup(false)}
+            onCreated={(groupSid) => {
+              onSelectChat(groupSid);
+            }}
           />
         )}
 

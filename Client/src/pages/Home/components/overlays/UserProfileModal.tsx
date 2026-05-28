@@ -29,7 +29,17 @@ import {
   FilterGroup,
   FilterLabel,
   FilterSelect,
-  FilterInput
+  FilterInput,
+  MembersSection,
+  MemberRow,
+  MemberAvatar,
+  MemberInfo,
+  MemberName,
+  MemberEmail,
+  RemoveMemberButton,
+  AddMemberSection,
+  AddMemberDropdown,
+  AddMemberRow
 } from "./UserProfileModal.styles";
 import { SessionData } from "../../types";
 import { avatarCacheService } from "../../../../services/storage/AvatarCacheService";
@@ -78,6 +88,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   } | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [showAddMemberDropdown, setShowAddMemberDropdown] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -277,7 +288,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     <Overlay onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <ModalContainer>
         <Header>
-          <HeaderTitle>User Profile</HeaderTitle>
+          <HeaderTitle>{session.isGroup ? "Group Details" : "User Profile"}</HeaderTitle>
           <CloseButton onClick={onClose}>
             <X size={24} />
           </CloseButton>
@@ -296,10 +307,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <EditableInput
                 value={aliasName}
                 onChange={(e) => setAliasName(e.target.value)}
-                placeholder={displayName}
+                placeholder={session.isGroup ? "Group Name" : displayName}
               />
               <span style={{ fontSize: '12px', color: colors.text.secondary, paddingLeft: '8px' }}>
-                {session.peerEmail || session.sid.substring(0, 12) + "..."}
+                {session.isGroup ? "Encrypted Group" : (session.peerEmail || session.sid.substring(0, 12) + "...")}
               </span>
             </ProfileInfo>
           </ProfileHeader>
@@ -309,9 +320,113 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <NotesArea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add personal notes about this user..."
+              placeholder={session.isGroup ? "Add personal notes about this group..." : "Add personal notes about this user..."}
             />
           </div>
+
+          {session.isGroup && (
+            <div>
+              <SectionTitle>Group Members</SectionTitle>
+              <MembersSection>
+                {(session.groupMembers || []).map((memberEmail) => {
+                  const isMe = memberEmail.toLowerCase() === ChatClient.userEmail?.toLowerCase();
+                  let memberName = isMe ? "You" : memberEmail.split("@")[0];
+                  
+                  if (!isMe) {
+                    const friendSession = Object.values(ChatClient.sessionService.sessions).find(
+                      (s) => s.peerEmail && s.peerEmail.toLowerCase() === memberEmail.toLowerCase()
+                    );
+                    if (friendSession) {
+                      memberName = friendSession.peerName || friendSession.notes || memberName;
+                    }
+                  }
+
+                  return (
+                    <MemberRow key={memberEmail}>
+                      <MemberAvatar>{memberName.charAt(0).toUpperCase()}</MemberAvatar>
+                      <MemberInfo>
+                        <MemberName>{memberName}</MemberName>
+                        <MemberEmail>{memberEmail}</MemberEmail>
+                      </MemberInfo>
+                      {!isMe && (
+                        <RemoveMemberButton
+                          onClick={async () => {
+                            if (window.confirm(`Are you sure you want to remove ${memberName} from this group?`)) {
+                              await ChatClient.sessionService.removeGroupMember(session.sid, memberEmail);
+                            }
+                          }}
+                          title={`Remove ${memberName} from group`}
+                        >
+                          <Trash2 size={16} />
+                        </RemoveMemberButton>
+                      )}
+                    </MemberRow>
+                  );
+                })}
+
+                {(() => {
+                  const currentMembers = session.groupMembers || [];
+                  const eligibleFriends = Object.values(ChatClient.sessionService.sessions).filter(
+                    (s) =>
+                      !s.isGroup &&
+                      s.peerEmail &&
+                      !currentMembers.some((m) => m.toLowerCase() === s.peerEmail!.toLowerCase())
+                  );
+
+                  return (
+                    <AddMemberSection>
+                      {!showAddMemberDropdown ? (
+                        <SendRequestButton
+                          style={{ width: "100%", justifyContent: "center", marginTop: "8px" }}
+                          onClick={() => setShowAddMemberDropdown(true)}
+                        >
+                          <UserPlus size={16} />
+                          Add Member
+                        </SendRequestButton>
+                      ) : (
+                        <>
+                          <SendRequestButton
+                            style={{ width: "100%", justifyContent: "center", marginTop: "8px" }}
+                            onClick={() => setShowAddMemberDropdown(false)}
+                          >
+                            <X size={16} />
+                            Cancel
+                          </SendRequestButton>
+                          <AddMemberDropdown>
+                            {eligibleFriends.length === 0 ? (
+                              <div style={{ padding: "12px", textAlign: "center", color: colors.text.tertiary, fontSize: "13px" }}>
+                                All friends are already members
+                              </div>
+                            ) : (
+                              eligibleFriends.map((friend) => {
+                                const email = friend.peerEmail!;
+                                const name = friend.peerName || friend.notes || email.split("@")[0];
+                                return (
+                                  <AddMemberRow
+                                    key={email}
+                                    onClick={async () => {
+                                      setShowAddMemberDropdown(false);
+                                      await ChatClient.sessionService.addGroupMembers(session.sid, [email]);
+                                    }}
+                                  >
+                                    <MemberAvatar>{name.charAt(0).toUpperCase()}</MemberAvatar>
+                                    <MemberInfo>
+                                      <MemberName>{name}</MemberName>
+                                      <MemberEmail>{email}</MemberEmail>
+                                    </MemberInfo>
+                                  </AddMemberRow>
+                                );
+                              })
+                            )}
+                          </AddMemberDropdown>
+                        </>
+                      )}
+                    </AddMemberSection>
+                  );
+                })()}
+              </MembersSection>
+            </div>
+          )}
 
           {mediaItems.length > 0 && (
             <div>
@@ -412,7 +527,37 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </Content>
 
         <SaveButtonContainer>
-          {session.isConnected !== false ? (
+          {session.isGroup ? (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <RemoveConnectionButton
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to leave this group?")) {
+                    setIsSaving(true);
+                    onClose();
+                    await ChatClient.sessionService.leaveGroup(session.sid);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <UserMinus size={18} />
+                Leave Group
+              </RemoveConnectionButton>
+
+              <RemoveConnectionButton
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to delete this chat? This will clear all messages and remove the group chat from your UI.")) {
+                    setIsSaving(true);
+                    onClose();
+                    ChatClient.deleteChat(session.sid, true);
+                  }
+                }}
+                disabled={isSaving}
+              >
+                <Trash2 size={18} />
+                Delete Chat
+              </RemoveConnectionButton>
+            </div>
+          ) : session.isConnected !== false ? (
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <RemoveConnectionButton
                 onClick={async () => {

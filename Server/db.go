@@ -61,6 +61,17 @@ func (s *Server) initDB() error {
 			last_updated DATETIME,
 			PRIMARY KEY (email_hash, token)
 		);`,
+		`CREATE TABLE IF NOT EXISTS groups (
+			group_sid TEXT PRIMARY KEY,
+			name TEXT,
+			creator_hash TEXT,
+			created_at DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS group_members (
+			group_sid TEXT,
+			user_hash TEXT,
+			PRIMARY KEY (group_sid, user_hash)
+		);`,
 	}
 
 	for _, query := range queries {

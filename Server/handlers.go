@@ -370,6 +370,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 								s.send(c, Frame{
 									T:    "PEER_ONLINE",
 									SID:  sid,
+									SH:   eh,
 									Data: json.RawMessage(onlineData),
 								})
 							}
@@ -436,12 +437,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				if len(siblingClients) > 0 {
 					// Notify newly-connected device of all sibling pub keys → triggers sync.
 					pOForNew, _ := json.Marshal(map[string]any{"peerPubKeys": siblingPubKeys})
-					s.send(client, Frame{T: "PEER_ONLINE", SID: ownSid, Data: json.RawMessage(pOForNew)})
+					s.send(client, Frame{T: "PEER_ONLINE", SID: ownSid, SH: eh, Data: json.RawMessage(pOForNew)})
 
 					// Notify all already-connected siblings of the new device's pub keys.
 					pOForSiblings, _ := json.Marshal(map[string]any{"peerPubKeys": myPubKeysForOwn})
 					for _, sc := range siblingClients {
-						s.send(sc, Frame{T: "PEER_ONLINE", SID: ownSid, Data: json.RawMessage(pOForSiblings)})
+						s.send(sc, Frame{T: "PEER_ONLINE", SID: ownSid, SH: eh, Data: json.RawMessage(pOForSiblings)})
 					}
 				}
 
@@ -454,6 +455,44 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 					"peerPubKeys": siblingPubKeys,
 					"ownPubKeys":  myPubKeysForOwn,
 				})
+
+				// In addition to friends, query groups this user is a member of
+				groupRows, err := s.db.Query(`
+					SELECT g.group_sid, g.name, g.creator_hash 
+					FROM groups g 
+					JOIN group_members gm ON g.group_sid = gm.group_sid 
+					WHERE gm.user_hash = ?
+				`, eh)
+				if err == nil {
+					for groupRows.Next() {
+						var groupSid, name, creatorHash string
+						if err := groupRows.Scan(&groupSid, &name, &creatorHash); err == nil {
+							// Add client connection to the in-memory session
+							s.mu.Lock()
+							sess, ok := s.sessions[groupSid]
+							if !ok {
+								sess = &Session{
+									id:      groupSid,
+									clients: map[string]*Client{client.id: client},
+								}
+								s.sessions[groupSid] = sess
+							} else {
+								sess.mu.Lock()
+								sess.clients[client.id] = client
+								sess.mu.Unlock()
+							}
+							s.mu.Unlock()
+
+							sessions = append(sessions, map[string]any{
+								"sid":      groupSid,
+								"online":   true, // Groups are always active
+								"peerHash": creatorHash,
+								"isGroup":  true,
+							})
+						}
+					}
+					groupRows.Close()
+				}
 
 				if sessions == nil {
 					sessions = make([]map[string]any, 0)
@@ -896,16 +935,16 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 			if len(senderActivePubKeys) > 0 {
 				pOForTarget, _ := json.Marshal(map[string]any{"peerPubKeys": senderActivePubKeys})
 				for _, tc := range targetClients {
-					s.send(tc, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForTarget)})
+					s.send(tc, Frame{T: "PEER_ONLINE", SID: sid, SH: senderHash, Data: json.RawMessage(pOForTarget)})
 				}
 			}
 
 			// Notify acceptor (User 2) and their siblings that requester is online → triggers sync
 			if len(targetActivePubKeys) > 0 {
 				pOForSender, _ := json.Marshal(map[string]any{"peerPubKeys": targetActivePubKeys})
-				s.send(client, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForSender)})
+				s.send(client, Frame{T: "PEER_ONLINE", SID: sid, SH: targetHash, Data: json.RawMessage(pOForSender)})
 				for _, sc := range siblingClients {
-					s.send(sc, Frame{T: "PEER_ONLINE", SID: sid, Data: json.RawMessage(pOForSender)})
+					s.send(sc, Frame{T: "PEER_ONLINE", SID: sid, SH: targetHash, Data: json.RawMessage(pOForSender)})
 				}
 			}
 
@@ -1092,6 +1131,287 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			s.send(client, Frame{T: "UNFRIEND_SUCCESS", Data: json.RawMessage(`{"success":true, "targetHash":"` + d.TargetHash + `"}`)})
 
+		case "CREATE_GROUP":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				GroupSID string   `json:"groupSid"`
+				Name     string   `json:"name"`
+				Members  []string `json:"members"` // List of member emails
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			if d.GroupSID == "" || d.Name == "" || len(d.Members) == 0 {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Invalid group details"}`)})
+				continue
+			}
+
+			creatorHash := emailHash(client.email)
+			
+			// Insert into groups table
+			_, err = s.db.Exec("INSERT OR IGNORE INTO groups (group_sid, name, creator_hash, created_at) VALUES (?, ?, ?, ?)", d.GroupSID, d.Name, creatorHash, time.Now())
+			if err != nil {
+				s.logger.Printf("Error creating group: %v", err)
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Failed to save group"}`)})
+				continue
+			}
+
+			// Insert members
+			s.db.Exec("INSERT OR IGNORE INTO group_members (group_sid, user_hash) VALUES (?, ?)", d.GroupSID, creatorHash)
+			
+			for _, m := range d.Members {
+				mHash := emailHash(normalizeEmail(m))
+				s.db.Exec("INSERT OR IGNORE INTO group_members (group_sid, user_hash) VALUES (?, ?)", d.GroupSID, mHash)
+			}
+
+			// Add Creator's active socket to s.sessions[group_sid]
+			s.mu.Lock()
+			sess, ok := s.sessions[d.GroupSID]
+			if !ok {
+				sess = &Session{
+					id:      d.GroupSID,
+					clients: map[string]*Client{client.id: client},
+				}
+				s.sessions[d.GroupSID] = sess
+			} else {
+				sess.mu.Lock()
+				sess.clients[client.id] = client
+				sess.mu.Unlock()
+			}
+			s.mu.Unlock()
+
+			// Add active sockets of other members that are online right now
+			for _, m := range d.Members {
+				mHash := emailHash(normalizeEmail(m))
+				var socketIDs []string
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", mHash)
+				if err == nil {
+					for rows.Next() {
+						var socketID string
+						if err := rows.Scan(&socketID); err == nil {
+							socketIDs = append(socketIDs, socketID)
+						}
+					}
+					rows.Close()
+				}
+				s.mu.Lock()
+				for _, sid := range socketIDs {
+					if c, ok := s.clients[sid]; ok {
+						sess.mu.Lock()
+						sess.clients[c.id] = c
+						sess.mu.Unlock()
+					}
+				}
+				s.mu.Unlock()
+			}
+
+			s.send(client, Frame{T: "CREATE_GROUP_ACK", Data: json.RawMessage(`{"success":true, "groupSid":"` + d.GroupSID + `"}`)})
+
+		case "ADD_GROUP_MEMBERS":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				GroupSID string   `json:"groupSid"`
+				Members  []string `json:"members"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			if d.GroupSID == "" || len(d.Members) == 0 {
+				continue
+			}
+
+			senderHash := emailHash(client.email)
+			var count int
+			s.db.QueryRow("SELECT COUNT(*) FROM group_members WHERE group_sid = ? AND user_hash = ?", d.GroupSID, senderHash).Scan(&count)
+			if count == 0 {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Forbidden"}`)})
+				continue
+			}
+
+			for _, m := range d.Members {
+				mHash := emailHash(normalizeEmail(m))
+				s.db.Exec("INSERT OR IGNORE INTO group_members (group_sid, user_hash) VALUES (?, ?)", d.GroupSID, mHash)
+				
+				// Add member's online sockets to session in memory
+				var socketIDs []string
+				rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", mHash)
+				if err == nil {
+					for rows.Next() {
+						var socketID string
+						if err := rows.Scan(&socketID); err == nil {
+							socketIDs = append(socketIDs, socketID)
+						}
+					}
+					rows.Close()
+				}
+				s.mu.Lock()
+				sess, ok := s.sessions[d.GroupSID]
+				if ok {
+					for _, sid := range socketIDs {
+						if c, ok := s.clients[sid]; ok {
+							sess.mu.Lock()
+							sess.clients[c.id] = c
+							sess.mu.Unlock()
+						}
+					}
+				}
+				s.mu.Unlock()
+			}
+			s.send(client, Frame{T: "ADD_GROUP_MEMBERS_ACK", Data: json.RawMessage(`{"success":true}`)})
+
+		case "REMOVE_GROUP_MEMBER":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				GroupSID string `json:"groupSid"`
+				Member   string `json:"member"` // Member email
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			if d.GroupSID == "" || d.Member == "" {
+				continue
+			}
+
+			senderHash := emailHash(client.email)
+			var count int
+			s.db.QueryRow("SELECT COUNT(*) FROM group_members WHERE group_sid = ? AND user_hash = ?", d.GroupSID, senderHash).Scan(&count)
+			if count == 0 {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Forbidden"}`)})
+				continue
+			}
+
+			mHash := emailHash(normalizeEmail(d.Member))
+			s.db.Exec("DELETE FROM group_members WHERE group_sid = ? AND user_hash = ?", d.GroupSID, mHash)
+
+			// Remove member's sockets from in-memory session
+			var socketIDs []string
+			rows, err := s.db.Query("SELECT socket_id FROM sockets WHERE email_hash = ?", mHash)
+			if err == nil {
+				for rows.Next() {
+					var socketID string
+					if err := rows.Scan(&socketID); err == nil {
+						socketIDs = append(socketIDs, socketID)
+					}
+				}
+				rows.Close()
+			}
+
+			s.mu.Lock()
+			sess, ok := s.sessions[d.GroupSID]
+			if ok {
+				sess.mu.Lock()
+				for _, sid := range socketIDs {
+					delete(sess.clients, sid)
+				}
+				sess.mu.Unlock()
+			}
+			s.mu.Unlock()
+
+			// Also notify the removed member so they delete/exit the group locally
+			for _, sid := range socketIDs {
+				s.mu.Lock()
+				if c, ok := s.clients[sid]; ok {
+					s.send(c, Frame{T: "REMOVED_FROM_GROUP", SID: d.GroupSID})
+				}
+				s.mu.Unlock()
+			}
+
+			s.send(client, Frame{T: "REMOVE_GROUP_MEMBER_ACK", Data: json.RawMessage(`{"success":true}`)})
+
+		case "GROUP_KEY":
+			if client.email == "" {
+				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Auth required"}`)})
+				continue
+			}
+			var d struct {
+				TargetEmail string `json:"targetEmail"`
+				Payloads    []struct {
+					PublicKey       string `json:"publicKey"`
+					EncryptedPacket string `json:"encryptedPacket"`
+				} `json:"payloads"`
+			}
+			json.Unmarshal(frame.Data, &d)
+
+			targetEmail := normalizeEmail(d.TargetEmail)
+			targetHash := emailHash(targetEmail)
+			senderHash := emailHash(client.email)
+
+			// Route it to target user's active sockets matching the device keys
+			var targetActivePubKeySet = make(map[string]struct{})
+			tRows, _ := s.db.Query("SELECT socket_id, public_key FROM sockets WHERE email_hash = ?", targetHash)
+			for tRows.Next() {
+				var socketID, targetSocketPubKey string
+				tRows.Scan(&socketID, &targetSocketPubKey)
+				s.mu.Lock()
+				if targetClient, ok := s.clients[socketID]; ok {
+					var packetForDevice string
+					for _, p := range d.Payloads {
+						if p.PublicKey == targetSocketPubKey {
+							packetForDevice = p.EncryptedPacket
+							break
+						}
+					}
+					if packetForDevice != "" {
+						respData, _ := json.Marshal(map[string]any{
+							"senderHash":      senderHash,
+							"encryptedPacket": packetForDevice,
+							"publicKey":       targetSocketPubKey,
+						})
+						s.send(targetClient, Frame{
+							T:    "GROUP_KEY",
+							SID:  frame.SID,
+							Data: json.RawMessage(respData),
+						})
+						targetActivePubKeySet[targetSocketPubKey] = struct{}{}
+					}
+				}
+				s.mu.Unlock()
+			}
+			tRows.Close()
+
+			// Queue offline notifications for devices that are offline
+			targetDevicePubKeys := fetchDevicePubKeys(s.db, targetHash)
+			for _, payload := range d.Payloads {
+				if payload.PublicKey == "" || payload.EncryptedPacket == "" {
+					continue
+				}
+				// Verify this key belongs to target
+				isTargetKey := false
+				for _, pk := range targetDevicePubKeys {
+					if pk == payload.PublicKey {
+						isTargetKey = true
+						break
+					}
+				}
+				if !isTargetKey {
+					continue
+				}
+				if _, ok := targetActivePubKeySet[payload.PublicKey]; ok {
+					continue
+				}
+
+				respData, _ := json.Marshal(map[string]any{
+					"senderHash":      senderHash,
+					"encryptedPacket": payload.EncryptedPacket,
+					"publicKey":       payload.PublicKey,
+				})
+				frameEvent, _ := json.Marshal(Frame{
+					T:            "GROUP_KEY",
+					TargetPubKey: payload.PublicKey,
+					SID:          frame.SID,
+					Data:         json.RawMessage(respData),
+				})
+				if _, err := s.db.Exec("INSERT INTO offline_notifications (email_hash, event_data, timestamp) VALUES (?, ?, ?)", targetHash, string(frameEvent), time.Now()); err != nil {
+					s.logger.Printf("Error queueing offline GROUP_KEY: %v", err)
+				}
+			}
+
 		case "DELETE_ACCOUNT":
 			if client.email == "" {
 				s.send(client, Frame{T: "ERROR", Data: json.RawMessage(`{"message":"Authentication required"}`)})
@@ -1259,14 +1579,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Verify if users are actually connected (friends)
-			var friendCount int
+			// Verify if users are actually connected (friends) or in a group
 			senderHash := emailHash(client.email)
+			authorized := false
+
+			// Check friends
+			var friendCount int
 			s.db.QueryRow("SELECT COUNT(*) FROM friends WHERE sid = ? AND (user1_hash = ? OR user2_hash = ?)", frame.SID, senderHash, senderHash).Scan(&friendCount)
-			if friendCount == 0 {
+			if friendCount > 0 {
+				authorized = true
+			} else {
+				// Check group membership
+				var groupMemberCount int
+				s.db.QueryRow("SELECT COUNT(*) FROM group_members WHERE group_sid = ? AND user_hash = ?", frame.SID, senderHash).Scan(&groupMemberCount)
+				if groupMemberCount > 0 {
+					authorized = true
+				}
+			}
+
+			if !authorized {
 				s.send(client, Frame{
 					T:    "ERROR",
-					Data: json.RawMessage(`{"message":"You cannot send messages to this user because you are not connected."}`),
+					Data: json.RawMessage(`{"message":"You cannot send messages to this session because you are not a member or connected."}`),
 				})
 				continue
 			}
@@ -1320,34 +1654,53 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 
 			if !deliveredToRecipient {
 				// Fetch target hashes associated with this session (excluding sender)
-				rows, err := s.db.Query("SELECT user1_hash, user2_hash FROM friends WHERE sid = ?", frame.SID)
-				if err == nil {
-					for rows.Next() {
-						var u1, u2 string
-						rows.Scan(&u1, &u2)
-						targetHash := u1
-						if u1 == senderHash {
-							targetHash = u2
-						}
-
-						if targetHash != senderHash {
-							// Get unread messages count approx (including this one which isn't saved as offline_notifications anymore usually, but they get the MSG frame)
-							var unreadCount int
-							s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
-
-							var messageText string
-							if unreadCount > 0 {
-								messageText = fmt.Sprintf("You have %d new messages", unreadCount+1)
-							} else {
-								messageText = "You have a new message"
+				var targets []string
+				// Check group first
+				s.db.QueryRow("SELECT COUNT(*) FROM group_members WHERE group_sid = ?", frame.SID).Scan(&friendCount)
+				if friendCount > 0 {
+					rows, err := s.db.Query("SELECT user_hash FROM group_members WHERE group_sid = ? AND user_hash != ?", frame.SID, senderHash)
+					if err == nil {
+						for rows.Next() {
+							var th string
+							if err := rows.Scan(&th); err == nil {
+								targets = append(targets, th)
 							}
-
-							// Fetch tokens & push
-							tokens := fetchFCMTokens(s.db, targetHash)
-							go sendPushNotification(tokens, targetHash, "CryptNode", messageText)
 						}
+						rows.Close()
 					}
-					rows.Close()
+				} else {
+					rows, err := s.db.Query("SELECT user1_hash, user2_hash FROM friends WHERE sid = ?", frame.SID)
+					if err == nil {
+						for rows.Next() {
+							var u1, u2 string
+							rows.Scan(&u1, &u2)
+							targetHash := u1
+							if u1 == senderHash {
+								targetHash = u2
+							}
+							targets = append(targets, targetHash)
+						}
+						rows.Close()
+					}
+				}
+
+				for _, targetHash := range targets {
+					if targetHash != senderHash {
+						// Get unread messages count approx
+						var unreadCount int
+						s.db.QueryRow("SELECT COUNT(*) FROM offline_notifications WHERE email_hash = ?", targetHash).Scan(&unreadCount)
+
+						var messageText string
+						if unreadCount > 0 {
+							messageText = fmt.Sprintf("You have %d new messages", unreadCount+1)
+						} else {
+							messageText = "You have a new message"
+						}
+
+						// Fetch tokens & push
+						tokens := fetchFCMTokens(s.db, targetHash)
+						go sendPushNotification(tokens, targetHash, "CryptNode", messageText)
+					}
 				}
 			}
 
