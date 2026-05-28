@@ -59,6 +59,7 @@
     "dompurify": "^3.3.3",
     "emoji-picker-react": "^4.18.0",
     "ionicons": "^7.4.0",
+    "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "konva": "^10.2.0",
     "lodash.debounce": "^4.0.8",
