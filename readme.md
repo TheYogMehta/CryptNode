@@ -148,11 +148,10 @@ For issues, questions, or feature requests, please open an issue on the reposito
 
 ## 🗺️ Roadmap
 
-- [ ] App Vault Tagging System & One Time Otp With google authenticator
+- [ ] App Vault Tagging System
 - [ ] Add Users With QR Code
 - [ ] Add Users With Bluetooth
 - [ ] Add Users With NFC
-- [ ] Custom Quick Response
 
 ## 📖 Additional Resources
 

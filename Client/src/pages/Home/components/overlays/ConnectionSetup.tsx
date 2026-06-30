@@ -3,13 +3,11 @@ import styled from "@emotion/styled";
 import {
   Inbox,
   QrCode,
-  Smartphone,
   Camera,
   Upload,
   Copy,
   Check,
   Search,
-  Wifi,
 } from "lucide-react";
 import { InputField } from "./Overlay.styles";
 import { Button } from "../../../../components/ui/Button";
@@ -36,15 +34,6 @@ interface ConnectionSetupProps {
   setTargetEmail: (val: string) => void;
   onConnect: () => void;
   isJoining: boolean;
-}
-
-interface BtDevice {
-  id: string;
-  name: string;
-  email: string;
-  x: number;
-  y: number;
-  status: "idle" | "sending" | "sent" | "failed";
 }
 
 const TabContainer = styled.div`
@@ -218,165 +207,9 @@ const GlassCard = styled.div`
   width: 100%;
 `;
 
-const SimulationHeader = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: ${colors.text.tertiary};
-  font-size: ${typography.fontSize.xs};
-  font-weight: ${typography.fontWeight.semibold};
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: ${spacing[2]};
-`;
 
-const SimulatorPanel = styled(GlassCard)`
-  background: rgba(99, 102, 241, 0.03);
-  border: 1px dashed rgba(99, 102, 241, 0.25);
-  width: 100%;
-`;
 
-const NFCContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: ${spacing[5]};
-  padding: ${spacing[4]} 0;
-  text-align: center;
-`;
 
-const NFCAnimationWrapper = styled.div`
-  position: relative;
-  width: 160px;
-  height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-`;
-
-const NFCRadarPulse = styled.div<{ $active: boolean }>`
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 2px solid ${colors.primary.main};
-  opacity: 0;
-  animation: ${({ $active }) => ($active ? "nfc-pulse 2s infinite cubic-bezier(0.16, 1, 0.3, 1)" : "none")};
-
-  @keyframes nfc-pulse {
-    0% {
-      transform: scale(0.6);
-      opacity: 0.8;
-    }
-    100% {
-      transform: scale(1.3);
-      opacity: 0;
-    }
-  }
-`;
-
-const NFCIconContainer = styled.div`
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
-  background: ${colors.background.tertiary};
-  border: 2px solid ${colors.border.subtle};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: ${colors.primary.main};
-  z-index: 2;
-  box-shadow: ${shadows.md};
-`;
-
-const RadarContainer = styled.div`
-  position: relative;
-  width: 260px;
-  height: 260px;
-  margin: 0 auto;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.05) 0%, rgba(0, 0, 0, 0.4) 100%);
-  border: 2px solid ${colors.border.subtle};
-  overflow: hidden;
-  box-shadow: inset 0 0 20px rgba(0,0,0,0.8), ${shadows.md};
-`;
-
-const RadarSweep = styled.div<{ $scanning: boolean }>`
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: conic-gradient(from 0deg, rgba(99, 102, 241, 0.15) 0deg, rgba(99, 102, 241, 0) 90deg);
-  border-radius: 50%;
-  transform-origin: center;
-  animation: ${({ $scanning }) => ($scanning ? "radar-spin 3s infinite linear" : "none")};
-
-  @keyframes radar-spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-`;
-
-const RadarCircle = styled.div<{ $size: number }>`
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: ${({ $size }) => $size}px;
-  height: ${({ $size }) => $size}px;
-  transform: translate(-50%, -50%);
-  border: 1px dashed rgba(99, 102, 241, 0.15);
-  border-radius: 50%;
-  pointer-events: none;
-`;
-
-const RadarCrosslineH = styled.div`
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 100%;
-  height: 1px;
-  background: rgba(99, 102, 241, 0.1);
-  pointer-events: none;
-`;
-
-const RadarCrosslineV = styled.div`
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 1px;
-  height: 100%;
-  background: rgba(99, 102, 241, 0.1);
-  pointer-events: none;
-`;
-
-const RadarNode = styled.button<{ $x: number; $y: number; $active: boolean }>`
-  position: absolute;
-  left: ${({ $x }) => $x}%;
-  top: ${({ $y }) => $y}%;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: ${colors.primary.main};
-  border: 2px solid ${colors.text.inverse};
-  cursor: pointer;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 10px ${colors.primary.main};
-  transition: all 0.3s ease;
-  z-index: 10;
-  animation: radar-node-glow 1.5s infinite alternate;
-
-  &:hover {
-    transform: translate(-50%, -50%) scale(1.3);
-    background: #10B981;
-    box-shadow: 0 0 15px #10B981;
-  }
-
-  @keyframes radar-node-glow {
-    0% { opacity: 0.6; box-shadow: 0 0 5px ${colors.primary.main}; }
-    100% { opacity: 1; box-shadow: 0 0 12px ${colors.primary.main}; }
-  }
-`;
 
 interface PendingRequestEntry {
   email: string;
@@ -768,7 +601,7 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
   const [history, setHistory] = React.useState<OutboundRequestHistoryEntry[]>([]);
 
   // Add tabs state
-  const [activeTab, setActiveTab] = React.useState<"manual" | "qr" | "nfc" | "bluetooth">("manual");
+  const [activeTab, setActiveTab] = React.useState<"manual" | "qr">("manual");
   
   // QR scanner state
   const [qrSubTab, setQrSubTab] = React.useState<"my-code" | "scan-code">("my-code");
@@ -780,16 +613,8 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   
-  // NFC state
-  const [nfcState, setNfcState] = React.useState<"idle" | "reading" | "writing" | "success" | "error">("idle");
-  const [nfcLog, setNfcLog] = React.useState<string>("");
-  const [simulatedNfcEmail, setSimulatedNfcEmail] = React.useState("");
-
-  // Bluetooth state
-  const [btScanning, setBtScanning] = React.useState(false);
-  const [btDevices, setBtDevices] = React.useState<BtDevice[]>([]);
-  const [newDeviceName, setNewDeviceName] = React.useState("");
-  const [newDeviceEmail, setNewDeviceEmail] = React.useState("");
+  // Detect hardware capabilities
+  const hasCamera = React.useMemo(() => typeof navigator !== "undefined" && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia), []);
 
   React.useEffect(() => {
     let mounted = true;
@@ -987,167 +812,69 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const copyQrLink = () => {
-    const email = ChatClient.userEmail;
-    if (email) {
-      const payload = `cryptnode://add-friend?data=${btoa(email.trim().toLowerCase())}`;
-      navigator.clipboard.writeText(payload);
-      setHasCopied(true);
-      toast.success("Link copied to clipboard!");
-      setTimeout(() => setHasCopied(false), 2000);
-    }
-  };
-
-  // NFC logic
-  const startNfcWrite = async () => {
-    if (!('NDEFReader' in window)) {
-      simulateNfcWrite();
+  const copyQrCode = () => {
+    if (!myQrUrl) {
+      toast.error("QR Code not generated yet");
       return;
     }
 
-    setNfcState("writing");
-    setNfcLog("Hold your phone near an NFC tag to write your profile...");
-    try {
-      const ndef = new (window as any).NDEFReader();
-      const myEmail = ChatClient.userEmail || "";
-      const payload = `cryptnode://add-friend?data=${btoa(myEmail.trim().toLowerCase())}`;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const qrWidth = img.width || 256;
+      const qrHeight = img.height || 256;
+      const textPadding = 48;
       
-      await ndef.write({
-        records: [{ recordType: "url", data: payload }]
-      });
-      setNfcState("success");
-      setNfcLog("Profile successfully written to NFC tag!");
-      toast.success("NFC tag written successfully!");
-    } catch (err) {
-      console.error("NFC write failed", err);
-      setNfcState("error");
-      setNfcLog(`NFC Write failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
+      canvas.width = qrWidth;
+      canvas.height = qrHeight + textPadding;
 
-  const startNfcRead = async () => {
-    if (!('NDEFReader' in window)) {
-      simulateNfcRead();
-      return;
-    }
+      // Draw white background
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    setNfcState("reading");
-    setNfcLog("Ready to scan. Bring target device or tag close...");
-    try {
-      const ndef = new (window as any).NDEFReader();
-      await ndef.scan();
-      ndef.onreading = (event: any) => {
-        const record = event.message.records[0];
-        if (record && record.recordType === "url") {
-          const textDecoder = new TextDecoder();
-          const url = textDecoder.decode(record.data);
-          setNfcState("success");
-          setNfcLog(`NFC record read successfully!`);
-          handleDecodedQR(url);
-        } else {
-          setNfcState("error");
-          setNfcLog("Unsupported NFC record type. Must be a URL tag.");
+      // Draw the QR Code image
+      ctx.drawImage(img, 0, 0, qrWidth, qrHeight);
+
+      // Draw the email text beautifully
+      ctx.fillStyle = "#1e293b"; // Slate 800 for high contrast
+      ctx.font = "bold 14px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      
+      const email = ChatClient.userEmail || "";
+      ctx.fillText(email, canvas.width / 2, qrHeight + (textPadding / 2) - 2);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          toast.error("Failed to generate QR Code image");
+          return;
         }
-      };
-    } catch (err) {
-      console.error("NFC read failed", err);
-      setNfcState("error");
-      setNfcLog(`NFC Read failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
-  const simulateNfcWrite = () => {
-    setNfcState("writing");
-    setNfcLog("(Simulation) Writing profile to virtual tag...");
-    setTimeout(() => {
-      setNfcState("success");
-      setNfcLog("(Simulation) Profile successfully written to virtual NFC tag!");
-      toast.success("Profile written to virtual NFC tag.");
-    }, 1500);
-  };
-
-  const simulateNfcRead = () => {
-    setNfcState("reading");
-    setNfcLog("(Simulation) Scanning for virtual NFC tags...");
-    toast.success("NFC scanner started. Use the simulator panel to simulate a tag tap.");
-  };
-
-  const handleSimulatedNfcTap = () => {
-    if (!simulatedNfcEmail.trim()) {
-      toast.error("Please enter a username or email to simulate.");
-      return;
-    }
-    const email = simulatedNfcEmail.includes("@") ? simulatedNfcEmail.trim().toLowerCase() : `${simulatedNfcEmail.trim().toLowerCase()}@gmail.com`;
-    setNfcState("success");
-    setNfcLog(`Simulated NFC Tap read: ${email}`);
-    toast.success(`NFC tap simulated: ${email}`);
-    ChatClient.connectToPeer(email)
-      .then(() => {
-        toast.success("Friend request sent!");
-        setSimulatedNfcEmail("");
-      })
-      .catch((err) => {
-        console.error(err);
-        toast.error("Failed to send request.");
-      });
-  };
-
-  // Bluetooth logic
-  const startBtScan = () => {
-    setBtScanning(true);
-    setBtDevices([]);
-    setTimeout(() => {
-      const mockDevices: BtDevice[] = [
-        { id: "bt-1", name: "Alice's iPad", email: "alice@gmail.com", x: 30, y: 40, status: "idle" },
-        { id: "bt-2", name: "Charlie's Macbook", email: "charlie@gmail.com", x: 70, y: 65, status: "idle" },
-      ];
-      setBtDevices(mockDevices);
-      setBtScanning(false);
-      toast.success("Bluetooth scan complete. Devices found nearby!");
-    }, 3000);
-  };
-
-  const addSimulatedBtDevice = () => {
-    if (!newDeviceName.trim()) {
-      toast.error("Please enter a device name.");
-      return;
-    }
-    const email = newDeviceEmail.trim() 
-      ? (newDeviceEmail.includes("@") ? newDeviceEmail.trim().toLowerCase() : `${newDeviceEmail.trim().toLowerCase()}@gmail.com`)
-      : `${newDeviceName.trim().toLowerCase().replace(/\s+/g, "")}@gmail.com`;
-
-    const newDevice: BtDevice = {
-      id: `bt-${Date.now()}`,
-      name: newDeviceName.trim(),
-      email: email,
-      x: 15 + Math.random() * 70,
-      y: 15 + Math.random() * 70,
-      status: "idle"
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              [blob.type]: blob
+            })
+          ]);
+          setHasCopied(true);
+          toast.success("QR Code image copied to clipboard!");
+          setTimeout(() => setHasCopied(false), 2000);
+        } catch (err) {
+          console.error("Clipboard write failed", err);
+          toast.error("Failed to copy image. Clipboard permission might be required.");
+        }
+      }, "image/png");
     };
-
-    setBtDevices(prev => [...prev, newDevice]);
-    setNewDeviceName("");
-    setNewDeviceEmail("");
-    toast.success(`Simulated device "${newDeviceName.trim()}" placed nearby.`);
+    img.onerror = () => {
+      toast.error("Failed to load QR Code image");
+    };
+    img.src = myQrUrl;
   };
 
-  const connectBtDevice = async (device: BtDevice) => {
-    if (device.email === ChatClient.userEmail?.trim().toLowerCase()) {
-      toast.error("You cannot add yourself.");
-      return;
-    }
-    
-    setBtDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "sending" } : d));
-    try {
-      await ChatClient.connectToPeer(device.email);
-      setBtDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "sent" } : d));
-      toast.success(`Bluetooth connection successful! Request sent to ${device.email}`);
-    } catch (err) {
-      console.error(err);
-      setBtDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "failed" } : d));
-      toast.error(`Bluetooth connection failed to ${device.name}`);
-    }
-  };
+
 
   return (
     <Page>
@@ -1169,27 +896,15 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                 <Search size={16} />
                 <span>Manual</span>
               </TabButton>
-              <TabButton
-                $active={activeTab === "qr"}
-                onClick={() => { setActiveTab("qr"); }}
-              >
-                <QrCode size={16} />
-                <span>QR Code</span>
-              </TabButton>
-              <TabButton
-                $active={activeTab === "nfc"}
-                onClick={() => { setActiveTab("nfc"); }}
-              >
-                <Smartphone size={16} />
-                <span>NFC</span>
-              </TabButton>
-              <TabButton
-                $active={activeTab === "bluetooth"}
-                onClick={() => { setActiveTab("bluetooth"); }}
-              >
-                <Wifi size={16} />
-                <span>Bluetooth</span>
-              </TabButton>
+              {hasCamera && (
+                <TabButton
+                  $active={activeTab === "qr"}
+                  onClick={() => { setActiveTab("qr"); }}
+                >
+                  <QrCode size={16} />
+                  <span>QR Code</span>
+                </TabButton>
+              )}
             </TabContainer>
 
             {activeTab === "manual" && (
@@ -1264,9 +979,9 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                     </QRCodeWrapper>
 
                     <CopyButtonContainer>
-                      <Button onClick={copyQrLink} variant="secondary" fullWidth>
+                      <Button onClick={copyQrCode} variant="secondary" fullWidth>
                         {hasCopied ? <Check size={16} /> : <Copy size={16} />}
-                        <span style={{ marginLeft: 8 }}>{hasCopied ? "Copied" : "Copy Invitation Link"}</span>
+                        <span style={{ marginLeft: 8 }}>{hasCopied ? "Copied" : "Copy QR Code"}</span>
                       </Button>
                     </CopyButtonContainer>
                   </div>
@@ -1328,231 +1043,13 @@ export const ConnectionSetup: React.FC<ConnectionSetupProps> = ({
                       </div>
                     )}
 
-                    <SimulatorPanel>
-                      <SimulationHeader>QR Code Scanner Simulator</SimulationHeader>
-                      <PanelText style={{ fontSize: typography.fontSize.xs, marginBottom: spacing[2] }}>
-                        No camera? Type a username below to simulate scanning their QR code.
-                      </PanelText>
-                      <div style={{ display: "flex", gap: spacing[2] }}>
-                        <InputShell style={{ minHeight: "48px", flex: 1 }}>
-                          <UsernameInput
-                            style={{ minHeight: "48px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.base }}
-                            placeholder="username"
-                            value={simulatedNfcEmail}
-                            onChange={(e) => setSimulatedNfcEmail(e.target.value)}
-                          />
-                          <DomainSuffix style={{ minHeight: "48px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.sm }}>
-                            @gmail.com
-                          </DomainSuffix>
-                        </InputShell>
-                        <Button
-                          style={{ height: "48px" }}
-                          variant="secondary"
-                          onClick={() => {
-                            if (!simulatedNfcEmail.trim()) {
-                              toast.error("Please enter a username.");
-                              return;
-                            }
-                            const email = `${simulatedNfcEmail.trim().toLowerCase()}@gmail.com`;
-                            const payload = `cryptnode://add-friend?data=${btoa(email)}`;
-                            handleDecodedQR(payload);
-                            setSimulatedNfcEmail("");
-                          }}
-                        >
-                          Simulate Scan
-                        </Button>
-                      </div>
-                    </SimulatorPanel>
+
                   </div>
                 )}
               </TabContent>
             )}
 
-            {activeTab === "nfc" && (
-              <TabContent>
-                <div style={{ display: "flex", flexDirection: "column", gap: spacing[4], alignItems: "center", width: "100%" }}>
-                  <PanelText style={{ textAlign: "center", fontSize: typography.fontSize.sm }}>
-                    Use NFC to instantly share your profile. Hold devices back-to-back.
-                  </PanelText>
 
-                  <NFCContainer>
-                    <NFCAnimationWrapper>
-                      <NFCRadarPulse $active={nfcState === "reading" || nfcState === "writing"} />
-                      <NFCRadarPulse $active={nfcState === "reading" || nfcState === "writing"} style={{ animationDelay: "1s" }} />
-                      <NFCIconContainer>
-                        <Smartphone size={40} />
-                      </NFCIconContainer>
-                    </NFCAnimationWrapper>
-
-                    <div style={{ color: colors.text.primary, fontWeight: typography.fontWeight.semibold, fontSize: typography.fontSize.sm, marginTop: spacing[2] }}>
-                      Status: {
-                        nfcState === "idle" ? "Ready" :
-                        nfcState === "reading" ? "Scanning for nearby devices..." :
-                        nfcState === "writing" ? "Writing profile to tag..." :
-                        nfcState === "success" ? "Success!" : "Error"
-                      }
-                    </div>
-
-                    <div style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary, maxWidth: "35ch", minHeight: "40px", marginTop: spacing[1] }}>
-                      {nfcLog || "Select an action below to start."}
-                    </div>
-                  </NFCContainer>
-
-                  <div style={{ display: "flex", gap: spacing[3], width: "100%", maxWidth: "360px" }}>
-                    <Button onClick={startNfcRead} variant="primary" style={{ flex: 1 }} disabled={nfcState === "reading" || nfcState === "writing"}>
-                      Read NFC
-                    </Button>
-                    <Button onClick={startNfcWrite} variant="secondary" style={{ flex: 1 }} disabled={nfcState === "reading" || nfcState === "writing"}>
-                      Write NFC Tag
-                    </Button>
-                  </div>
-
-                  <SimulatorPanel>
-                    <SimulationHeader>NFC Tap Simulator</SimulationHeader>
-                    <PanelText style={{ fontSize: typography.fontSize.xs, marginBottom: spacing[2] }}>
-                      Simulate physical phone contact. Type a username to simulate their phone tapping yours.
-                    </PanelText>
-                    <div style={{ display: "flex", gap: spacing[2] }}>
-                      <InputShell style={{ minHeight: "48px", flex: 1 }}>
-                        <UsernameInput
-                          style={{ minHeight: "48px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.base }}
-                          placeholder="username"
-                          value={simulatedNfcEmail}
-                          onChange={(e) => setSimulatedNfcEmail(e.target.value)}
-                        />
-                        <DomainSuffix style={{ minHeight: "48px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.sm }}>
-                          @gmail.com
-                        </DomainSuffix>
-                      </InputShell>
-                      <Button
-                        style={{ height: "48px" }}
-                        variant="secondary"
-                        onClick={handleSimulatedNfcTap}
-                      >
-                        Simulate Tap
-                      </Button>
-                    </div>
-                  </SimulatorPanel>
-                </div>
-              </TabContent>
-            )}
-
-            {activeTab === "bluetooth" && (
-              <TabContent>
-                <div style={{ display: "flex", flexDirection: "column", gap: spacing[4], alignItems: "center", width: "100%" }}>
-                  <PanelText style={{ textAlign: "center", fontSize: typography.fontSize.sm }}>
-                    Scan for nearby CryptNode devices broadcasting over Bluetooth.
-                  </PanelText>
-
-                  <div style={{ position: "relative" }}>
-                    <RadarContainer>
-                      <RadarSweep $scanning={btScanning} />
-                      <RadarCircle $size={60} />
-                      <RadarCircle $size={130} />
-                      <RadarCircle $size={200} />
-                      <RadarCrosslineH />
-                      <RadarCrosslineV />
-                      
-                      {btDevices.map(device => (
-                        <RadarNode
-                          key={device.id}
-                          $x={device.x}
-                          $y={device.y}
-                          $active={device.status === "sending"}
-                          onClick={() => connectBtDevice(device)}
-                          title={`Connect with ${device.name}`}
-                        />
-                      ))}
-                    </RadarContainer>
-
-                    {btScanning && (
-                      <div style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        color: colors.primary.main,
-                        fontWeight: typography.fontWeight.bold,
-                        textShadow: "0 0 8px rgba(0,0,0,0.8)",
-                        pointerEvents: "none"
-                      }}>
-                        SCANNING...
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: spacing[3] }}>
-                    <Button onClick={startBtScan} variant="primary" fullWidth disabled={btScanning}>
-                      {btScanning ? "Scanning nearby..." : "Scan for Devices"}
-                    </Button>
-
-                    {btDevices.length > 0 && (
-                      <GlassCard style={{ padding: spacing[3] }}>
-                        <div style={{ fontSize: typography.fontSize.xs, color: colors.text.tertiary, fontWeight: typography.fontWeight.semibold, textTransform: "uppercase" }}>
-                          Discovered Devices ({btDevices.length})
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: spacing[2], marginTop: spacing[2] }}>
-                          {btDevices.map(device => (
-                            <div key={device.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "rgba(255,255,255,0.01)", borderRadius: radii.md, border: `1px solid ${colors.border.subtle}` }}>
-                              <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                                <span style={{ fontSize: typography.fontSize.sm, color: colors.text.primary, fontWeight: typography.fontWeight.semibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{device.name}</span>
-                                <span style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{device.email}</span>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant={device.status === "sent" ? "success" : "secondary"}
-                                disabled={device.status === "sending" || device.status === "sent"}
-                                onClick={() => connectBtDevice(device)}
-                                style={{ flexShrink: 0, marginLeft: spacing[2] }}
-                              >
-                                {device.status === "idle" && "Connect"}
-                                {device.status === "sending" && "Connecting..."}
-                                {device.status === "sent" && "Sent"}
-                                {device.status === "failed" && "Retry"}
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </GlassCard>
-                    )}
-                  </div>
-
-                  <SimulatorPanel>
-                    <SimulationHeader>Bluetooth Device Simulator</SimulationHeader>
-                    <PanelText style={{ fontSize: typography.fontSize.xs, marginBottom: spacing[2] }}>
-                      Simulate a friend turning on their Bluetooth nearby. Enter their device name and username.
-                    </PanelText>
-                    <div style={{ display: "flex", flexDirection: "column", gap: spacing[2] }}>
-                      <div style={{ display: "flex", gap: spacing[2] }}>
-                        <InputField
-                          style={{ height: "40px", flex: 1, padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.sm }}
-                          placeholder="Device Name (e.g. Bob's Pixel)"
-                          value={newDeviceName}
-                          onChange={(e) => setNewDeviceName(e.target.value)}
-                        />
-                        <InputShell style={{ minHeight: "40px", height: "40px", flex: 1 }}>
-                          <UsernameInput
-                            style={{ minHeight: "40px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.sm }}
-                            placeholder="username"
-                            value={newDeviceEmail}
-                            onChange={(e) => setNewDeviceEmail(e.target.value)}
-                          />
-                          <DomainSuffix style={{ minHeight: "40px", padding: `0 ${spacing[3]}`, fontSize: typography.fontSize.xs }}>
-                            @gmail.com
-                          </DomainSuffix>
-                        </InputShell>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        onClick={addSimulatedBtDevice}
-                      >
-                        Place Device Nearby
-                      </Button>
-                    </div>
-                  </SimulatorPanel>
-                </div>
-              </TabContent>
-            )}
           </FormPanel>
         </HeroGrid>
 

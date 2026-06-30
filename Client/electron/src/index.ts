@@ -76,6 +76,7 @@ if (capacitorFileConfig.electron?.deepLinkingEnabled) {
         "clipboard-read",
         "clipboard-write",
         "clipboard-sanitized-write",
+        "bluetooth",
       ];
       if (allowedPermissions.includes(permission)) {
         callback(true);
