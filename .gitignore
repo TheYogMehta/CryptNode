@@ -1,16 +1,19 @@
 Notes/Sources.md
-# Server
-Server/server.log
+
+# Client
 Client/android/keystore.properties
 Client/android/app/chatapp-release.jks
 Client/android/app/release/*
-Server/.env
+
+# Server Socket
+Server/Socket/.env
+Server/Socket/server.log
+Server/Socket/connections.log
+Server/Socket/server.db
+Server/Socket/socket
+Server/Socket/relay
+
+# Server Website
 Server/website/node_modules/*
 Server/website/dist/*
 Server/website/releases/*
-Server/socket
-Server/server.db
-Server/relay
-Server/connections.log
-.vscode/settings.json
-roadmap.md

@@ -95,13 +95,13 @@ export PATH=$PATH:/usr/local/go/bin
 
 ```bash
 git clone https://github.com/TheYogMehta/chatapp.git
-cd chatapp/Server
+cd chatapp/Server/Socket
 ```
 
 **3. Build Server**:
 
 ```bash
-go build -o socket.go
+go build -o socket
 ```
 
 **4. Create Systemd Service**:
@@ -115,8 +115,8 @@ After=network.target
 [Service]
 Type=simple
 User=chatapp
-WorkingDirectory=/home/chatapp/Server
-ExecStart=/home/chatapp/Server/chatapp-server
+WorkingDirectory=/home/chatapp/Server/Socket
+ExecStart=/home/chatapp/Server/Socket/socket
 Restart=always
 Environment="PORT=9000"
 Environment="HMAC_SECRET=your-secret-key"

@@ -68,7 +68,7 @@ npm run electron:start
 ### Run Server
 
 ```bash
-cd Server
+cd Server/Socket
 go run .
 ```
 

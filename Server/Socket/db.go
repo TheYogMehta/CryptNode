@@ -1,0 +1,113 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+func (s *Server) initDB() error {
+	var err error
+	s.db, err = sql.Open("sqlite3", "./server.db")
+	if err != nil {
+		return err
+	}
+
+	// Create tables
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS connections (
+			initiator_hash TEXT,
+			target_hash TEXT,
+			timestamp DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS devices (
+			email_hash TEXT,
+			public_key TEXT,
+			last_active DATETIME,
+			PRIMARY KEY (email_hash, public_key)
+		);`,
+		`CREATE TABLE IF NOT EXISTS requests (
+			sender_hash TEXT,
+			target_hash TEXT,
+			target_public_key TEXT,
+			encrypted_packet TEXT,
+			timestamp DATETIME,
+			PRIMARY KEY (sender_hash, target_hash, target_public_key)
+		);`,
+		`CREATE TABLE IF NOT EXISTS friends (
+			user1_hash TEXT,
+			user2_hash TEXT,
+			since DATETIME,
+			sid TEXT,
+			PRIMARY KEY (user1_hash, user2_hash)
+		);`,
+		`CREATE TABLE IF NOT EXISTS sockets (
+			email_hash TEXT,
+			socket_id TEXT,
+			public_key TEXT,
+			PRIMARY KEY (email_hash, socket_id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS offline_notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email_hash TEXT,
+			event_data TEXT,
+			timestamp DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS fcm_tokens (
+			email_hash TEXT,
+			token TEXT,
+			last_updated DATETIME,
+			PRIMARY KEY (email_hash, token)
+		);`,
+		`CREATE TABLE IF NOT EXISTS groups (
+			group_sid TEXT PRIMARY KEY,
+			name TEXT,
+			creator_hash TEXT,
+			created_at DATETIME
+		);`,
+		`CREATE TABLE IF NOT EXISTS group_members (
+			group_sid TEXT,
+			user_hash TEXT,
+			PRIMARY KEY (group_sid, user_hash)
+		);`,
+	}
+
+	for _, query := range queries {
+		if _, err := s.db.Exec(query); err != nil {
+			return fmt.Errorf("error creating table: %v (query: %s)", err, query)
+		}
+	}
+
+	_, _ = s.db.Exec("DELETE FROM sockets")
+
+	return nil
+}
+
+func (s *Server) startMonthlyCleanupWorker() {
+	for {
+		now := time.Now()
+		year, month, _ := now.Date()
+		var nextMonth time.Month
+		var nextYear int
+		if month == time.December {
+			nextMonth = time.January
+			nextYear = year + 1
+		} else {
+			nextMonth = month + 1
+			nextYear = year
+		}
+		next := time.Date(nextYear, nextMonth, 1, 0, 0, 0, 0, now.Location())
+		duration := next.Sub(now)
+		s.logger.Printf("Monthly cleanup worker sleeping for %v until %v", duration, next)
+		time.Sleep(duration)
+		s.logger.Println("Running monthly database cleanup...")
+		thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour)
+		s.db.Exec("DELETE FROM devices WHERE last_active < ?", thirtyDaysAgo)
+		s.db.Exec("DELETE FROM requests WHERE timestamp < ?", thirtyDaysAgo)
+		s.db.Exec("DELETE FROM offline_notifications WHERE timestamp < ?", thirtyDaysAgo)
+		s.db.Exec("DELETE FROM fcm_tokens WHERE last_updated < ?", thirtyDaysAgo)
+		s.logger.Println("Monthly database cleanup finished.")
+	}
+}
